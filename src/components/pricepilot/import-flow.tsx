@@ -14,11 +14,24 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { formatCurrency } from '@/lib/pricepilot/formatting';
 import { parseExcelFile, parseCSVFile, detectColumnMappings, cleanImportData } from '@/lib/pricepilot/excel';
-import { Product, ColumnMapping, ImportStep, createDefaultProduct } from '@/lib/pricepilot/types';
-import { ArrowLeft, ArrowRight, Upload, FileSpreadsheet, Eye, Columns3, Brush, CheckCircle, X, AlertCircle } from 'lucide-react';
+import {
+  Product,
+  ColumnMapping,
+  ImportStep,
+  CleaningOptions,
+  CleanImportResult,
+  ImportedProductDraft,
+  PercentFormat,
+  createDefaultProduct,
+  createDefaultCleaningOptions,
+} from '@/lib/pricepilot/types';
+import { ArrowLeft, ArrowRight, Upload, FileSpreadsheet, Eye, Columns3, Brush, CheckCircle, X, AlertCircle, Info } from 'lucide-react';
 
 const STEPS: ImportStep[] = ['upload', 'preview', 'mapping', 'cleaning', 'confirmation'];
 const STEP_LABELS = ['Upload', 'Preview', 'Mapping', 'Cleaning', 'Confirm'];
+
+const MAX_FILE_SIZE_MB = 20;
+const ALLOWED_EXTENSIONS = ['.xlsx', '.xls', '.csv', '.tsv'];
 
 const FIELD_OPTIONS = [
   { value: 'name', label: 'Product Name', required: true },
@@ -37,6 +50,9 @@ const FIELD_OPTIONS = [
   { value: 'paymentFeePercent', label: 'Payment Fee (%)' },
   { value: 'taxRatePercent', label: 'Tax Rate (%)' },
   { value: 'description', label: 'Description' },
+  { value: 'quantity', label: 'Quantity / Stock' },
+  { value: 'monthlyUnitsSold', label: 'Monthly Units Sold' },
+  { value: 'competitorPrices', label: 'Competitor Price' },
   { value: '__skip__', label: '-- Skip this column --' },
 ];
 
@@ -49,46 +65,92 @@ export function ImportFlow() {
   const [selectedSheet, setSelectedSheet] = useState(0);
   const [mappings, setMappings] = useState<ColumnMapping[]>([]);
   const [totalRows, setTotalRows] = useState(0);
-  const [skippedRows, setSkippedRows] = useState(0);
-  const [duplicateCount, setDuplicateCount] = useState(0);
+  const [cleaningResult, setCleaningResult] = useState<CleanImportResult | null>(null);
   const [previewProducts, setPreviewProducts] = useState<Partial<Product>[]>([]);
   const [error, setError] = useState('');
+
+  // Cleaning options state
+  const [cleaningOptions, setCleaningOptions] = useState<CleaningOptions>(createDefaultCleaningOptions());
 
   const stepIndex = STEPS.indexOf(step);
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
 
+  /**
+   * Validate a file before parsing.
+   * Checks: extension, size, and empty file.
+   */
+  const validateFile = useCallback((file: File): string | null => {
+    // Check extension
+    const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      return `Unsupported file type "${ext}". Please use one of: ${ALLOWED_EXTENSIONS.join(', ')}`;
+    }
+
+    // Check file size
+    const sizeMB = file.size / (1024 * 1024);
+    if (sizeMB > MAX_FILE_SIZE_MB) {
+      return `File is too large (${sizeMB.toFixed(1)} MB). Maximum size is ${MAX_FILE_SIZE_MB} MB.`;
+    }
+
+    // Check empty file
+    if (file.size === 0) {
+      return 'The file is empty (0 bytes). Please select a file with data.';
+    }
+
+    return null;
+  }, []);
+
   const handleFileUpload = useCallback(async (file: File) => {
     setError('');
+
+    // Validate file first
+    const validationError = validateFile(file);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     setFileName(file.name);
 
     try {
       if (file.name.endsWith('.csv') || file.name.endsWith('.tsv')) {
         const text = await file.text();
+        if (text.trim() === '') {
+          setError('The CSV/TSV file appears to be empty — no data rows found.');
+          return;
+        }
         const result = parseCSVFile(text);
-        setSheets([{ name: 'Sheet1', headers: result.headers, rows: result.rows }]);
-        setFileData({ headers: result.headers, rows: result.rows });
+        if (result.headers.length === 0 || result.rows.length === 0) {
+          setError('No data found in the file. Make sure it has a header row and at least one data row.');
+          return;
+        }
+        const parsedHeaders = result.headers;
+        setSheets([{ name: 'Sheet1', headers: parsedHeaders, rows: result.rows }]);
+        setFileData({ headers: parsedHeaders, rows: result.rows });
         setTotalRows(result.rows.length);
+        // Auto-detect mappings using parsed headers (not stale state)
+        setMappings(detectColumnMappings(parsedHeaders));
+        setStep('preview');
       } else {
         const buffer = await file.arrayBuffer();
         const result = await parseExcelFile(buffer);
         if (result.sheets.length === 0) {
-          setError('No data found in the file');
+          setError('No data found in the Excel file. The file may be empty or all sheets are blank.');
           return;
         }
         setSheets(result.sheets);
         const firstSheet = result.sheets[0];
-        setFileData({ headers: firstSheet.headers, rows: firstSheet.rows });
+        const parsedHeaders = firstSheet.headers;
+        setFileData({ headers: parsedHeaders, rows: firstSheet.rows });
         setTotalRows(firstSheet.rows.length);
+        // Auto-detect mappings using parsed headers (not stale state)
+        setMappings(detectColumnMappings(parsedHeaders));
+        setStep('preview');
       }
-
-      // Auto-detect mappings
-      const autoMappings = detectColumnMappings(fileData.headers);
-      setMappings(autoMappings);
-      setStep('preview');
     } catch (err) {
       setError(`Failed to parse file: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  }, [fileData.headers]);
+  }, [validateFile]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -106,8 +168,7 @@ export function ImportFlow() {
     const sheet = sheets[index];
     setFileData({ headers: sheet.headers, rows: sheet.rows });
     setTotalRows(sheet.rows.length);
-    const autoMappings = detectColumnMappings(sheet.headers);
-    setMappings(autoMappings);
+    setMappings(detectColumnMappings(sheet.headers));
   };
 
   const updateMapping = (sourceColumn: string, targetField: string) => {
@@ -117,15 +178,31 @@ export function ImportFlow() {
   };
 
   const handleCleanAndConfirm = () => {
+    const sheetName = sheets.length > 0 ? sheets[selectedSheet]?.name : undefined;
     const result = cleanImportData(
       fileData.rows,
       mappings,
-      businessSettings
+      businessSettings,
+      cleaningOptions,
+      fileName,
+      sheetName,
     );
 
-    setSkippedRows(result.skippedRows);
-    setDuplicateCount(result.duplicates);
-    setPreviewProducts(result.products);
+    setCleaningResult(result);
+
+    // Convert ImportedProductDraft[] to Partial<Product>[] for preview and import
+    const products: Partial<Product>[] = result.cleanedProducts.map(draft => ({
+      ...createDefaultProduct(),
+      ...draft,
+      competitorPrices: draft.competitorPrices ?? [],
+      quantity: draft.quantity ?? 0,
+      monthlyUnitsSold: draft.monthlyUnitsSold ?? 0,
+      importBatchId: draft.importBatchId,
+      importSourceFileName: draft.importSourceFileName,
+      importOriginalRowNumber: draft.importOriginalRowNumber,
+    }));
+
+    setPreviewProducts(products);
     setStep('confirmation');
   };
 
@@ -140,6 +217,8 @@ export function ImportFlow() {
 
     importProducts(newProducts);
   };
+
+  const stats = cleaningResult?.statistics;
 
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
@@ -175,7 +254,9 @@ export function ImportFlow() {
                 <FileSpreadsheet className="h-7 w-7 text-emerald-600" />
               </span>
               <p className="text-sm font-medium">Drag & drop your file here, or click to browse</p>
-              <p className="text-xs text-muted-foreground mt-1">Supports .xlsx, .xls, .csv, .tsv files</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Supports .xlsx, .xls, .csv, .tsv — Max {MAX_FILE_SIZE_MB} MB
+              </p>
               <input id="file-upload" type="file" accept=".xlsx,.xls,.csv,.tsv" className="hidden" onChange={handleFileInput} />
             </div>
           </CardContent>
@@ -283,26 +364,87 @@ export function ImportFlow() {
           <CardContent className="space-y-4">
             <div className="space-y-3">
               <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
-                <Checkbox id="stripCurrency" defaultChecked />
-                <Label htmlFor="stripCurrency" className="text-sm">Strip currency symbols (₹, $, £, €)</Label>
+                <Checkbox
+                  id="stripCurrency"
+                  checked={cleaningOptions.stripCurrencySymbols}
+                  onCheckedChange={(checked) => setCleaningOptions(prev => ({ ...prev, stripCurrencySymbols: checked === true }))}
+                />
+                <Label htmlFor="stripCurrency" className="text-sm">Strip currency symbols (₹, $, £, €, ¥)</Label>
               </div>
               <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
-                <Checkbox id="stripCommas" defaultChecked />
-                <Label htmlFor="stripCommas" className="text-sm">Remove commas from numbers</Label>
+                <Checkbox
+                  id="stripCommas"
+                  checked={cleaningOptions.stripGroupingCommas}
+                  onCheckedChange={(checked) => setCleaningOptions(prev => ({ ...prev, stripGroupingCommas: checked === true }))}
+                />
+                <Label htmlFor="stripCommas" className="text-sm">Remove grouping commas from numbers (1,00,000 → 100000)</Label>
               </div>
               <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
-                <Checkbox id="stripPercent" defaultChecked />
-                <Label htmlFor="stripPercent" className="text-sm">Strip % signs from percentage fields</Label>
+                <Checkbox
+                  id="parsePercentages"
+                  checked={cleaningOptions.parsePercentages}
+                  onCheckedChange={(checked) => setCleaningOptions(prev => ({ ...prev, parsePercentages: checked === true }))}
+                />
+                <Label htmlFor="parsePercentages" className="text-sm">Parse percentage values (18, 18%, 0.18)</Label>
               </div>
               <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
-                <Checkbox id="skipBlanks" defaultChecked />
-                <Label htmlFor="skipBlanks" className="text-sm">Skip rows with blank required fields</Label>
+                <Checkbox
+                  id="skipBlanks"
+                  checked={cleaningOptions.skipBlankRequired}
+                  onCheckedChange={(checked) => setCleaningOptions(prev => ({ ...prev, skipBlankRequired: checked === true }))}
+                />
+                <Label htmlFor="skipBlanks" className="text-sm">Skip rows with blank required fields (name, SKU, cost)</Label>
               </div>
               <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
-                <Checkbox id="skipDuplicates" defaultChecked />
-                <Label htmlFor="skipDuplicates" className="text-sm">Skip duplicate SKU rows</Label>
+                <Checkbox
+                  id="skipDuplicates"
+                  checked={cleaningOptions.skipDuplicateSku}
+                  onCheckedChange={(checked) => setCleaningOptions(prev => ({ ...prev, skipDuplicateSku: checked === true }))}
+                />
+                <Label htmlFor="skipDuplicates" className="text-sm">Skip duplicate SKU rows (instead of overwriting)</Label>
               </div>
             </div>
+
+            {/* Percentage format selector */}
+            {cleaningOptions.parsePercentages && (
+              <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Info className="h-4 w-4 text-slate-500" />
+                  <Label className="text-sm font-medium">Percentage Format Interpretation</Label>
+                </div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  How should percentage values in your spreadsheet be interpreted?
+                </p>
+                <Select
+                  value={cleaningOptions.percentFormat}
+                  onValueChange={(value: PercentFormat) => setCleaningOptions(prev => ({ ...prev, percentFormat: value }))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Detect automatically (based on column values)</SelectItem>
+                    <SelectItem value="whole-percentages">Whole percentages (18 means 18%)</SelectItem>
+                    <SelectItem value="decimal-fractions">Decimal fractions (0.18 means 18%)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {cleaningOptions.percentFormat === 'auto' && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Auto mode: if the maximum value in a percentage column is &lt; 1, values are treated as decimal fractions (0.18 = 18%). Otherwise they're whole percentages (18 = 18%).
+                  </p>
+                )}
+                {cleaningOptions.percentFormat === 'whole-percentages' && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Values like 18, 5, 2.5 are treated as percentages directly (18% = 18).
+                  </p>
+                )}
+                {cleaningOptions.percentFormat === 'decimal-fractions' && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Values like 0.18, 0.05, 0.025 are decimal fractions (0.18 = 18%).
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep('mapping')} className="rounded-lg shadow-sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
@@ -323,21 +465,71 @@ export function ImportFlow() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="shadow-sm rounded-lg p-4 bg-emerald-50 border border-emerald-200">
                 <div className="text-xs text-emerald-600 font-medium">Valid Products</div>
-                <div className="text-lg font-bold text-emerald-700">{previewProducts.length}</div>
+                <div className="text-lg font-bold text-emerald-700">{stats?.validRows ?? previewProducts.length}</div>
               </div>
               <div className="shadow-sm rounded-lg p-4 bg-amber-50 border border-amber-200">
                 <div className="text-xs text-amber-600 font-medium">Skipped Rows</div>
-                <div className="text-lg font-bold text-amber-700">{skippedRows}</div>
+                <div className="text-lg font-bold text-amber-700">{stats?.skippedRows ?? 0}</div>
               </div>
               <div className="shadow-sm rounded-lg p-4 bg-amber-50 border border-amber-200">
-                <div className="text-xs text-amber-600 font-medium">Duplicates</div>
-                <div className="text-lg font-bold text-amber-700">{duplicateCount}</div>
+                <div className="text-xs text-amber-600 font-medium">Duplicate SKUs</div>
+                <div className="text-lg font-bold text-amber-700">{stats?.duplicateRows ?? 0}</div>
               </div>
               <div className="shadow-sm rounded-lg p-4 bg-slate-50 border border-slate-200">
                 <div className="text-xs text-slate-500 font-medium">Total Rows</div>
-                <div className="text-lg font-bold text-slate-700">{totalRows}</div>
+                <div className="text-lg font-bold text-slate-700">{stats?.totalRows ?? totalRows}</div>
               </div>
             </div>
+
+            {/* Detailed statistics */}
+            {stats && (
+              <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 space-y-1">
+                <div className="text-xs font-medium text-slate-600 mb-2">Detailed Statistics</div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  <div className="text-slate-500">Missing purchase cost:</div>
+                  <div className="text-slate-700 font-medium">{stats.missingCostRows}</div>
+                  <div className="text-slate-500">Missing selling price:</div>
+                  <div className="text-slate-700 font-medium">{stats.missingPriceRows}</div>
+                  <div className="text-slate-500">Invalid percentage values:</div>
+                  <div className="text-slate-700 font-medium">{stats.invalidPercentRows}</div>
+                  <div className="text-slate-500">Invalid rows:</div>
+                  <div className="text-slate-700 font-medium">{stats.invalidRows}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Show skipped/duplicate details */}
+            {cleaningResult && cleaningResult.skippedRows.length > 0 && (
+              <div className="bg-amber-50 rounded-lg p-3 border border-amber-200 max-h-48 overflow-y-auto">
+                <div className="text-xs font-medium text-amber-600 mb-1">Skipped Rows Details</div>
+                {cleaningResult.skippedRows.slice(0, 10).map((issue, idx) => (
+                  <div key={idx} className="text-xs text-amber-700">
+                    Row {issue.originalRowNumber}: {issue.reason}
+                  </div>
+                ))}
+                {cleaningResult.skippedRows.length > 10 && (
+                  <div className="text-xs text-amber-500">
+                    ... and {cleaningResult.skippedRows.length - 10} more skipped rows
+                  </div>
+                )}
+              </div>
+            )}
+
+            {cleaningResult && cleaningResult.duplicateRows.length > 0 && (
+              <div className="bg-amber-50 rounded-lg p-3 border border-amber-200 max-h-48 overflow-y-auto">
+                <div className="text-xs font-medium text-amber-600 mb-1">Duplicate SKU Details</div>
+                {cleaningResult.duplicateRows.slice(0, 10).map((issue, idx) => (
+                  <div key={idx} className="text-xs text-amber-700">
+                    Row {issue.originalRowNumber}: {issue.reason}
+                  </div>
+                ))}
+                {cleaningResult.duplicateRows.length > 10 && (
+                  <div className="text-xs text-amber-500">
+                    ... and {cleaningResult.duplicateRows.length - 10} more duplicate rows
+                  </div>
+                )}
+              </div>
+            )}
 
             {previewProducts.length > 0 && (
               <div>

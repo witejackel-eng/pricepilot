@@ -269,8 +269,8 @@ export function validateProduct(product: Partial<Product>): ValidationError[] {
     // Warn if selling price is less than purchase cost
     if (
       product.currentSellingPrice > 0 &&
-      product.purchaseCost > 0 &&
-      product.currentSellingPrice < product.purchaseCost
+      (product.purchaseCost ?? 0) > 0 &&
+      product.currentSellingPrice < (product.purchaseCost ?? 0)
     ) {
       errors.push({
         field: 'currentSellingPrice',

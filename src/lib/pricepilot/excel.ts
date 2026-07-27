@@ -17,6 +17,12 @@ import {
   CompetitorPrice,
   ImportError,
   WarningSeverity,
+  CleaningOptions,
+  CleanImportResult,
+  ImportedProductDraft,
+  ImportRowIssue,
+  ImportStatistics,
+  PercentFormat,
 } from './types';
 import { parseNumericInput } from './formatting';
 
@@ -211,13 +217,13 @@ function splitCSVLine(line: string, delimiter: string): string[] {
 const COLUMN_VARIATIONS: Record<string, string[]> = {
   // Identification
   'name': ['product name', 'product_name', 'name', 'item name', 'item_name', 'title', 'description', 'product', 'item'],
-  'sku': ['sku', 'product code', 'product_code', 'item code', 'item_code', 'code', 'product id', 'product_id', 'item no', 'item_no', 'part number', 'part_no', 'article number', 'article_no', 'pid', 'prod_id', 'model', 'model number'],
+  'sku': ['sku', 'product code', 'product_code', 'item code', 'item_code', 'code', 'product id', 'product_id', 'item no', 'item_no', 'part number', 'part_no', 'article number', 'article_no', 'pid', 'prod_id', 'model', 'model number', 'model no'],
   'category': ['category', 'product category', 'product_category', 'cat', 'type', 'product type', 'product_type', 'group', 'product group', 'classification', 'class'],
   'brand': ['brand', 'brand name', 'brand_name', 'manufacturer', 'maker', 'supplier', 'vendor', 'company'],
   'description': ['description', 'desc', 'product description', 'product_desc', 'details', 'short description', 'short_desc', 'summary', 'long description', 'long_desc'],
 
   // Cost Fields
-  'purchaseCost': ['purchase cost', 'purchase_cost', 'cost', 'purchase price', 'purchase_price', 'buying price', 'buying_price', 'buy price', 'unit cost', 'unit_cost', 'base cost', 'base_cost', 'wholesale cost', 'wholesale_cost', 'wholesale price', 'cogs', 'cost of goods', 'acquisition cost', 'acquisition_price', 'price paid', 'paid price', 'supplier price', 'factory cost', 'manufacturing cost', 'raw cost', 'product cost', 'product_cost'],
+  'purchaseCost': ['purchase cost', 'purchase_cost', 'cost', 'purchase price', 'purchase_price', 'buying price', 'buying_price', 'buy price', 'unit cost', 'unit_cost', 'base cost', 'base_cost', 'wholesale cost', 'wholesale_cost', 'wholesale price', 'cogs', 'cost of goods', 'acquisition cost', 'acquisition_price', 'price paid', 'paid price', 'supplier price', 'factory cost', 'manufacturing cost', 'raw cost', 'product cost', 'product_cost', 'cost price', 'cost_price', 'landed cost', 'landed_cost'],
   'shippingCost': ['shipping cost', 'shipping_cost', 'shipping', 'freight cost', 'freight_cost', 'freight', 'delivery cost', 'delivery_cost', 'transport cost', 'transport_cost', 'logistics cost', 'logistics_cost', 'inbound shipping', 'inbound_shipping'],
   'packagingCost': ['packaging cost', 'packaging_cost', 'packaging', 'packing cost', 'packing_cost', 'packing', 'box cost', 'box_cost', 'wrapping cost', 'wrapping_cost'],
   'handlingCost': ['handling cost', 'handling_cost', 'handling', 'labour cost', 'labour_cost', 'labor cost', 'labor_cost', 'processing cost', 'processing_cost', 'assembly cost', 'assembly_cost'],
@@ -229,11 +235,11 @@ const COLUMN_VARIATIONS: Record<string, string[]> = {
 
   // Selling Fields
   'currentSellingPrice': ['selling price', 'selling_price', 'sell price', 'sell_price', 'current price', 'current_price', 'price', 'sale price', 'sale_price', 'retail price', 'retail_price', 'listing price', 'listing_price', 'mrp', 'maximum retail price', 'market price', 'market_price', 'offered price', 'offered_price', 'selling', 'sp', 'sell'],
-  'taxRatePercent': ['tax rate', 'tax_rate', 'tax %', 'tax_pct', 'gst rate', 'gst_rate', 'gst %', 'gst_pct', 'vat rate', 'vat_rate', 'vat %', 'vat_pct', 'tax', 'gst', 'vat', 'sales tax', 'sales_tax', 'tax percentage'],
+  'taxRatePercent': ['tax rate', 'tax_rate', 'tax %', 'tax_pct', 'gst rate', 'gst_rate', 'gst %', 'gst_pct', 'vat rate', 'vat_rate', 'vat %', 'vat_pct', 'tax', 'gst', 'vat', 'sales tax', 'sales_tax', 'tax percentage', 'commission'],
   'taxTreatment': ['tax treatment', 'tax_treatment', 'tax type', 'tax_type', 'tax inclusive', 'tax_inclusive', 'tax exclusive', 'tax_exclusive', 'gst treatment', 'gst_treatment', 'gst type', 'gst_type'],
 
   // Fee Fields
-  'marketplaceFeePercent': ['marketplace fee', 'marketplace_fee', 'marketplace fee %', 'marketplace_fee_pct', 'platform fee', 'platform_fee', 'platform fee %', 'platform_fee_pct', 'commission', 'commission %', 'commission_pct', 'marketplace commission', 'channel fee', 'channel_fee', 'channel fee %', 'seller fee', 'seller_fee', 'listing fee %', 'listing_fee_pct'],
+  'marketplaceFeePercent': ['marketplace fee', 'marketplace_fee', 'marketplace fee %', 'marketplace_fee_pct', 'platform fee', 'platform_fee', 'platform fee %', 'platform_fee_pct', 'commission %', 'commission_pct', 'marketplace commission', 'channel fee', 'channel_fee', 'channel fee %', 'seller fee', 'seller_fee', 'listing fee %', 'listing_fee_pct'],
   'marketplaceFeeFixed': ['marketplace fixed fee', 'marketplace_fixed_fee', 'fixed marketplace fee', 'platform fixed fee', 'platform_fixed_fee', 'fixed commission', 'fixed_fee', 'fixed fee', 'per order fee', 'per_order_fee', 'order fee', 'transaction fee fixed', 'flat fee'],
   'paymentFeePercent': ['payment fee', 'payment_fee', 'payment fee %', 'payment_fee_pct', 'gateway fee', 'gateway_fee', 'gateway fee %', 'gateway_fee_pct', 'payment gateway fee', 'payment_gateway_fee', 'payment commission', 'payment commission %', 'processing fee %', 'processing_fee_pct'],
   'paymentFeeFixed': ['payment fixed fee', 'payment_fixed_fee', 'fixed payment fee', 'gateway fixed fee', 'gateway_fixed_fee', 'payment processing fixed', 'payment_processing_fixed', 'transaction fee', 'transaction_fee', 'flat payment fee'],
@@ -243,6 +249,7 @@ const COLUMN_VARIATIONS: Record<string, string[]> = {
   'salesChannel': ['channel', 'sales channel', 'sales_channel', 'channel type', 'channel_type', 'platform', 'selling channel', 'selling_channel', 'distribution channel', 'distribution_channel'],
 
   // Competitor
+  'competitorPrices': ['competitor price', 'competitor_price', 'comp price', 'comp_price', 'competitor', 'market price competitor', 'rival price', 'rival_price', 'competition price', 'competition_price', 'other seller price'],
   'competitorPrice1': ['competitor price 1', 'competitor_price_1', 'comp price 1', 'comp_price_1', 'competitor 1', 'competitor_1', 'market price 1', 'market_price_1', 'rival price 1', 'rival_price_1'],
   'competitorPrice2': ['competitor price 2', 'competitor_price_2', 'comp price 2', 'comp_price_2', 'competitor 2', 'competitor_2', 'market price 2', 'market_price_2', 'rival price 2', 'rival_price_2'],
   'competitorPrice3': ['competitor price 3', 'competitor_price_3', 'comp price 3', 'comp_price_3', 'competitor 3', 'competitor_3', 'market price 3', 'market_price_3', 'rival price 3', 'rival_price_3'],
@@ -250,6 +257,10 @@ const COLUMN_VARIATIONS: Record<string, string[]> = {
   'competitorName1': ['competitor name 1', 'competitor_name_1', 'comp name 1', 'comp_name_1', 'competitor 1 name', 'competitor_1_name'],
   'competitorName2': ['competitor name 2', 'competitor_name_2', 'comp name 2', 'comp_name_2', 'competitor 2 name', 'competitor_2_name'],
   'competitorName3': ['competitor name 3', 'competitor_name_3', 'comp name 3', 'comp_name_3', 'competitor 3 name', 'competitor_3_name'],
+
+  // Inventory & Sales
+  'quantity': ['quantity', 'qty', 'stock', 'inventory', 'stock quantity', 'stock_qty', 'available stock', 'available_quantity', 'qty in stock', 'units', 'units in stock'],
+  'monthlyUnitsSold': ['monthly sales', 'monthly_units_sold', 'monthly units sold', 'units sold', 'units_sold', 'monthly sales volume', 'sales volume', 'sold last month', 'monthly quantity sold', 'monthly_qty_sold', 'sales qty', 'sales last month'],
 
   // Metadata
   'notes': ['notes', 'note', 'comments', 'comment', 'remarks', 'remark', 'memo', 'internal notes', 'internal_notes', 'description notes'],
@@ -332,35 +343,128 @@ export function getUnmappedHeaders(headers: string[], mappings: ColumnMapping[])
 // Data Cleaning
 // ============================================================
 
+/** Currency symbols to strip when stripCurrencySymbols is enabled */
+const CURRENCY_SYMBOLS = ['₹', '$', '£', '€', '¥', 'د.إ', 'Rs', 'Rs.', 'INR', 'USD', 'GBP', 'EUR', 'AED'];
+
 /**
- * Clean imported data rows based on column mappings and settings.
- * Handles: currency symbols, commas, blanks, percentages, duplicates.
- *
- * Returns cleaned rows and cleaning statistics.
+ * Pre-process a raw cell value according to cleaning options.
+ * Handles currency symbols, grouping commas, and percent signs.
+ */
+function preprocessCellValue(
+  rawValue: string,
+  options: CleaningOptions,
+  isPercentField: boolean,
+): string {
+  let cleaned = rawValue.trim();
+
+  // Strip currency symbols
+  if (options.stripCurrencySymbols) {
+    for (const symbol of CURRENCY_SYMBOLS) {
+      cleaned = cleaned.replace(symbol, '');
+    }
+    // Also remove any remaining currency-style prefix/suffix patterns
+    cleaned = cleaned.replace(/^[A-Z]{3}\s/, ''); // e.g. "INR 500"
+  }
+
+  // Strip grouping commas (Indian: 1,00,000 → 100000; Western: 1,000 → 1000)
+  if (options.stripGroupingCommas) {
+    // Remove commas that are grouping separators (not decimal commas)
+    // A comma is a grouping separator if it's followed by 2 or 3 digits
+    // and there's no period after it (period = decimal point)
+    cleaned = cleaned.replace(/,/g, '');
+  }
+
+  // Strip percent signs (percentage fields)
+  if (isPercentField && options.parsePercentages) {
+    cleaned = cleaned.replace(/%/g, '');
+  }
+
+  return cleaned.trim();
+}
+
+/**
+ * Interpret a percentage value according to the percent format setting.
+ * - 'auto': detect from column distribution (max < 1 → decimal; max >= 1 → whole)
+ * - 'whole-percentages': 18 → 18%
+ * - 'decimal-fractions': 0.18 → 18%
+ */
+function interpretPercentValue(
+  rawParsed: number,
+  percentFormat: PercentFormat,
+  columnMaxValue?: number,
+): number {
+  if (percentFormat === 'decimal-fractions') {
+    // 0.18 → 18%
+    return rawParsed < 1 ? rawParsed * 100 : rawParsed;
+  }
+  if (percentFormat === 'whole-percentages') {
+    // 18 → 18% (already whole)
+    return rawParsed;
+  }
+  // 'auto': detect from column distribution
+  // If the max value in the column is < 1, assume decimal fractions
+  // Otherwise, assume whole percentages
+  if (columnMaxValue !== undefined && columnMaxValue < 1) {
+    return rawParsed * 100;
+  }
+  return rawParsed;
+}
+
+/**
+ * Detect the max numeric value in a percentage column for auto-detection.
+ */
+function detectPercentColumnMax(
+  rows: Record<string, string>[],
+  sourceColumn: string,
+  options: CleaningOptions,
+): number {
+  let maxVal = 0;
+  for (const row of rows) {
+    const raw = row[sourceColumn] ?? '';
+    const processed = preprocessCellValue(raw, options, true);
+    const parsed = parseNumericInput(processed);
+    if (!isNaN(parsed) && parsed > maxVal) {
+      maxVal = parsed;
+    }
+  }
+  return maxVal;
+}
+
+/**
+ * Clean imported data rows based on column mappings, settings, and cleaning options.
+ * Returns a unified CleanImportResult with product drafts, row issues, and statistics.
  */
 export function cleanImportData(
   rows: Record<string, string>[],
   mappings: ColumnMapping[],
-  settings: BusinessSettings
-): {
-  cleanedRows: Record<string, unknown>[];
-  skippedRows: number;
-  duplicateCount: number;
-  blankFieldCount: number;
-  invalidValueCount: number;
-  errors: ImportError[];
-  warnings: ImportError[];
-} {
-  const cleanedRows: Record<string, unknown>[] = [];
-  const errors: ImportError[] = [];
-  const warnings: ImportError[] = [];
-  let skippedRows = 0;
-  let duplicateCount = 0;
-  let blankFieldCount = 0;
-  let invalidValueCount = 0;
+  settings: BusinessSettings,
+  options?: CleaningOptions,
+  sourceFileName?: string,
+  sourceSheet?: string,
+): CleanImportResult {
+  // Use defaults if options not provided
+  const opts: CleaningOptions = options ?? {
+    stripCurrencySymbols: true,
+    stripGroupingCommas: true,
+    parsePercentages: true,
+    skipBlankRequired: true,
+    skipDuplicateSku: true,
+    percentFormat: 'auto',
+  };
+
+  const cleanedProducts: ImportedProductDraft[] = [];
+  const skippedRowIssues: ImportRowIssue[] = [];
+  const duplicateRowIssues: ImportRowIssue[] = [];
+  const invalidRowIssues: ImportRowIssue[] = [];
+  const warningIssues: ImportRowIssue[] = [];
+  const batchId = generateUniqueId(0);
+
+  let missingCostRows = 0;
+  let missingPriceRows = 0;
+  let invalidPercentRows = 0;
 
   // Track SKUs for duplicate detection
-  const seenSkus: Set<string> = new Set();
+  const seenSkus: Map<string, ImportedProductDraft> = new Map();
 
   // Build a map from source column → target field + transform
   const mappingMap = new Map<string, { targetField: string; transform?: string }>();
@@ -371,11 +475,12 @@ export function cleanImportData(
     });
   }
 
-  // Fields that are numeric (costs, percentages, fees)
+  // Fields that are numeric (costs, fees)
   const numericFields = new Set([
     'purchaseCost', 'shippingCost', 'packagingCost', 'handlingCost',
     'otherCosts', 'currentSellingPrice', 'marketplaceFeeFixed',
     'paymentFeeFixed', 'otherFeesFixed', 'shippingChargeToCustomer',
+    'quantity', 'monthlyUnitsSold',
   ]);
 
   // Fields that are percentages
@@ -391,147 +496,174 @@ export function cleanImportData(
     'salesChannel', 'taxTreatment',
   ]);
 
+  // Required fields that must not be blank (when skipBlankRequired is on)
+  const requiredFields = new Set(['name', 'sku', 'purchaseCost']);
+
+  // Pre-compute max values for each percent column (for auto-detection)
+  const percentColumnMaxes = new Map<string, number>();
+  if (opts.percentFormat === 'auto' && opts.parsePercentages) {
+    for (const [sourceCol, mappingInfo] of mappingMap.entries()) {
+      if (percentFields.has(mappingInfo.targetField)) {
+        const maxVal = detectPercentColumnMax(rows, sourceCol, opts);
+        percentColumnMaxes.set(sourceCol, maxVal);
+      }
+    }
+  }
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const cleanedRow: Record<string, unknown> = {};
-    let hasCriticalError = false;
+    const draft: Partial<ImportedProductDraft> = {};
+    const rawOriginalData: Record<string, string> = {};
+
+    // Capture original data for import metadata
+    for (const key of Object.keys(row)) {
+      rawOriginalData[key] = row[key] ?? '';
+    }
+
+    // Check for blank required fields
+    let missingRequired: string[] = [];
+    if (opts.skipBlankRequired) {
+      for (const [sourceCol, mappingInfo] of mappingMap.entries()) {
+        if (requiredFields.has(mappingInfo.targetField)) {
+          const val = (row[sourceCol] ?? '').trim();
+          if (val === '') {
+            missingRequired.push(mappingInfo.targetField);
+          }
+        }
+      }
+    }
+
+    // Skip row if missing any required field and option is enabled
+    if (opts.skipBlankRequired && missingRequired.length > 0) {
+      if (missingRequired.includes('purchaseCost')) missingCostRows++;
+      skippedRowIssues.push({
+        originalRowNumber: i + 2, // +2 for header row + 1-based index
+        reason: `Missing required fields: ${missingRequired.join(', ')}`,
+        originalData: rawOriginalData,
+      });
+      continue;
+    }
+
+    // Skip rows with both name and sku missing (always, regardless of options)
+    const nameSource = mappingMap.entries().find(e => e[1].targetField === 'name');
+    const skuSource = mappingMap.entries().find(e => e[1].targetField === 'sku');
+    const nameVal = nameSource ? (row[nameSource[0]] ?? '').trim() : '';
+    const skuVal = skuSource ? (row[skuSource[0]] ?? '').trim() : '';
+    if (!nameVal && !skuVal) {
+      skippedRowIssues.push({
+        originalRowNumber: i + 2,
+        reason: 'Missing both product name and SKU',
+        originalData: rawOriginalData,
+      });
+      continue;
+    }
 
     // Process each mapped column
     for (const [sourceCol, mappingInfo] of mappingMap.entries()) {
       const rawValue = row[sourceCol] ?? '';
       const targetField = mappingInfo.targetField;
-      const transform = mappingInfo.transform;
 
-      // Handle blank values
+      // Handle blank values — set defaults
       if (rawValue.trim() === '') {
-        blankFieldCount++;
-
-        // Set defaults for blank fields
         if (numericFields.has(targetField)) {
-          cleanedRow[targetField] = getDefaultForField(targetField, settings);
+          (draft as Record<string, unknown>)[targetField] = getDefaultForField(targetField, settings);
         } else if (percentFields.has(targetField)) {
-          cleanedRow[targetField] = getDefaultPercentForField(targetField, settings);
-        } else if (stringFields.has(targetField)) {
-          cleanedRow[targetField] = '';
+          (draft as Record<string, unknown>)[targetField] = getDefaultPercentForField(targetField, settings);
         } else {
-          cleanedRow[targetField] = '';
+          (draft as Record<string, unknown>)[targetField] = '';
         }
         continue;
       }
 
-      // Apply transforms and parse values
+      // Pre-process value according to cleaning options
+      const isPercent = percentFields.has(targetField);
+      const processed = preprocessCellValue(rawValue, opts, isPercent);
+
+      // Parse and assign
       if (numericFields.has(targetField)) {
-        const parsed = parseNumericInput(rawValue);
+        const parsed = parseNumericInput(processed);
         if (isNaN(parsed)) {
-          invalidValueCount++;
-          errors.push({
-            row: i + 1,
-            column: sourceCol,
-            value: rawValue,
-            message: `Could not parse numeric value "${rawValue}" for ${targetField}`,
-            severity: 'error',
+          invalidRowIssues.push({
+            originalRowNumber: i + 2,
+            reason: `Could not parse numeric value "${rawValue}" for ${targetField}`,
+            originalData: rawOriginalData,
           });
-          cleanedRow[targetField] = getDefaultForField(targetField, settings);
+          (draft as Record<string, unknown>)[targetField] = getDefaultForField(targetField, settings);
         } else {
-          // Ensure non-negative
-          cleanedRow[targetField] = parsed < 0 ? 0 : parsed;
+          (draft as Record<string, unknown>)[targetField] = parsed < 0 ? 0 : parsed;
         }
       } else if (percentFields.has(targetField)) {
-        // Strip % sign and parse
-        let percentRaw = rawValue;
-        if (percentRaw.includes('%')) {
-          percentRaw = percentRaw.replace(/%/g, '');
-        }
-        const parsed = parseNumericInput(percentRaw);
+        const parsed = parseNumericInput(processed);
         if (isNaN(parsed)) {
-          invalidValueCount++;
-          errors.push({
-            row: i + 1,
-            column: sourceCol,
-            value: rawValue,
-            message: `Could not parse percentage value "${rawValue}" for ${targetField}`,
-            severity: 'error',
+          invalidPercentRows++;
+          invalidRowIssues.push({
+            originalRowNumber: i + 2,
+            reason: `Could not parse percentage value "${rawValue}" for ${targetField}`,
+            originalData: rawOriginalData,
           });
-          cleanedRow[targetField] = getDefaultPercentForField(targetField, settings);
+          (draft as Record<string, unknown>)[targetField] = getDefaultPercentForField(targetField, settings);
         } else {
-          // Clamp to 0-100 range
-          cleanedRow[targetField] = Math.max(0, Math.min(100, parsed));
+          // Interpret percentage based on format
+          const columnMax = percentColumnMaxes.get(sourceCol);
+          const interpreted = interpretPercentValue(parsed, opts.percentFormat, columnMax);
+          (draft as Record<string, unknown>)[targetField] = Math.max(0, Math.min(100, interpreted));
         }
       } else if (stringFields.has(targetField)) {
-        let strValue = rawValue.trim();
-
-        // Apply transforms
-        if (transform === 'trim' || transform === 'split-comma') {
-          strValue = strValue.trim();
-        }
-
-        cleanedRow[targetField] = strValue;
+        (draft as Record<string, unknown>)[targetField] = processed || rawValue.trim();
       } else {
         // Other fields (competitor prices, tags)
-        if (targetField.startsWith('competitorPrice')) {
-          const parsed = parseNumericInput(rawValue);
-          cleanedRow[targetField] = isNaN(parsed) ? 0 : Math.max(0, parsed);
+        if (targetField.startsWith('competitorPrice') || targetField === 'competitorPrices') {
+          const parsed = parseNumericInput(processed);
+          (draft as Record<string, unknown>)[targetField] = isNaN(parsed) ? 0 : Math.max(0, parsed);
         } else if (targetField.startsWith('competitorName')) {
-          cleanedRow[targetField] = rawValue.trim();
+          (draft as Record<string, unknown>)[targetField] = rawValue.trim();
         } else if (targetField === 'tags') {
-          cleanedRow[targetField] = rawValue.split(/[,\|;]/).map(t => t.trim()).filter(t => t !== '');
+          (draft as Record<string, unknown>)[targetField] = rawValue.split(/[,\|;]/).map(t => t.trim()).filter(t => t !== '');
         } else {
-          cleanedRow[targetField] = rawValue.trim();
+          (draft as Record<string, unknown>)[targetField] = rawValue.trim();
         }
       }
+    }
+
+    // Track missing cost/price for statistics (even if not skipped)
+    if (!(draft as Record<string, unknown>)['purchaseCost'] || (draft as Record<string, unknown>)['purchaseCost'] === 0) {
+      missingCostRows++;
+    }
+    if (!(draft as Record<string, unknown>)['currentSellingPrice'] || (draft as Record<string, unknown>)['currentSellingPrice'] === 0) {
+      missingPriceRows++;
     }
 
     // Duplicate SKU check
-    const sku = String(cleanedRow['sku'] ?? '').trim();
+    const sku = String((draft as Record<string, unknown>)['sku'] ?? '').trim();
     if (sku) {
       if (seenSkus.has(sku)) {
-        duplicateCount++;
-        warnings.push({
-          row: i + 1,
-          column: 'sku',
-          value: sku,
-          message: `Duplicate SKU "${sku}" found`,
-          severity: 'warning',
-        });
+        if (opts.skipDuplicateSku) {
+          duplicateRowIssues.push({
+            originalRowNumber: i + 2,
+            reason: `Duplicate SKU "${sku}" — skipped`,
+            originalData: rawOriginalData,
+          });
+          continue; // Skip this duplicate row
+        } else {
+          // Keep the row but log a warning
+          duplicateRowIssues.push({
+            originalRowNumber: i + 2,
+            reason: `Duplicate SKU "${sku}" — kept (will overwrite)`,
+            originalData: rawOriginalData,
+          });
+        }
       } else {
-        seenSkus.add(sku);
+        seenSkus.set(sku, draft as ImportedProductDraft);
       }
     }
 
-    // Skip rows with critical errors (missing both name and sku)
-    if (!cleanedRow['name'] && !cleanedRow['sku']) {
-      skippedRows++;
-      errors.push({
-        row: i + 1,
-        column: 'name/sku',
-        value: '',
-        message: `Row ${i + 1} skipped: missing both product name and SKU`,
-        severity: 'error',
-      });
-      continue;
-    }
-
-    // Assign ID if missing
-    if (!cleanedRow['id']) {
-      cleanedRow['id'] = generateUniqueId(i);
-    }
-
-    // Set defaults for missing required fields
-    if (!cleanedRow['salesChannel']) cleanedRow['salesChannel'] = 'online-marketplace';
-    if (!cleanedRow['taxTreatment']) cleanedRow['taxTreatment'] = settings.taxTreatment;
-    if (!cleanedRow['taxRatePercent']) cleanedRow['taxRatePercent'] = settings.defaultTaxRatePercent;
-    if (!cleanedRow['marketplaceFeePercent']) cleanedRow['marketplaceFeePercent'] = settings.defaultMarketplaceFeePercent;
-    if (!cleanedRow['paymentFeePercent']) cleanedRow['paymentFeePercent'] = settings.defaultPaymentFeePercent;
-    if (!cleanedRow['marketplaceFeeFixed']) cleanedRow['marketplaceFeeFixed'] = settings.defaultMarketplaceFeeFixed;
-    if (!cleanedRow['paymentFeeFixed']) cleanedRow['paymentFeeFixed'] = settings.defaultPaymentFeeFixed;
-
     // Convert competitor price/name fields into structured competitorPrices array
-    const competitorPrices: CompetitorPrice[] = [];
+    const competitorPrices: Array<{ name: string; price: number }> = [];
     for (let c = 1; c <= 4; c++) {
       const priceKey = `competitorPrice${c}`;
       const nameKey = `competitorName${c}`;
-      const price = cleanedRow[priceKey];
-      const name = cleanedRow[nameKey];
+      const price = (draft as Record<string, unknown>)[priceKey];
+      const name = (draft as Record<string, unknown>)[nameKey];
 
       if (typeof price === 'number' && price > 0) {
         competitorPrices.push({
@@ -540,30 +672,49 @@ export function cleanImportData(
         });
       }
 
-      // Remove flat competitor fields (they're now in the array)
-      delete cleanedRow[priceKey];
-      delete cleanedRow[nameKey];
+      delete (draft as Record<string, unknown>)[priceKey];
+      delete (draft as Record<string, unknown>)[nameKey];
     }
-    cleanedRow['competitorPrices'] = competitorPrices;
 
-    // Set timestamps
-    cleanedRow['createdAt'] = new Date().toISOString();
-    cleanedRow['updatedAt'] = new Date().toISOString();
-    cleanedRow['isApproved'] = false;
-
-    if (!hasCriticalError) {
-      cleanedRows.push(cleanedRow);
+    // Handle single competitorPrices field (mapped from a generic "competitor price" column)
+    if ((draft as Record<string, unknown>)['competitorPrices'] !== undefined) {
+      const singlePrice = (draft as Record<string, unknown>)['competitorPrices'];
+      if (typeof singlePrice === 'number' && singlePrice > 0 && competitorPrices.length === 0) {
+        competitorPrices.push({ name: 'Competitor 1', price: singlePrice });
+      }
+      delete (draft as Record<string, unknown>)['competitorPrices'];
     }
+
+    (draft as Record<string, unknown>)['competitorPrices'] = competitorPrices;
+
+    // Set import metadata
+    draft.importBatchId = batchId;
+    draft.importSourceFileName = sourceFileName ?? '';
+    draft.importOriginalRowNumber = i + 2;
+    draft.importOriginalData = rawOriginalData;
+    draft.importSourceSheet = sourceSheet;
+
+    cleanedProducts.push(draft as ImportedProductDraft);
   }
 
+  const statistics: ImportStatistics = {
+    totalRows: rows.length,
+    validRows: cleanedProducts.length,
+    skippedRows: skippedRowIssues.length,
+    duplicateRows: duplicateRowIssues.length,
+    invalidRows: invalidRowIssues.length,
+    missingCostRows,
+    missingPriceRows,
+    invalidPercentRows,
+  };
+
   return {
-    cleanedRows,
-    skippedRows,
-    duplicateCount,
-    blankFieldCount,
-    invalidValueCount,
-    errors,
-    warnings,
+    cleanedProducts,
+    skippedRows: skippedRowIssues,
+    duplicateRows: duplicateRowIssues,
+    invalidRows: invalidRowIssues,
+    warnings: warningIssues,
+    statistics,
   };
 }
 

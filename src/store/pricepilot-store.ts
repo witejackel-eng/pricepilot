@@ -12,10 +12,13 @@ import {
   ImportState,
   AppSettings,
   PricingStatus,
+  RecommendationMode,
+  LifecycleStatus,
   createDefaultBusinessSettings,
   createDefaultAppSettings,
   createDefaultImportState,
   createDefaultPricingRule,
+  createDefaultProduct,
 } from '@/lib/pricepilot/types';
 import {
   initializeStorage,
@@ -27,7 +30,6 @@ import {
   saveOnboardingCompleted,
   clearProducts as clearProductsStorage,
   resetAll as resetAllStorage,
-  recalculateAllProducts,
   saveProduct,
   removeProduct as removeProductStorage,
   savePricingRule,
@@ -38,8 +40,19 @@ import {
   importAllData,
   getLastSavedTimestamp,
 } from '@/lib/pricepilot/storage';
-import { calculateProduct } from '@/lib/pricepilot/calculations';
+import { calculateAllRecommendations, mapRecommendationsToProduct } from '@/lib/pricepilot/recommendations';
+import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
 import { SAMPLE_PRODUCTS, SAMPLE_PRICING_RULES } from '@/lib/pricepilot/sample-data';
+
+/**
+ * Helper: Calculate product using the new recommendations engine.
+ * Replaces the old calculateProduct() from calculations.ts.
+ */
+function recalcProduct(product: Product, settings: BusinessSettings, rules: PricingRule[]): Product {
+  const allRecs = calculateAllRecommendations(product, settings, rules);
+  const effectiveRule = resolveEffectivePricingPolicy(product, rules, settings);
+  return mapRecommendationsToProduct(product, allRecs, settings, effectiveRule) as Product;
+}
 
 // Navigation views
 export type AppView =
@@ -97,6 +110,14 @@ interface PricePilotState {
   clearAllProducts: () => void;
   recalculateProducts: () => void;
 
+  // Phase 6 - Product workflow
+  duplicateProduct: (productId: string) => void;
+  approveProductPrice: (productId: string, recommendationMode: RecommendationMode) => void;
+  applyApprovedPrice: (productId: string) => void;
+  bulkSetField: (productIds: string[], field: string, value: unknown) => void;
+  bulkApprovePrices: (productIds: string[]) => void;
+  archiveProducts: (productIds: string[]) => void;
+
   // Import
   updateImportState: (updates: Partial<ImportState>) => void;
   importProducts: (products: Product[]) => void;
@@ -143,9 +164,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   initialize: () => {
     const data = initializeStorage();
     // Run calculations on all loaded products
-    const recalculated = data.products.map(p =>
-      calculateProduct(p, data.businessSettings, data.pricingRules) as Product
-    );
+    const recalculated = data.products.map(p => recalcProduct(p, data.businessSettings, data.pricingRules));
     set({
       businessSettings: data.businessSettings,
       products: recalculated,
@@ -173,7 +192,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     set({ businessSettings: newSettings });
     // Recalculate all products with new settings
     const { products, pricingRules } = get();
-    const recalculated = products.map(p => calculateProduct(p, newSettings, pricingRules) as Product);
+    const recalculated = products.map(p => recalcProduct(p, newSettings, pricingRules));
     saveProducts(recalculated);
     set({ products: recalculated, lastSaved: getLastSavedTimestamp() });
   },
@@ -188,7 +207,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   // Products
   addProduct: (product) => {
     const { businessSettings, pricingRules, products } = get();
-    const calculated = calculateProduct(product, businessSettings, pricingRules) as Product;
+    const calculated = recalcProduct(product, businessSettings, pricingRules);
     const newProducts = [...products, calculated];
     saveProducts(newProducts);
     set({ products: newProducts, lastSaved: getLastSavedTimestamp() });
@@ -199,7 +218,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const updated = products.map(p => {
       if (p.id === id) {
         const merged = { ...p, ...updates, updatedAt: new Date().toISOString() };
-        return calculateProduct(merged, businessSettings, pricingRules) as Product;
+        return recalcProduct(merged, businessSettings, pricingRules);
       }
       return p;
     });
@@ -225,7 +244,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const updated = products.map(p => {
       if (ids.includes(p.id)) {
         const merged = { ...p, ...updates, updatedAt: new Date().toISOString() };
-        return calculateProduct(merged, businessSettings, pricingRules) as Product;
+        return recalcProduct(merged, businessSettings, pricingRules);
       }
       return p;
     });
@@ -240,13 +259,117 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   markSelectedForReview: () => {
     const { selectedProducts } = get();
-    get().bulkUpdateProducts(selectedProducts, { calculatedPricingStatus: 'needs-review' as PricingStatus });
+    get().bulkUpdateProducts(selectedProducts, { calculatedPricingStatus: 'needs-review' as PricingStatus, lifecycleStatus: 'needs-review' as LifecycleStatus });
+  },
+
+  duplicateProduct: (productId) => {
+    const { products, businessSettings, pricingRules } = get();
+    const original = products.find(p => p.id === productId);
+    if (!original) return;
+    const newProduct: Product = {
+      ...original,
+      id: `prod-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: `${original.name} (Copy)`,
+      sku: `${original.sku}-COPY`,
+      lifecycleStatus: 'draft' as LifecycleStatus,
+      priceApprovalStatus: 'none',
+      finalApprovedPrice: 0,
+      approvedAt: '',
+      isApproved: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const calculated = recalcProduct(newProduct, businessSettings, pricingRules);
+    const newProducts = [...products, calculated];
+    saveProducts(newProducts);
+    set({ products: newProducts, lastSaved: getLastSavedTimestamp() });
+  },
+
+  approveProductPrice: (productId, recommendationMode) => {
+    const { products, businessSettings, pricingRules } = get();
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    const approvedPrice = product.recommendedPrices[recommendationMode] || product.recommendedPrices.balanced;
+    const updated = products.map(p => {
+      if (p.id === productId) {
+        const merged = {
+          ...p,
+          selectedRecommendationMode: recommendationMode,
+          priceApprovalStatus: 'approved' as const,
+          finalApprovedPrice: approvedPrice,
+          approvedAt: new Date().toISOString(),
+          lifecycleStatus: 'approved' as LifecycleStatus,
+          updatedAt: new Date().toISOString(),
+        };
+        return recalcProduct(merged, businessSettings, pricingRules);
+      }
+      return p;
+    });
+    saveProducts(updated);
+    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+  },
+
+  applyApprovedPrice: (productId) => {
+    const { products, businessSettings, pricingRules } = get();
+    const product = products.find(p => p.id === productId);
+    if (!product || product.priceApprovalStatus !== 'approved' || product.finalApprovedPrice <= 0) return;
+    const updated = products.map(p => {
+      if (p.id === productId) {
+        const merged = {
+          ...p,
+          currentSellingPrice: product.finalApprovedPrice,
+          updatedAt: new Date().toISOString(),
+        };
+        return recalcProduct(merged, businessSettings, pricingRules);
+      }
+      return p;
+    });
+    saveProducts(updated);
+    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+  },
+
+  bulkSetField: (productIds, field, value) => {
+    const { products, businessSettings, pricingRules } = get();
+    const updated = products.map(p => {
+      if (productIds.includes(p.id)) {
+        const merged = { ...p, [field]: value, updatedAt: new Date().toISOString() } as Product;
+        return recalcProduct(merged, businessSettings, pricingRules);
+      }
+      return p;
+    });
+    saveProducts(updated);
+    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+  },
+
+  bulkApprovePrices: (productIds) => {
+    const { products, businessSettings, pricingRules } = get();
+    const updated = products.map(p => {
+      if (productIds.includes(p.id)) {
+        const approvedPrice = p.recommendedPrices[p.selectedRecommendationMode || 'balanced'] || p.recommendedPrices.balanced;
+        const merged = {
+          ...p,
+          priceApprovalStatus: 'approved' as const,
+          finalApprovedPrice: approvedPrice,
+          approvedAt: new Date().toISOString(),
+          lifecycleStatus: 'approved' as LifecycleStatus,
+          updatedAt: new Date().toISOString(),
+        };
+        return recalcProduct(merged, businessSettings, pricingRules);
+      }
+      return p;
+    });
+    saveProducts(updated);
+    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+  },
+
+  archiveProducts: (productIds) => {
+    get().bulkSetField(productIds, 'lifecycleStatus', 'archived' as LifecycleStatus);
   },
 
   loadSampleData: () => {
     const { businessSettings, pricingRules } = get();
     const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
-    const calculated = SAMPLE_PRODUCTS.map(p => calculateProduct(p, businessSettings, existingRules) as Product);
+    const calculated = SAMPLE_PRODUCTS.map(p => recalcProduct(p, businessSettings, existingRules));
     saveProducts(calculated);
     if (pricingRules.length === 0) {
       savePricingRules(SAMPLE_PRICING_RULES);
@@ -262,8 +385,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   recalculateProducts: () => {
     set({ isCalculating: true });
-    const { businessSettings, pricingRules } = get();
-    const recalculated = recalculateAllProducts(businessSettings, pricingRules);
+    const { businessSettings, pricingRules, products } = get();
+    const recalculated = products.map(p => recalcProduct(p, businessSettings, pricingRules));
+    saveProducts(recalculated);
     set({ products: recalculated, isCalculating: false, lastSaved: getLastSavedTimestamp() });
   },
 
@@ -274,7 +398,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   importProducts: (newProducts) => {
     const { businessSettings, pricingRules, products } = get();
-    const calculated = newProducts.map(p => calculateProduct(p, businessSettings, pricingRules) as Product);
+    const calculated = newProducts.map(p => recalcProduct(p, businessSettings, pricingRules));
     const allProducts = [...products, ...calculated];
     saveProducts(allProducts);
     set({ products: allProducts, lastSaved: getLastSavedTimestamp(), currentView: 'products' });

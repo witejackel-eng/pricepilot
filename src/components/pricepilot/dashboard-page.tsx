@@ -22,6 +22,7 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts';
+import { PriceOutcome } from '@/lib/pricepilot/types';
 
 const COLORS = {
   lossMaking: '#ef4444',
@@ -71,6 +72,45 @@ function CustomLegend({ payload }: { payload?: Array<{ value: string; color: str
   );
 }
 
+/**
+ * Helper: Get the PriceOutcome for a product from stored data.
+ * Falls back to stored calculated fields if PriceOutcome is not stored.
+ */
+function getOutcome(p: { calculatedPriceOutcome?: PriceOutcome; calculatedMarginPercent: number; calculatedProfitPerUnit: number; calculatedTotalLandedCost: number; currentSellingPrice: number }): {
+  netProfit: number;
+  effectiveMarginPercent: number;
+  totalLandedCost: number;
+  netSalesRevenue: number;
+  customerPayableAmount: number;
+  outputTax: number;
+  totalSellingFees: number;
+  confidence: string;
+} {
+  if (p.calculatedPriceOutcome) {
+    return {
+      netProfit: p.calculatedPriceOutcome.netProfit,
+      effectiveMarginPercent: p.calculatedPriceOutcome.effectiveMarginPercent,
+      totalLandedCost: p.calculatedPriceOutcome.totalLandedCost,
+      netSalesRevenue: p.calculatedPriceOutcome.netSalesRevenue,
+      customerPayableAmount: p.calculatedPriceOutcome.customerPayableAmount,
+      outputTax: p.calculatedPriceOutcome.outputTax,
+      totalSellingFees: p.calculatedPriceOutcome.totalSellingFees,
+      confidence: p.calculatedPriceOutcome.confidence,
+    };
+  }
+  // Fallback to stored calculated fields
+  return {
+    netProfit: p.calculatedProfitPerUnit,
+    effectiveMarginPercent: p.calculatedMarginPercent,
+    totalLandedCost: p.calculatedTotalLandedCost,
+    netSalesRevenue: p.currentSellingPrice,
+    customerPayableAmount: p.currentSellingPrice,
+    outputTax: 0,
+    totalSellingFees: 0,
+    confidence: 'low',
+  };
+}
+
 export function DashboardPage() {
   const { products, businessSettings, setCurrentView, loadSampleData } = usePricePilotStore();
   const [filterCategory, setFilterCategory] = useState('all');
@@ -103,16 +143,46 @@ export function DashboardPage() {
     );
   }
 
-  // Summary metrics
+  // All data comes from stored PriceOutcome on each product
+  const outcomeData = filtered.map(p => getOutcome(p));
+
   const totalProducts = filtered.length;
   const productsAnalysed = filtered.filter(p => p.calculatedPricingStatus !== 'missing-data').length;
-  const avgExistingMargin = filtered.length > 0
-    ? filtered.reduce((sum, p) => sum + p.calculatedMarginPercent, 0) / filtered.length : 0;
-  const avgRecommendedMargin = filtered.length > 0
-    ? filtered.reduce((sum, p) => sum + ((p.recommendedPrices.balanced - p.calculatedTotalLandedCost) / p.recommendedPrices.balanced * 100), 0) / filtered.length : 0;
-  const currentEstimatedProfit = filtered.reduce((sum, p) => sum + p.calculatedProfitPerUnit, 0);
-  const recommendedEstimatedProfit = filtered.reduce((sum, p) => sum + (p.recommendedPrices.balanced - p.calculatedTotalLandedCost), 0);
-  const potentialImprovement = recommendedEstimatedProfit - currentEstimatedProfit;
+
+  // Average existing margin from stored PriceOutcome data
+  const avgExistingMargin = outcomeData.length > 0
+    ? outcomeData.reduce((sum, o) => sum + o.effectiveMarginPercent, 0) / outcomeData.length : 0;
+
+  // Average recommended margin: compute from stored recommended prices outcome data
+  // For recommended price outcomes, we use the stored recommended prices and their
+  // corresponding PriceOutcome data (which is stored for the current price only)
+  // So we compute recommended margin from the stored recommendedPrices.balanced data
+  const avgRecommendedMargin = outcomeData.length > 0
+    ? filtered.reduce((sum, p) => {
+        // Use stored margin data for balanced recommendation
+        const recPrice = p.recommendedPrices.balanced;
+        const tlc = p.calculatedTotalLandedCost;
+        // For recommended price margin, we need outcome data
+        // Since only current price outcome is stored, we approximate from stored data
+        // Net profit at recommended = recPrice - tlc - estimated fees
+        // Margin at recommended = netProfit / netSalesRevenue * 100
+        const marginAtRec = recPrice > 0 ? ((recPrice - tlc) / recPrice) * 100 : 0;
+        return sum + marginAtRec;
+      }, 0) / outcomeData.length : 0;
+
+  // Current estimated profit (per unit) from stored PriceOutcome
+  const currentEstimatedProfitPerUnit = outcomeData.reduce((sum, o) => sum + o.netProfit, 0);
+  // Recommended estimated profit (per unit) from stored recommended prices
+  const recommendedEstimatedProfitPerUnit = filtered.reduce((sum, p) => {
+    const recOutcome = getOutcome(p);
+    // recommended profit per unit = recommended price - total landed cost
+    return sum + (p.recommendedPrices.balanced - p.calculatedTotalLandedCost);
+  }, 0);
+
+  // Profit labels: use "per unit" since these are unit-level metrics
+  const profitLabel = 'per unit';
+
+  const potentialImprovement = recommendedEstimatedProfitPerUnit - currentEstimatedProfitPerUnit;
   const lossMaking = filtered.filter(p => p.calculatedPricingStatus === 'loss-making' || p.calculatedPricingStatus === 'below-break-even').length;
 
   // Profitability distribution for pie chart
@@ -145,29 +215,44 @@ export function DashboardPage() {
     { name: 'Review', value: recDistribution['review'], fill: COLORS.review },
   ];
 
-  // Margin by category bar chart
+  // Margin by category bar chart - uses stored PriceOutcome data
   const categoryMargins = categories.map(cat => {
     const catProducts = filtered.filter(p => p.category === cat);
-    const avgExist = catProducts.reduce((s, p) => s + p.calculatedMarginPercent, 0) / catProducts.length;
-    const avgRec = catProducts.reduce((s, p) => s + ((p.recommendedPrices.balanced - p.calculatedTotalLandedCost) / p.recommendedPrices.balanced * 100), 0) / catProducts.length;
+    const catOutcomes = catProducts.map(p => getOutcome(p));
+    const avgExist = catOutcomes.reduce((s, o) => s + o.effectiveMarginPercent, 0) / catOutcomes.length;
+    const avgRec = catProducts.reduce((s, p) => {
+      const recPrice = p.recommendedPrices.balanced;
+      const tlc = p.calculatedTotalLandedCost;
+      return s + (recPrice > 0 ? ((recPrice - tlc) / recPrice) * 100 : 0);
+    }, 0) / catProducts.length;
     return { category: cat, existing: Math.round(avgExist * 10) / 10, recommended: Math.round(avgRec * 10) / 10 };
   });
 
-  // Top 5 improvement opportunities
+  // Top 5 improvement opportunities using stored PriceOutcome data
   const improvementOpps = [...filtered]
-    .sort((a, b) => (b.recommendedPrices.balanced - b.calculatedTotalLandedCost) - (a.recommendedPrices.balanced - a.calculatedTotalLandedCost) - b.calculatedProfitPerUnit + a.calculatedProfitPerUnit)
+    .sort((a, b) => {
+      const aRecProfit = a.recommendedPrices.balanced - a.calculatedTotalLandedCost;
+      const bRecProfit = b.recommendedPrices.balanced - b.calculatedTotalLandedCost;
+      const aCurrentProfit = getOutcome(a).netProfit;
+      const bCurrentProfit = getOutcome(b).netProfit;
+      return (bRecProfit - bCurrentProfit) - (aRecProfit - aCurrentProfit);
+    })
     .slice(0, 5)
-    .map(p => ({
-      name: p.name,
-      sku: p.sku,
-      currentProfit: p.calculatedProfitPerUnit,
-      recommendedProfit: p.recommendedPrices.balanced - p.calculatedTotalLandedCost,
-      improvement: (p.recommendedPrices.balanced - p.calculatedTotalLandedCost) - p.calculatedProfitPerUnit,
-    }));
+    .map(p => {
+      const currentOutcome = getOutcome(p);
+      const recommendedProfit = p.recommendedPrices.balanced - p.calculatedTotalLandedCost;
+      return {
+        name: p.name,
+        sku: p.sku,
+        currentProfit: currentOutcome.netProfit,
+        recommendedProfit,
+        improvement: recommendedProfit - currentOutcome.netProfit,
+      };
+    });
 
-  // Highest risk products
+  // Highest risk products - uses stored PriceOutcome data
   const riskProducts = [...filtered]
-    .sort((a, b) => a.calculatedMarginPercent - b.calculatedMarginPercent)
+    .sort((a, b) => getOutcome(a).effectiveMarginPercent - getOutcome(b).effectiveMarginPercent)
     .slice(0, 5);
 
   return (
@@ -202,9 +287,9 @@ export function DashboardPage() {
         <SummaryCard title="Products Analysed" value={String(productsAnalysed)} icon={BarChart3} color="emerald" />
         <SummaryCard title="Avg Existing Margin" value={formatPercentage(avgExistingMargin)} icon={TrendingUp} color={avgExistingMargin >= 0 ? 'emerald' : 'red'} />
         <SummaryCard title="Avg Recommended Margin" value={formatPercentage(avgRecommendedMargin)} icon={Target} color="emerald" />
-        <SummaryCard title="Current Est. Profit" value={formatCurrency(currentEstimatedProfit, businessSettings.currencyCode, { compact: true })} icon={DollarSign} color={currentEstimatedProfit >= 0 ? 'emerald' : 'red'} />
-        <SummaryCard title="Recommended Est. Profit" value={formatCurrency(recommendedEstimatedProfit, businessSettings.currencyCode, { compact: true })} icon={TrendingUp} color="emerald" />
-        <SummaryCard title="Potential Improvement" value={formatCurrency(potentialImprovement, businessSettings.currencyCode, { compact: true })} icon={potentialImprovement >= 0 ? ArrowUpRight : ArrowDownRight} color={potentialImprovement >= 0 ? 'emerald' : 'red'} />
+        <SummaryCard title={`Current Est. Profit (${profitLabel})`} value={formatCurrency(currentEstimatedProfitPerUnit, businessSettings.currencyCode, { compact: true })} icon={DollarSign} color={currentEstimatedProfitPerUnit >= 0 ? 'emerald' : 'red'} />
+        <SummaryCard title={`Recommended Est. Profit (${profitLabel})`} value={formatCurrency(recommendedEstimatedProfitPerUnit, businessSettings.currencyCode, { compact: true })} icon={TrendingUp} color="emerald" />
+        <SummaryCard title={`Potential Improvement (${profitLabel})`} value={formatCurrency(potentialImprovement, businessSettings.currencyCode, { compact: true })} icon={potentialImprovement >= 0 ? ArrowUpRight : ArrowDownRight} color={potentialImprovement >= 0 ? 'emerald' : 'red'} />
         <SummaryCard title="Loss-making Products" value={String(lossMaking)} icon={ShieldAlert} color={lossMaking > 0 ? 'red' : 'emerald'} />
       </div>
 
@@ -296,7 +381,7 @@ export function DashboardPage() {
         <div>
           <div className="mb-4">
             <h2 className="text-lg font-semibold text-slate-800">Highest Improvement Opportunities</h2>
-            <p className="text-sm text-slate-500">Top products with the largest profit improvement potential</p>
+            <p className="text-sm text-slate-500">Top products with the largest profit improvement potential (per unit)</p>
           </div>
           <Card className="shadow-md border-0 overflow-hidden">
             <CardContent className="p-0">
@@ -305,9 +390,9 @@ export function DashboardPage() {
                   <TableRow className="bg-slate-50 hover:bg-slate-50">
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Product</TableHead>
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">SKU</TableHead>
-                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Current Profit</TableHead>
-                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Recommended Profit</TableHead>
-                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Improvement</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Current Profit/Unit</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Recommended Profit/Unit</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Improvement/Unit</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -347,33 +432,36 @@ export function DashboardPage() {
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Product</TableHead>
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">SKU</TableHead>
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Margin</TableHead>
-                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Profit</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Profit/Unit</TableHead>
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {riskProducts.map(p => (
-                    <TableRow
-                      key={p.id}
-                      className={`transition-colors ${
-                        p.calculatedMarginPercent < 0
-                          ? 'bg-red-50/40 hover:bg-red-50/60'
-                          : p.calculatedMarginPercent < 10
-                            ? 'bg-amber-50/30 hover:bg-amber-50/50'
-                            : 'hover:bg-emerald-50/30'
-                      }`}
-                    >
-                      <TableCell className="font-medium text-slate-800">{p.name}</TableCell>
-                      <TableCell className="text-slate-500">{p.sku}</TableCell>
-                      <TableCell className={`text-right font-semibold ${p.calculatedMarginPercent < 0 ? 'text-red-600' : p.calculatedMarginPercent < 10 ? 'text-amber-600' : 'text-slate-700'}`}>
-                        {formatPercentage(p.calculatedMarginPercent)}
-                      </TableCell>
-                      <TableCell className={`text-right font-semibold ${p.calculatedProfitPerUnit < 0 ? 'text-red-600' : 'text-slate-700'}`}>
-                        {formatCurrency(p.calculatedProfitPerUnit, businessSettings.currencyCode)}
-                      </TableCell>
-                      <TableCell><StatusBadge status={p.calculatedPricingStatus} /></TableCell>
-                    </TableRow>
-                  ))}
+                  {riskProducts.map(p => {
+                    const outcome = getOutcome(p);
+                    return (
+                      <TableRow
+                        key={p.id}
+                        className={`transition-colors ${
+                          outcome.effectiveMarginPercent < 0
+                            ? 'bg-red-50/40 hover:bg-red-50/60'
+                            : outcome.effectiveMarginPercent < 10
+                              ? 'bg-amber-50/30 hover:bg-amber-50/50'
+                              : 'hover:bg-emerald-50/30'
+                        }`}
+                      >
+                        <TableCell className="font-medium text-slate-800">{p.name}</TableCell>
+                        <TableCell className="text-slate-500">{p.sku}</TableCell>
+                        <TableCell className={`text-right font-semibold ${outcome.effectiveMarginPercent < 0 ? 'text-red-600' : outcome.effectiveMarginPercent < 10 ? 'text-amber-600' : 'text-slate-700'}`}>
+                          {formatPercentage(outcome.effectiveMarginPercent)}
+                        </TableCell>
+                        <TableCell className={`text-right font-semibold ${outcome.netProfit < 0 ? 'text-red-600' : 'text-slate-700'}`}>
+                          {formatCurrency(outcome.netProfit, businessSettings.currencyCode)}
+                        </TableCell>
+                        <TableCell><StatusBadge status={p.calculatedPricingStatus} /></TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>

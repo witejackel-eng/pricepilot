@@ -14,6 +14,7 @@ import { Separator } from '@/components/ui/separator';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { Bookmark, Plus, Copy, Edit, Trash2, RotateCcw, Download, ArrowLeftRight } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { PriceOutcome } from '@/lib/pricepilot/types';
 
 export function ScenariosPage() {
   const { scenarios, products, pricingRules, businessSettings, addScenario, updateScenario, deleteScenario, restoreScenario } = usePricePilotStore();
@@ -125,7 +126,8 @@ export function ScenariosPage() {
     );
   }
 
-  const comparison = compareIds ? computeComparison(
+  // Comparison using stored PriceOutcome data (no inline calculations)
+  const comparison = compareIds ? computeComparisonFromOutcomes(
     scenarios.find(s => s.id === compareIds[0]),
     scenarios.find(s => s.id === compareIds[1]),
     cc
@@ -307,23 +309,57 @@ function ComparisonItem({ label, valueA, valueB, diff }: { label: string; valueA
   );
 }
 
-function computeComparison(a: { snapshotProducts: { calculatedProfitPerUnit: number; calculatedMarginPercent: number; currentSellingPrice: number; calculatedPricingStatus: string }[] } | undefined, b: { snapshotProducts: { calculatedProfitPerUnit: number; calculatedMarginPercent: number; currentSellingPrice: number; calculatedPricingStatus: string }[] } | undefined, cc: string) {
+/**
+ * Compute comparison using stored PriceOutcome data.
+ * All values come from calculatedPriceOutcome on each product,
+ * NOT from inline simplified formulas.
+ */
+function computeComparisonFromOutcomes(
+  a: { snapshotProducts: { calculatedPriceOutcome?: PriceOutcome; calculatedProfitPerUnit: number; calculatedMarginPercent: number; currentSellingPrice: number; calculatedPricingStatus: string }[] } | undefined,
+  b: { snapshotProducts: { calculatedPriceOutcome?: PriceOutcome; calculatedProfitPerUnit: number; calculatedMarginPercent: number; currentSellingPrice: number; calculatedPricingStatus: string }[] } | undefined,
+  cc: string
+) {
   if (!a || !b) return null;
   const aProducts = a.snapshotProducts;
   const bProducts = b.snapshotProducts;
 
-  const aRevenue = aProducts.reduce((s, p) => s + p.currentSellingPrice, 0);
-  const bRevenue = bProducts.reduce((s, p) => s + p.currentSellingPrice, 0);
-  const aProfit = aProducts.reduce((s, p) => s + p.calculatedProfitPerUnit, 0);
-  const bProfit = bProducts.reduce((s, p) => s + p.calculatedProfitPerUnit, 0);
-  const aMargin = aProducts.length > 0 ? aProducts.reduce((s, p) => s + p.calculatedMarginPercent, 0) / aProducts.length : 0;
-  const bMargin = bProducts.length > 0 ? bProducts.reduce((s, p) => s + p.calculatedMarginPercent, 0) / bProducts.length : 0;
-  const aUnprofitable = aProducts.filter(p => p.calculatedProfitPerUnit < 0).length;
-  const bUnprofitable = bProducts.filter(p => p.calculatedProfitPerUnit < 0).length;
+  // Helper: get outcome data from stored PriceOutcome or fallback to stored fields
+  const getOutcomeData = (p: { calculatedPriceOutcome?: PriceOutcome; calculatedProfitPerUnit: number; calculatedMarginPercent: number; currentSellingPrice: number }) => {
+    if (p.calculatedPriceOutcome) {
+      return {
+        netProfit: p.calculatedPriceOutcome.netProfit,
+        margin: p.calculatedPriceOutcome.effectiveMarginPercent,
+        revenue: p.calculatedPriceOutcome.customerPayableAmount,
+      };
+    }
+    return {
+      netProfit: p.calculatedProfitPerUnit,
+      margin: p.calculatedMarginPercent,
+      revenue: p.currentSellingPrice,
+    };
+  };
+
+  const aOutcomes = aProducts.map(getOutcomeData);
+  const bOutcomes = bProducts.map(getOutcomeData);
+
+  const aRevenue = aOutcomes.reduce((s, o) => s + o.revenue, 0);
+  const bRevenue = bOutcomes.reduce((s, o) => s + o.revenue, 0);
+  const aProfit = aOutcomes.reduce((s, o) => s + o.netProfit, 0);
+  const bProfit = bOutcomes.reduce((s, o) => s + o.netProfit, 0);
+  const aMargin = aOutcomes.length > 0 ? aOutcomes.reduce((s, o) => s + o.margin, 0) / aOutcomes.length : 0;
+  const bMargin = bOutcomes.length > 0 ? bOutcomes.reduce((s, o) => s + o.margin, 0) / bOutcomes.length : 0;
+  const aUnprofitable = aProducts.filter(p => {
+    const d = getOutcomeData(p);
+    return d.netProfit < 0;
+  }).length;
+  const bUnprofitable = bProducts.filter(p => {
+    const d = getOutcomeData(p);
+    return d.netProfit < 0;
+  }).length;
 
   return [
-    { label: 'Total Revenue', valueA: formatCurrency(aRevenue, cc), valueB: formatCurrency(bRevenue, cc), diff: formatCurrency(bRevenue - aRevenue, cc) },
-    { label: 'Total Profit', valueA: formatCurrency(aProfit, cc), valueB: formatCurrency(bProfit, cc), diff: formatCurrency(bProfit - aProfit, cc) },
+    { label: 'Total Revenue (per unit)', valueA: formatCurrency(aRevenue, cc), valueB: formatCurrency(bRevenue, cc), diff: formatCurrency(bRevenue - aRevenue, cc) },
+    { label: 'Total Profit (per unit)', valueA: formatCurrency(aProfit, cc), valueB: formatCurrency(bProfit, cc), diff: formatCurrency(bProfit - aProfit, cc) },
     { label: 'Avg Margin', valueA: formatPercentage(aMargin), valueB: formatPercentage(bMargin), diff: formatPercentage(bMargin - aMargin) },
     { label: 'Products', valueA: String(aProducts.length), valueB: String(bProducts.length), diff: String(bProducts.length - aProducts.length) },
     { label: 'Unprofitable Products', valueA: String(aUnprofitable), valueB: String(bUnprofitable), diff: String(bUnprofitable - aUnprofitable) },

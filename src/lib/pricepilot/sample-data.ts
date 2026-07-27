@@ -13,7 +13,7 @@
  * and should be populated by running the calculation engine.
  */
 
-import { Product, PricingRule, CompetitorPrice, SalesChannel, TaxTreatment } from './types';
+import { Product, PricingRule, CompetitorPrice, SalesChannel, TaxTreatment, InputTaxCreditRecoverable, PurchaseCostTaxMode, RecommendationMode, PriceApprovalStatus } from './types';
 
 // ============================================================
 // Helper for generating IDs
@@ -23,11 +23,31 @@ function generateId(index: number): string {
   return `sample-prod-${index.toString().padStart(3, '0')}`;
 }
 
+/** Default values for the new Phase 2 engine fields */
+const ENGINE_DEFAULTS = {
+  purchaseTaxRatePercent: 18,
+  inputTaxCreditRecoverable: 'recoverable' as InputTaxCreditRecoverable,
+  purchaseCostTaxMode: 'including-tax' as PurchaseCostTaxMode,
+  selectedRecommendationMode: 'balanced' as RecommendationMode,
+  customRecommendedPrice: 0,
+  finalApprovedPrice: 0,
+  priceApprovalStatus: 'none' as PriceApprovalStatus,
+  approvedAt: '',
+  quantity: 50,
+  monthlyUnitsSold: 0,
+  expectedMonthlyUnits: 0,
+};
+
+/** Apply the new engine fields to a partial product definition */
+function withEngineFields(base: Omit<Product, keyof typeof ENGINE_DEFAULTS>): Product {
+  return { ...base, ...ENGINE_DEFAULTS } as Product;
+}
+
 // ============================================================
 // CCTV Cameras
 // ============================================================
 
-const cctvCamera1: Product = {
+const cctvCamera1 = withEngineFields({
   id: generateId(1),
   sku: 'CCTV-HD-360',
   name: 'SecureView 360° HD Dome Camera',
@@ -80,16 +100,16 @@ const cctvCamera1: Product = {
   calculatedTotalFixedFees: 0,
   calculatedPricingStatus: 'missing-data',
   calculatedProfitabilityMeter: 'loss',
-  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+  recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
 
   // Metadata
   createdAt: '2024-10-01T10:00:00Z',
   updatedAt: '2024-12-01T10:00:00Z',
   isApproved: false,
   notes: 'Fictional product for demo purposes. Popular mid-range dome camera.',
-};
+});
 
-const cctvCamera2: Product = {
+const cctvCamera2 = withEngineFields({
   id: generateId(2),
   sku: 'CCTV-BT-1080',
   name: 'TrailEyes 1080p Bullet Camera',
@@ -137,15 +157,15 @@ const cctvCamera2: Product = {
   calculatedTotalFixedFees: 0,
   calculatedPricingStatus: 'missing-data',
   calculatedProfitabilityMeter: 'loss',
-  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+  recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
 
   createdAt: '2024-10-02T10:00:00Z',
   updatedAt: '2024-12-01T10:00:00Z',
   isApproved: false,
   notes: 'Fictional product. Entry-level bullet camera for outdoor use.',
-};
+});
 
-const cctvCamera3: Product = {
+const cctvCamera3 = withEngineFields({
   id: generateId(3),
   sku: 'CCTV-PTZ-4K',
   name: 'OmniWatch 4K PTZ Camera',
@@ -195,19 +215,19 @@ const cctvCamera3: Product = {
   calculatedTotalFixedFees: 0,
   calculatedPricingStatus: 'missing-data',
   calculatedProfitabilityMeter: 'loss',
-  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+  recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
 
   createdAt: '2024-10-03T10:00:00Z',
   updatedAt: '2024-12-01T10:00:00Z',
   isApproved: false,
   notes: 'Fictional product. High-end PTZ camera for enterprise use. Includes 5% custom duty.',
-};
+});
 
 // ============================================================
 // Biometric Devices
 // ============================================================
 
-const biometric1: Product = {
+const biometric1 = withEngineFields({
   id: generateId(4),
   sku: 'BIO-FP-PRO',
   name: 'IdentiTouch Pro Fingerprint Scanner',
@@ -255,15 +275,15 @@ const biometric1: Product = {
   calculatedTotalFixedFees: 0,
   calculatedPricingStatus: 'missing-data',
   calculatedProfitabilityMeter: 'loss',
-  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+  recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
 
   createdAt: '2024-10-04T10:00:00Z',
   updatedAt: '2024-12-01T10:00:00Z',
   isApproved: false,
   notes: 'Fictional product. Professional fingerprint scanner for office security.',
-};
+});
 
-const biometric2: Product = {
+const biometric2 = withEngineFields({
   id: generateId(5),
   sku: 'BIO-FACE-ULTRA',
   name: 'FaceGate Ultra Facial Recognition Terminal',
@@ -312,19 +332,19 @@ const biometric2: Product = {
   calculatedTotalFixedFees: 0,
   calculatedPricingStatus: 'missing-data',
   calculatedProfitabilityMeter: 'loss',
-  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+  recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
 
   createdAt: '2024-10-05T10:00:00Z',
   updatedAt: '2024-12-01T10:00:00Z',
   isApproved: false,
   notes: 'Fictional product. Advanced facial recognition with 10% custom duty (imported component).',
-};
+});
 
 // ============================================================
 // Headsets
 // ============================================================
 
-const headset1: Product = {
+const headset1 = withEngineFields({
   id: generateId(6),
   sku: 'HS-NC-500',
   name: 'CallPro 500 Noise-Cancelling Headset',
@@ -373,15 +393,15 @@ const headset1: Product = {
   calculatedTotalFixedFees: 0,
   calculatedPricingStatus: 'missing-data',
   calculatedProfitabilityMeter: 'loss',
-  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+  recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
 
   createdAt: '2024-10-06T10:00:00Z',
   updatedAt: '2024-12-01T10:00:00Z',
   isApproved: false,
   notes: 'Fictional product. Popular call-centre headset with higher return rate (sizing issues).',
-};
+});
 
-const headset2: Product = {
+const headset2 = withEngineFields({
   id: generateId(7),
   sku: 'HS-BT-LITE',
   name: 'EchoLite Bluetooth Earhook Headset',
@@ -429,19 +449,19 @@ const headset2: Product = {
   calculatedTotalFixedFees: 0,
   calculatedPricingStatus: 'missing-data',
   calculatedProfitabilityMeter: 'loss',
-  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+  recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
 
   createdAt: '2024-10-07T10:00:00Z',
   updatedAt: '2024-12-01T10:00:00Z',
   isApproved: false,
   notes: 'Fictional product. Budget earhook headset. Higher return and damage rates typical for low-cost electronics.',
-};
+});
 
 // ============================================================
 // Network Equipment
 // ============================================================
 
-const network1: Product = {
+const network1 = withEngineFields({
   id: generateId(8),
   sku: 'NET-SW-24P',
   name: 'LinkForge 24-Port Managed Switch',
@@ -489,15 +509,15 @@ const network1: Product = {
   calculatedTotalFixedFees: 0,
   calculatedPricingStatus: 'missing-data',
   calculatedProfitabilityMeter: 'loss',
-  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+  recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
 
   createdAt: '2024-10-08T10:00:00Z',
   updatedAt: '2024-12-01T10:00:00Z',
   isApproved: false,
   notes: 'Fictional product. Enterprise-grade managed switch. 2% freight on purchase cost.',
-};
+});
 
-const network2: Product = {
+const network2 = withEngineFields({
   id: generateId(9),
   sku: 'NET-AP-W6',
   name: 'AirWave Wi-Fi 6 Access Point',
@@ -546,15 +566,15 @@ const network2: Product = {
   calculatedTotalFixedFees: 0,
   calculatedPricingStatus: 'missing-data',
   calculatedProfitabilityMeter: 'loss',
-  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+  recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
 
   createdAt: '2024-10-09T10:00:00Z',
   updatedAt: '2024-12-01T10:00:00Z',
   isApproved: false,
   notes: 'Fictional product. Wi-Fi 6 AP with 1.5% freight on purchase cost.',
-};
+});
 
-const network3: Product = {
+const network3 = withEngineFields({
   id: generateId(10),
   sku: 'NET-RTR-BIZ',
   name: 'LinkForge Business VPN Router',
@@ -602,19 +622,19 @@ const network3: Product = {
   calculatedTotalFixedFees: 0,
   calculatedPricingStatus: 'missing-data',
   calculatedProfitabilityMeter: 'loss',
-  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+  recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
 
   createdAt: '2024-10-10T10:00:00Z',
   updatedAt: '2024-12-01T10:00:00Z',
   isApproved: false,
   notes: 'Fictional product. Business VPN router with 2.5% freight on purchase cost.',
-};
+});
 
 // ============================================================
 // Office Electronics
 // ============================================================
 
-const office1: Product = {
+const office1 = withEngineFields({
   id: generateId(11),
   sku: 'OFC-PRN-MFP',
   name: 'DocuPrint 4-in-1 MFP Printer',
@@ -663,15 +683,15 @@ const office1: Product = {
   calculatedTotalFixedFees: 0,
   calculatedPricingStatus: 'missing-data',
   calculatedProfitabilityMeter: 'loss',
-  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+  recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
 
   createdAt: '2024-10-11T10:00:00Z',
   updatedAt: '2024-12-01T10:00:00Z',
   isApproved: false,
   notes: 'Fictional product. Sold on own website (no marketplace fee). Customer pays ₹500 shipping. 3% freight on purchase.',
-};
+});
 
-const office2: Product = {
+const office2 = withEngineFields({
   id: generateId(12),
   sku: 'OFC-PB-SHRED',
   name: 'ShredGuard Auto Paper Shredder',
@@ -719,13 +739,13 @@ const office2: Product = {
   calculatedTotalFixedFees: 0,
   calculatedPricingStatus: 'missing-data',
   calculatedProfitabilityMeter: 'loss',
-  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+  recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
 
   createdAt: '2024-10-12T10:00:00Z',
   updatedAt: '2024-12-01T10:00:00Z',
   isApproved: false,
   notes: 'Fictional product. Cross-cut shredder with 1% freight on purchase cost.',
-};
+});
 
 // ============================================================
 // All Sample Products

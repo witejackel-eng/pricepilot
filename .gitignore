@@ -52,3 +52,16 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# Tool results
+/tool-results/
+
+# Agent context
+/agent-ctx/
+
+# Screenshots
+screenshot*.png
+
+# Upload/Download
+/upload/
+/download/

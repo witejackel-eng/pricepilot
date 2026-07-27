@@ -14,24 +14,24 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Z.ai Code Scaffold - AI-Powered Development",
-  description: "Modern Next.js scaffold optimized for AI-powered development with Z.ai. Built with TypeScript, Tailwind CSS, and shadcn/ui.",
-  keywords: ["Z.ai", "Next.js", "TypeScript", "Tailwind CSS", "shadcn/ui", "AI development", "React"],
-  authors: [{ name: "Z.ai Team" }],
+  title: "PricePilot — Product Pricing and Profit Optimiser",
+  description: "Import product spreadsheets, calculate landed costs, compare pricing strategies and export profitable selling prices privately in your browser.",
+  keywords: ["PricePilot", "pricing", "profit", "margin", "markup", "GST", "landed cost", "e-commerce", "product pricing"],
+  authors: [{ name: "PricePilot Team" }],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: "/favicon.ico",
   },
   openGraph: {
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
-    url: "https://chat.z.ai",
-    siteName: "Z.ai",
+    title: "PricePilot — Product Pricing and Profit Optimiser",
+    description: "Private, browser-based product pricing and profit analysis",
+    url: "https://pricepilot.app",
+    siteName: "PricePilot",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
+    title: "PricePilot",
+    description: "Private, browser-based product pricing and profit analysis",
   },
 };
 

@@ -79,6 +79,27 @@ export type ImportStep =
 /** Warning severity levels */
 export type WarningSeverity = 'info' | 'warning' | 'error' | 'critical';
 
+/** Pricing confidence levels */
+export type PricingConfidence = 'high' | 'medium' | 'low';
+
+/** Price approval status */
+export type PriceApprovalStatus = 'none' | 'selected' | 'approved';
+
+/** Product lifecycle status */
+export type LifecycleStatus =
+  | 'active'         // Fully active product
+  | 'draft'          // In draft / not yet launched
+  | 'missing-data'   // Missing critical data fields
+  | 'needs-review'   // Flagged for manual review
+  | 'approved'       // Price approved through workflow
+  | 'archived';      // Archived / no longer sold
+
+/** Input tax credit recoverability */
+export type InputTaxCreditRecoverable = 'recoverable' | 'not-recoverable' | 'partially-recoverable';
+
+/** Purchase cost tax mode */
+export type PurchaseCostTaxMode = 'including-tax' | 'excluding-tax';
+
 /** Export preset types */
 export type ExportPreset =
   | 'full'           // Full product data with all calculations
@@ -173,8 +194,36 @@ export interface Product {
   calculatedPricingStatus: PricingStatus;
   calculatedProfitabilityMeter: ProfitabilityMeter;
 
+  // --- Full PriceOutcome (populated by engine) ---
+  calculatedPriceOutcome?: PriceOutcome;
+
   // --- Recommendations (populated by engine) ---
   recommendedPrices: RecommendedPrices;
+
+  // --- Purchase-Side Tax ---
+  purchaseTaxRatePercent: number;       // Purchase-side tax rate (%) - default 0
+  inputTaxCreditRecoverable: InputTaxCreditRecoverable; // Whether input tax is recoverable
+  purchaseCostTaxMode: PurchaseCostTaxMode;             // Whether purchaseCost includes tax
+
+  // --- Recommendation Selection ---
+  selectedRecommendationMode: RecommendationMode;  // Which recommendation mode was selected
+  customRecommendedPrice: number;                   // Custom recommended price (if mode = custom)
+  finalApprovedPrice: number;                       // Final approved price after workflow
+  priceApprovalStatus: PriceApprovalStatus;         // Approval workflow status
+  approvedAt: string;                               // ISO date when price was approved
+
+  // --- Inventory & Sales ---
+  quantity: number;                 // Current stock quantity (default 0)
+  monthlyUnitsSold: number;         // Units sold last month (default 0)
+  expectedMonthlyUnits: number;     // Expected monthly unit sales (default 0)
+
+  // --- Import Tracking ---
+  importBatchId?: string;           // Batch ID if imported
+  importSourceFileName?: string;    // Original file name if imported
+  importOriginalRowNumber?: number; // Row number in original file if imported
+
+  // --- Lifecycle ---
+  lifecycleStatus: LifecycleStatus;  // Product lifecycle state
 
   // --- Metadata ---
   createdAt: string;           // ISO date string
@@ -191,11 +240,13 @@ export interface CompetitorPrice {
 }
 
 export interface RecommendedPrices {
+  breakEven: number;           // Break-even price (net profit = 0)
   minimum: number;             // Minimum safe price
   competitive: number;         // Competitor-aligned price
   balanced: number;            // Balanced price
   premium: number;             // Premium / high-margin price
   custom?: number;             // Custom target price (if custom mode)
+  confidence?: PricingConfidence; // Confidence level of recommendations
 }
 
 // ============================================================
@@ -286,6 +337,9 @@ export interface BusinessSettings {
   strongMarginThresholdPercent: number; // Above this = strong
   aboveMarketThresholdPercent: number;  // % above competitor avg = "above market"
   
+  // --- Minimum Profit ---
+  minimumProfitPerUnit: number;         // Minimum absolute profit per unit required
+
   // --- Onboarding ---
   onboardingCompleted: boolean;
   onboardingStep: number;
@@ -365,6 +419,95 @@ export interface ImportError {
 }
 
 // ============================================================
+// Import Cleaning Types (Phase 5)
+// ============================================================
+
+/** Percentage format interpretation mode */
+export type PercentFormat =
+  | 'auto'                // Detect automatically from column distribution
+  | 'whole-percentages'   // 18 means 18%
+  | 'decimal-fractions';  // 0.18 means 18%
+
+/** Cleaning options that control how imported data is processed */
+export interface CleaningOptions {
+  stripCurrencySymbols: boolean;     // Strip currency symbols (₹, $, £, €, ¥)
+  stripGroupingCommas: boolean;      // Remove grouping commas (1,00,000 → 100000)
+  parsePercentages: boolean;         // Parse percentage values (18, 18%, 0.18)
+  skipBlankRequired: boolean;        // Skip rows with blank required fields
+  skipDuplicateSku: boolean;         // Skip duplicate SKU rows (vs update existing)
+  percentFormat: PercentFormat;      // How to interpret percentage values
+}
+
+/** A row that was skipped, duplicated, or flagged during import cleaning */
+export interface ImportRowIssue {
+  originalRowNumber: number;
+  reason: string;
+  originalData: Record<string, string>;
+}
+
+/** A product draft created from an imported row, with import metadata */
+export interface ImportedProductDraft {
+  name?: string;
+  sku?: string;
+  category?: string;
+  brand?: string;
+  purchaseCost?: number;
+  currentSellingPrice?: number;
+  shippingCost?: number;
+  packagingCost?: number;
+  handlingCost?: number;
+  otherCosts?: number;
+  returnRatePercent?: number;
+  damageRatePercent?: number;
+  marketplaceFeePercent?: number;
+  paymentFeePercent?: number;
+  taxRatePercent?: number;
+  description?: string;
+  competitorPrices?: Array<{ name: string; price: number }>;
+  quantity?: number;
+  monthlyUnitsSold?: number;
+  // Import metadata
+  importBatchId: string;
+  importSourceFileName: string;
+  importOriginalRowNumber: number;
+  importOriginalData: Record<string, string>;
+  importSourceSheet?: string;
+}
+
+/** Statistics about the import cleaning process */
+export interface ImportStatistics {
+  totalRows: number;
+  validRows: number;
+  skippedRows: number;
+  duplicateRows: number;
+  invalidRows: number;
+  missingCostRows: number;
+  missingPriceRows: number;
+  invalidPercentRows: number;
+}
+
+/** Unified result from the import cleaning engine */
+export interface CleanImportResult {
+  cleanedProducts: ImportedProductDraft[];
+  skippedRows: ImportRowIssue[];
+  duplicateRows: ImportRowIssue[];
+  invalidRows: ImportRowIssue[];
+  warnings: ImportRowIssue[];
+  statistics: ImportStatistics;
+}
+
+export function createDefaultCleaningOptions(): CleaningOptions {
+  return {
+    stripCurrencySymbols: true,
+    stripGroupingCommas: true,
+    parsePercentages: true,
+    skipBlankRequired: true,
+    skipDuplicateSku: true,
+    percentFormat: 'auto',
+  };
+}
+
+// ============================================================
 // App Settings
 // ============================================================
 
@@ -409,6 +552,65 @@ export interface Warning {
   field?: string;               // Product field that triggered the warning
   value?: number;               // Numeric value related to the warning
   createdAt: string;
+}
+
+// ============================================================
+// Pricing Engine Types
+// ============================================================
+
+/** Engine-level pricing warning (distinct from app-level Warning) */
+export interface PricingWarning {
+  type: string;                 // Warning type key (e.g. 'missing-cost', 'impossible-margin')
+  severity: WarningSeverity;
+  message: string;              // Human-readable message
+  detail?: string;              // Additional detail
+  suggestion?: string;          // Suggested action
+  field?: string;               // Product field that triggered the warning
+  value?: number;               // Numeric value related to the warning
+}
+
+/** The complete outcome of evaluating a price through the canonical engine */
+export interface PriceOutcome {
+  enteredSellingPrice: number;
+  customerPayableAmount: number;
+  netSalesRevenue: number;
+  outputTax: number;
+  recoverableInputTax: number;
+  nonRecoverableInputTax: number;
+  purchaseCost: number;
+  fixedProductCosts: number;
+  expectedReturnCost: number;
+  expectedDamageCost: number;
+  totalLandedCost: number;
+  marketplacePercentageFee: number;
+  marketplaceFixedFee: number;
+  paymentPercentageFee: number;
+  paymentFixedFee: number;
+  otherPercentageFees: number;
+  otherFixedFees: number;
+  totalSellingFees: number;
+  totalCostPerSuccessfulSale: number;
+  netProfit: number;
+  effectiveMarginPercent: number;
+  markupPercent: number;
+  isProfitable: boolean;
+  isBreakEven: boolean;
+  satisfiesMinimumMargin: boolean;
+  satisfiesTargetMargin: boolean;
+  satisfiesMinimumProfit: boolean;
+  warnings: PricingWarning[];
+  confidence: PricingConfidence;
+}
+
+/** Resolved pricing policy with source tracing */
+export interface ResolvedPricingPolicy {
+  targetMarginPercent: number;
+  minimumMarginPercent: number;
+  premiumMarginPercent: number;
+  minimumProfitPerUnit: number;
+  roundingRule: RoundingRule;
+  // Source tracing - shows which rule provided each value
+  sourceTrace: Record<string, { value: number | string; source: string }>;
 }
 
 // ============================================================
@@ -457,6 +659,7 @@ export function createDefaultBusinessSettings(): BusinessSettings {
     healthyMarginMaxPercent: 40,
     strongMarginThresholdPercent: 40,
     aboveMarketThresholdPercent: 30,
+    minimumProfitPerUnit: 0,
     onboardingCompleted: false,
     onboardingStep: 0,
     createdAt: new Date().toISOString(),
@@ -506,7 +709,19 @@ export function createDefaultProduct(): Partial<Product> {
     calculatedTotalFixedFees: 0,
     calculatedPricingStatus: 'missing-data',
     calculatedProfitabilityMeter: 'loss',
-    recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+    purchaseTaxRatePercent: 0,
+    inputTaxCreditRecoverable: 'not-recoverable',
+    purchaseCostTaxMode: 'excluding-tax',
+    selectedRecommendationMode: 'balanced',
+    customRecommendedPrice: 0,
+    finalApprovedPrice: 0,
+    priceApprovalStatus: 'none',
+    approvedAt: '',
+    quantity: 0,
+    monthlyUnitsSold: 0,
+    expectedMonthlyUnits: 0,
+    lifecycleStatus: 'active',
+    recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     isApproved: false,
