@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from './status-badge';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import {
@@ -248,6 +249,38 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                 </CardContent>
               </Card>
             </div>
+
+            {/* Approved price card (if approved) */}
+
+            {/* Feature 5: Health Score progress bar */}
+            <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                    <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Health Score</span>
+                  </div>
+                  <span className={`text-lg font-bold ${
+                    product.calculatedHealthScore >= 70 ? 'text-emerald-600 dark:text-emerald-400' :
+                    product.calculatedHealthScore >= 40 ? 'text-amber-600 dark:text-amber-400' :
+                    'text-red-600 dark:text-red-400'
+                  }`}>{product.calculatedHealthScore}/100</span>
+                </div>
+                <Progress
+                  value={product.calculatedHealthScore}
+                  className={`h-3 ${
+                    product.calculatedHealthScore >= 70 ? 'bg-emerald-100 dark:bg-emerald-900/30 [&>[data-slot=progress-indicator]]:bg-emerald-500' :
+                    product.calculatedHealthScore >= 40 ? 'bg-amber-100 dark:bg-amber-900/30 [&>[data-slot=progress-indicator]]:bg-amber-500' :
+                    'bg-red-100 dark:bg-red-900/30 [&>[data-slot=progress-indicator]]:bg-red-500'
+                  }`}
+                />
+                <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+                  <span>Margin health: {product.calculatedPricingStatus === 'loss-making' ? '0' : product.calculatedPricingStatus === 'below-break-even' ? '10' : product.calculatedPricingStatus === 'low-margin' ? '20' : product.calculatedPricingStatus === 'healthy' ? '30' : product.calculatedPricingStatus === 'high-margin' ? '40' : '—'}/40</span>
+                  <span>Cost coverage: {product.calculatedMarginPercent >= 25 ? '30' : product.calculatedMarginPercent > 0 ? Math.round((product.calculatedMarginPercent / 25) * 30) : '0'}/30</span>
+                  <span>Price alignment: —/30</span>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Approved price card (if approved) */}
             {product.priceApprovalStatus === 'approved' && product.finalApprovedPrice > 0 && (

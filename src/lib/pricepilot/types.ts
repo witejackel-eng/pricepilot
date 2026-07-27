@@ -193,6 +193,7 @@ export interface Product {
   calculatedTotalFixedFees: number;
   calculatedPricingStatus: PricingStatus;
   calculatedProfitabilityMeter: ProfitabilityMeter;
+  calculatedHealthScore: number;  // 0-100 health score summarising overall pricing health
 
   // --- Full PriceOutcome (populated by engine) ---
   calculatedPriceOutcome?: PriceOutcome;
@@ -827,6 +828,7 @@ export function createDefaultProduct(): Partial<Product> {
     calculatedTotalFixedFees: 0,
     calculatedPricingStatus: 'missing-data',
     calculatedProfitabilityMeter: 'loss',
+    calculatedHealthScore: 0,
     purchaseTaxRatePercent: 0,
     inputTaxCreditRecoverable: 'not-recoverable',
     inputTaxRecoverablePercent: 100,

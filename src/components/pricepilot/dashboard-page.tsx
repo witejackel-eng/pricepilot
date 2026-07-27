@@ -1,22 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { usePricePilotStore } from '@/store/pricepilot-store';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from './status-badge';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { toast } from 'sonner';
-import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target, RefreshCw, CheckCircle2, HeartPulse } from 'lucide-react';
 import {
   PieChart as RechartsPie,
   Pie,
   Cell,
   BarChart as RechartsBar,
   Bar,
+  AreaChart as RechartsArea,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
@@ -114,9 +117,15 @@ function getOutcome(p: { calculatedPriceOutcome?: PriceOutcome; calculatedMargin
 }
 
 export function DashboardPage() {
-  const { products, businessSettings, setCurrentView, loadSampleData, recentlyViewedIds, recalculateProducts, bulkApprovePrices, setInitialFilterTab } = usePricePilotStore();
+  const { products, businessSettings, setCurrentView, loadSampleData, recentlyViewedIds, recalculateProducts, bulkApprovePrices, setInitialFilterTab, onboardingCompleted } = usePricePilotStore();
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterBrand, setFilterBrand] = useState('all');
+  const [showSkeleton, setShowSkeleton] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSkeleton(false), 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const categories = [...new Set(products.map(p => p.category))];
   const brands = [...new Set(products.map(p => p.brand))];
@@ -126,6 +135,46 @@ export function DashboardPage() {
     if (filterBrand !== 'all' && p.brand !== filterBrand) return false;
     return true;
   });
+
+  // Show skeleton placeholders on initial load
+  if (showSkeleton && products.length === 0 && !onboardingCompleted) {
+    return (
+      <div className="space-y-8 bg-gradient-to-b from-slate-50/50 to-white min-h-screen p-1">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+          <div>
+            <Skeleton className="h-8 w-40 bg-emerald-100/60" />
+            <Skeleton className="h-4 w-64 mt-2 bg-emerald-50/60" />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Card key={i} className="shadow-md border-0 overflow-hidden bg-gradient-to-br from-emerald-50/40 via-emerald-25/20 to-white border-l-4 border-l-emerald-300">
+              <div className="h-1 bg-gradient-to-r from-emerald-400 to-emerald-200" />
+              <CardContent className="p-4 pt-3">
+                <div className="flex items-center gap-3 mb-2">
+                  <Skeleton className="h-10 w-10 rounded-full bg-emerald-200/70" />
+                  <Skeleton className="h-4 w-28 bg-emerald-100/50" />
+                </div>
+                <Skeleton className="h-8 w-24 bg-emerald-100/40" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i} className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-emerald-50/20 to-white">
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-32 bg-emerald-100/50" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-[280px] w-full bg-emerald-50/30 rounded-lg" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (products.length === 0) {
     return (
@@ -198,6 +247,11 @@ export function DashboardPage() {
   const potentialImprovement = recommendedEstimatedProfitPerUnit - currentEstimatedProfitPerUnit;
   const lossMaking = filtered.filter(p => p.calculatedPricingStatus === 'loss-making' || p.calculatedPricingStatus === 'below-break-even').length;
 
+  // Feature 5: Average Health Score
+  const avgHealthScore = filtered.length > 0
+    ? Math.round(filtered.reduce((sum, p) => sum + p.calculatedHealthScore, 0) / filtered.length)
+    : 0;
+
   // Profitability distribution for pie chart
   const statusGroups = filtered.reduce<Record<string, number>>((acc, p) => {
     const status = p.calculatedPricingStatus;
@@ -239,6 +293,24 @@ export function DashboardPage() {
       return s + (recPrice > 0 ? ((recPrice - tlc) / recPrice) * 100 : 0);
     }, 0) / catProducts.length;
     return { category: cat, existing: Math.round(avgExist * 10) / 10, recommended: Math.round(avgRec * 10) / 10 };
+  });
+
+  // Feature 3: Cost Breakdown Area Chart - aggregate costs by category
+  const costBreakdownByCategory = categories.map(cat => {
+    const catProducts = filtered.filter(p => p.category === cat);
+    const totalPurchase = catProducts.reduce((s, p) => s + p.purchaseCost, 0);
+    const totalShipping = catProducts.reduce((s, p) => s + p.shippingCost, 0);
+    const totalPackaging = catProducts.reduce((s, p) => s + p.packagingCost, 0);
+    const totalHandling = catProducts.reduce((s, p) => s + p.handlingCost, 0);
+    const totalOther = catProducts.reduce((s, p) => s + p.otherCosts, 0);
+    return {
+      category: cat,
+      PurchaseCost: Math.round(totalPurchase * 100) / 100,
+      Shipping: Math.round(totalShipping * 100) / 100,
+      Packaging: Math.round(totalPackaging * 100) / 100,
+      Handling: Math.round(totalHandling * 100) / 100,
+      OtherCosts: Math.round(totalOther * 100) / 100,
+    };
   });
 
   // Top 5 improvement opportunities using stored PriceOutcome data
@@ -379,6 +451,15 @@ export function DashboardPage() {
         <SummaryCard title={`Recommended Est. Profit (${profitLabel})`} value={formatCurrency(recommendedEstimatedProfitPerUnit, businessSettings.currencyCode, { compact: true })} icon={TrendingUp} color="emerald" />
         <SummaryCard title={`Potential Improvement (${profitLabel})`} value={formatCurrency(potentialImprovement, businessSettings.currencyCode, { compact: true })} icon={potentialImprovement >= 0 ? ArrowUpRight : ArrowDownRight} color={potentialImprovement >= 0 ? 'emerald' : 'red'} />
         <SummaryCard title="Loss-making Products" value={String(lossMaking)} icon={ShieldAlert} color={lossMaking > 0 ? 'red' : 'emerald'} />
+        {/* Feature 5: Average Health Score */}
+        {productsAnalysed > 0 && (
+          <SummaryCard
+            title="Avg Health Score"
+            value={`${avgHealthScore}/100`}
+            icon={HeartPulse}
+            color={avgHealthScore >= 70 ? 'emerald' : avgHealthScore >= 40 ? 'amber' : 'red'}
+          />
+        )}
       </div>
 
       {/* Charts Section */}
@@ -484,6 +565,32 @@ export function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Feature 3: Cost Breakdown Area Chart */}
+        {costBreakdownByCategory.length > 0 && (
+          <Card className="shadow-md border-0 overflow-hidden hover:shadow-lg transition-shadow duration-200 bg-gradient-to-b from-white to-emerald-50/20 mt-6">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold text-slate-700">Cost Breakdown by Category</CardTitle>
+              <CardDescription className="text-xs text-slate-400">Stacked area chart showing cost composition per category</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" minHeight={320}>
+                <RechartsArea data={costBreakdownByCategory}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="category" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
+                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={45} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend content={<CustomLegend />} />
+                  <Area type="monotone" dataKey="PurchaseCost" name="Purchase Cost" stackId="1" stroke="#059669" fill="#059669" fillOpacity={0.6} />
+                  <Area type="monotone" dataKey="Shipping" name="Shipping" stackId="1" stroke="#10b981" fill="#10b981" fillOpacity={0.5} />
+                  <Area type="monotone" dataKey="Packaging" name="Packaging" stackId="1" stroke="#34d399" fill="#34d399" fillOpacity={0.4} />
+                  <Area type="monotone" dataKey="Handling" name="Handling" stackId="1" stroke="#6ee7b7" fill="#6ee7b7" fillOpacity={0.3} />
+                  <Area type="monotone" dataKey="OtherCosts" name="Other Costs" stackId="1" stroke="#a7f3d0" fill="#a7f3d0" fillOpacity={0.2} />
+                </RechartsArea>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Top Improvement Opportunities */}

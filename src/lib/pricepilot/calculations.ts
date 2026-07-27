@@ -1153,6 +1153,7 @@ export function calculateProduct(
   const pricingStatus = calculatePricingStatus(product, settings, rules);
   const profitabilityMeter = calculateProfitabilityMeter(product, settings, rules);
   const recommendedPrices = calculateRecommendedPrices(product, settings, rules);
+  const healthScore = calculateHealthScore(product as Product, settings, rules);
 
   return {
     ...product,
@@ -1168,7 +1169,92 @@ export function calculateProduct(
     calculatedTotalFixedFees: roundTo2Decimals(totalFixedFees),
     calculatedPricingStatus: pricingStatus,
     calculatedProfitabilityMeter: profitabilityMeter,
+    calculatedHealthScore: healthScore,
     recommendedPrices,
     updatedAt: new Date().toISOString(),
   };
+}
+
+// ============================================================
+// Health Score Calculation (Feature 5)
+// ============================================================
+
+/**
+ * Calculate a health score (0-100) that summarizes a product's overall pricing health.
+ *
+ * Scoring breakdown:
+ *   - Margin health (0-40 points): based on calculatedPricingStatus
+ *     0 for loss-making, 10 for below-break-even, 20 for low-margin,
+ *     30 for healthy, 40 for high-margin, 25 for approved,
+ *     5 for above-market, 5 for missing-data, 15 for needs-review
+ *   - Cost coverage (0-30 points): how much of the selling price covers costs
+ *     30 if margin > 25%, decreasing linearly from 30 at 25% down to 0 at 0%
+ *   - Price alignment (0-30 points): how close current price is to recommended
+ *     30 if within 5% of recommended, decreasing with distance
+ *
+ * @param product  The fully-populated Product object (with calculated fields)
+ * @param settings Business settings (for minimum margin threshold)
+ * @param rules    Pricing rules
+ * @returns        Integer 0-100
+ */
+export function calculateHealthScore(
+  product: Product,
+  settings: BusinessSettings,
+  rules: PricingRule[]
+): number {
+  // 1. Margin Health (0-40)
+  let marginHealth = 0;
+  const status = product.calculatedPricingStatus;
+  switch (status) {
+    case 'loss-making':         marginHealth = 0; break;
+    case 'below-break-even':    marginHealth = 10; break;
+    case 'low-margin':          marginHealth = 20; break;
+    case 'healthy':             marginHealth = 30; break;
+    case 'high-margin':         marginHealth = 40; break;
+    case 'approved':            marginHealth = 25; break;
+    case 'above-market':        marginHealth = 5; break;
+    case 'missing-data':        marginHealth = 5; break;
+    case 'needs-review':        marginHealth = 15; break;
+    default:                    marginHealth = 10; break;
+  }
+
+  // 2. Cost Coverage (0-30) — based on margin percent
+  //    30 if margin > 25%, decreasing linearly from 30 at 25% down to 0 at 0% or negative
+  const margin = product.calculatedMarginPercent;
+  let costCoverage = 0;
+  if (margin >= 25) {
+    costCoverage = 30;
+  } else if (margin > 0) {
+    costCoverage = Math.round((margin / 25) * 30);
+  } else {
+    costCoverage = 0;
+  }
+
+  // 3. Price Alignment (0-30) — how close current price is to recommended (balanced)
+  let priceAlignment = 0;
+  const currentPrice = product.currentSellingPrice;
+  const recommendedPrice = product.recommendedPrices?.balanced ?? 0;
+
+  if (recommendedPrice > 0 && currentPrice > 0) {
+    const diffPercent = Math.abs((currentPrice - recommendedPrice) / recommendedPrice) * 100;
+    if (diffPercent <= 5) {
+      priceAlignment = 30;
+    } else if (diffPercent <= 10) {
+      priceAlignment = 25;
+    } else if (diffPercent <= 20) {
+      priceAlignment = 20;
+    } else if (diffPercent <= 30) {
+      priceAlignment = 15;
+    } else if (diffPercent <= 50) {
+      priceAlignment = 10;
+    } else {
+      priceAlignment = 5;
+    }
+  } else {
+    // Missing price data
+    priceAlignment = 5;
+  }
+
+  const totalScore = marginHealth + costCoverage + priceAlignment;
+  return Math.max(0, Math.min(100, totalScore));
 }

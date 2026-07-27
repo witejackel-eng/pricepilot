@@ -12,7 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { ExportPreset } from '@/lib/pricepilot/types';
-import { Download, FileSpreadsheet, FileText, AlertTriangle } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
 
 const PRESETS: { value: ExportPreset; label: string; desc: string; columns: string[] }[] = [
   {
@@ -80,6 +81,10 @@ export function ExportPage() {
   const [scope, setScope] = useState<'all' | 'filtered' | 'selected' | 'review' | 'approved'>('all');
   const [selectedColumns, setSelectedColumns] = useState<string[]>(PRESETS.find(p => p.value === 'full')!.columns);
 
+  // Feature 4: Export progress indicator
+  const [exportProgress, setExportProgress] = useState<number | null>(null); // null = not exporting, 0-100 = in progress, 100 = done
+  const [exportComplete, setExportComplete] = useState(false);
+
   // Filter products based on scope
   const getExportProducts = () => {
     switch (scope) {
@@ -106,6 +111,23 @@ export function ExportPage() {
 
   const handleExport = async () => {
     if (exportProducts.length === 0) return;
+
+    // Feature 4: Start progress animation
+    setExportComplete(false);
+    setExportProgress(0);
+
+    // Animate progress from 0 to 80 over 1 second
+    const progressInterval = setInterval(() => {
+      setExportProgress(prev => {
+        if (prev === null) return 0;
+        const next = prev + 8;
+        if (next >= 80) {
+          clearInterval(progressInterval);
+          return 80;
+        }
+        return next;
+      });
+    }, 100);
 
     try {
       const XLSX = await import('xlsx');
@@ -201,7 +223,20 @@ export function ExportPage() {
 
         XLSX.writeFile(wb, `pricepilot-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
       }
+
+      // Feature 4: Complete progress animation
+      clearInterval(progressInterval);
+      setExportProgress(100);
+      setExportComplete(true);
+      // Reset after 2 seconds
+      setTimeout(() => {
+        setExportProgress(null);
+        setExportComplete(false);
+      }, 2000);
     } catch (err) {
+      clearInterval(progressInterval);
+      setExportProgress(null);
+      setExportComplete(false);
       console.error('Export failed:', err);
     }
   };
@@ -373,10 +408,30 @@ export function ExportPage() {
       </Card>
 
       {/* Download */}
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-3">
+        {/* Feature 4: Export Progress Indicator */}
+        {exportProgress !== null && (
+          <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-emerald-200 dark:border-emerald-700 p-4 transition-all duration-300 animate-fade-in">
+            {exportComplete ? (
+              <div className="flex items-center gap-3">
+                <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+                <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">Download complete!</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Download className="h-4 w-4 text-emerald-500 animate-pulse" />
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Preparing export...</span>
+                </div>
+                <Progress value={exportProgress} className="h-2 bg-emerald-100 dark:bg-emerald-900/30 [&>[data-slot=progress-indicator]]:bg-emerald-500" />
+                <p className="text-xs text-muted-foreground">{exportProgress}% complete</p>
+              </div>
+            )}
+          </div>
+        )}
         <Button
           onClick={handleExport}
-          disabled={exportProducts.length === 0 || selectedColumns.length === 0}
+          disabled={exportProducts.length === 0 || selectedColumns.length === 0 || exportProgress !== null}
           className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-lg font-semibold text-lg px-6 py-3 transition-all duration-200"
         >
           <Download className="h-5 w-5 mr-2" /> Download {format === 'xlsx' ? 'Excel' : 'CSV'} ({exportProducts.length} products)

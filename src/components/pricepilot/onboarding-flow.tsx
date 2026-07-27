@@ -154,7 +154,32 @@ export function OnboardingFlow() {
           </CardHeader>
           <CardContent>
             {step === 1 && (
-              <div className="space-y-4">
+              <div className="space-y-4 relative">
+                {/* Decorative building illustration */}
+                <div className="absolute -right-4 -top-8 opacity-[0.08] pointer-events-none">
+                  <div className="relative w-32 h-40">
+                    {/* Building base */}
+                    <div className="absolute bottom-0 left-0 w-32 h-20 bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-b-lg rounded-t-sm" />
+                    {/* Building middle */}
+                    <div className="absolute bottom-20 left-4 w-24 h-12 bg-gradient-to-t from-emerald-500 to-emerald-300 rounded-t-sm" />
+                    {/* Building top */}
+                    <div className="absolute bottom-32 left-8 w-16 h-8 bg-gradient-to-t from-emerald-400 to-emerald-200 rounded-t-md" />
+                    {/* Antenna */}
+                    <div className="absolute bottom-40 left-14 w-1 h-6 bg-gradient-to-t from-emerald-300 to-emerald-100 rounded-full" />
+                    {/* Windows - base */}
+                    <div className="absolute bottom-2 left-3 grid grid-cols-4 gap-1">
+                      {Array.from({length: 8}).map((_, i) => (
+                        <div key={i} className="w-3 h-3 bg-emerald-100/60 rounded-sm" />
+                      ))}
+                    </div>
+                    {/* Windows - middle */}
+                    <div className="absolute bottom-[84px] left-6 grid grid-cols-3 gap-1">
+                      {Array.from({length: 6}).map((_, i) => (
+                        <div key={i} className="w-3 h-2 bg-emerald-100/60 rounded-sm" />
+                      ))}
+                    </div>
+                  </div>
+                </div>
                 <div>
                   <Label htmlFor="businessName" className={labelClass}>Business Name</Label>
                   <Input id="businessName" value={form.businessName} onChange={e => updateForm('businessName', e.target.value)} placeholder="Your business name" className={inputClass} />
@@ -222,7 +247,22 @@ export function OnboardingFlow() {
             )}
 
             {step === 2 && (
-              <div className="space-y-3">
+              <div className="space-y-3 relative">
+                {/* Decorative storefront illustration */}
+                <div className="absolute -right-2 -top-6 opacity-[0.08] pointer-events-none">
+                  <div className="relative w-36 h-36">
+                    {/* Awning */}
+                    <div className="absolute bottom-24 left-0 w-36 h-10 bg-gradient-to-b from-emerald-400 to-emerald-500 rounded-t-lg" style={{ clipPath: 'polygon(0 0, 100% 0, 90% 80%, 10% 80%)' }} />
+                    {/* Storefront body */}
+                    <div className="absolute bottom-0 left-2 w-32 h-24 bg-gradient-to-b from-emerald-300 to-emerald-500 rounded-b-md" />
+                    {/* Door */}
+                    <div className="absolute bottom-0 left-12 w-10 h-18 bg-gradient-to-b from-emerald-100/50 to-emerald-200/50 rounded-t-md" />
+                    {/* Window */}
+                    <div className="absolute bottom-4 left-4 w-8 h-12 bg-emerald-100/40 rounded-md" />
+                    {/* Sign */}
+                    <div className="absolute bottom-[96px] left-8 w-20 h-5 bg-emerald-200/60 rounded-sm" />
+                  </div>
+                </div>
                 <p className="text-sm text-muted-foreground">Select all channels where you sell products:</p>
                 <div className="space-y-3">
                   {CHANNELS.map(channel => (
@@ -249,7 +289,22 @@ export function OnboardingFlow() {
             )}
 
             {step === 3 && (
-              <div className="space-y-4">
+              <div className="space-y-4 relative">
+                {/* Decorative calculator illustration */}
+                <div className="absolute -right-2 -top-6 opacity-[0.08] pointer-events-none">
+                  <div className="relative w-28 h-40">
+                    {/* Calculator body */}
+                    <div className="absolute bottom-0 left-0 w-28 h-36 bg-gradient-to-b from-amber-400 to-amber-600 rounded-lg" />
+                    {/* Screen */}
+                    <div className="absolute bottom-28 left-2 w-24 h-6 bg-amber-100/50 rounded-md" />
+                    {/* Buttons grid */}
+                    <div className="absolute bottom-2 left-2 grid grid-cols-4 gap-1">
+                      {Array.from({length: 16}).map((_, i) => (
+                        <div key={i} className={`w-4 h-4 rounded-sm ${i === 12 ? 'bg-amber-100/40' : 'bg-amber-200/30'}`} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="packagingCost" className={labelClass}>Packaging Cost</Label>

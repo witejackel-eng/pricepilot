@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { usePricePilotStore, AppView } from '@/store/pricepilot-store';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -57,12 +57,14 @@ const VIEW_LABELS: Record<AppView, string> = {
   'settings': 'Settings',
 };
 
-function SidebarContent({ currentView, setCurrentView, businessSettings, resetApplication, onNavClick }: {
+function SidebarContent({ currentView, setCurrentView, businessSettings, resetApplication, onNavClick, lossMakingCount, inactiveRulesCount }: {
   currentView: AppView;
   setCurrentView: (view: AppView) => void;
   businessSettings: { businessName: string };
   resetApplication: () => void;
   onNavClick?: () => void;
+  lossMakingCount: number;
+  inactiveRulesCount: number;
 }) {
   return (
     <div className="flex flex-col h-full">
@@ -80,6 +82,9 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
         {NAV_ITEMS.map(item => {
           const Icon = item.icon;
           const isActive = currentView === item.view;
+          // Notification badge counts
+          const badgeCount = item.view === 'products' ? lossMakingCount : item.view === 'pricing-rules' ? inactiveRulesCount : 0;
+          const badgeColor = item.view === 'products' ? 'bg-red-500' : 'bg-amber-500';
           return (
             <Button
               key={item.view}
@@ -92,13 +97,18 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
               }`}
               onClick={() => { setCurrentView(item.view); if (onNavClick) onNavClick(); }}
             >
-              {isActive ? (
-                <span className="flex items-center justify-center h-8 w-8 rounded-lg bg-emerald-500/50 shadow-sm">
-                  <Icon className="h-4 w-4 text-emerald-200" />
-                </span>
-              ) : (
-                <Icon className="h-4 w-4" />
-              )}
+              <span className="relative">
+                {isActive ? (
+                  <span className="flex items-center justify-center h-8 w-8 rounded-lg bg-emerald-500/50 shadow-sm">
+                    <Icon className="h-4 w-4 text-emerald-200" />
+                  </span>
+                ) : (
+                  <Icon className="h-4 w-4" />
+                )}
+                {badgeCount > 0 && (
+                  <span className={`absolute -top-1 -right-1 h-4 w-4 rounded-full ${badgeColor} text-white text-[10px] font-bold flex items-center justify-center animate-pulse`}>{badgeCount > 9 ? '9+' : badgeCount}</span>
+                )}
+              </span>
               {item.label}
             </Button>
           );
@@ -141,8 +151,41 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
 }
 
 export function AppShell() {
-  const { currentView, setCurrentView, businessSettings, updateBusinessSettings, products, resetApplication, lastSaved, recalculateProducts, addScenario } = usePricePilotStore();
+  const { currentView, setCurrentView, businessSettings, updateBusinessSettings, products, pricingRules, resetApplication, lastSaved, recalculateProducts, addScenario, appSettings, isCalculating } = usePricePilotStore();
+
+  // Compute badge counts
+  const lossMakingCount = products.filter(p => p.calculatedPricingStatus === 'loss-making' || p.calculatedPricingStatus === 'below-break-even').length;
+  const inactiveRulesCount = pricingRules.filter(r => !r.isActive).length;
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Feature 1: Dark mode toggle - apply dark class to document.documentElement
+  useEffect(() => {
+    const applyTheme = () => {
+      if (appSettings.theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else if (appSettings.theme === 'light') {
+        document.documentElement.classList.remove('dark');
+      } else {
+        // system: check prefers-color-scheme
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (prefersDark) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      }
+    };
+    applyTheme();
+
+    // Listen for system theme changes when in 'system' mode
+    if (appSettings.theme === 'system') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = () => applyTheme();
+      mediaQuery.addEventListener('change', handler);
+      return () => mediaQuery.removeEventListener('change', handler);
+    }
+  }, [appSettings.theme]);
+
   const [addProductOpen, setAddProductOpen] = useState(false);
 
   const renderView = () => {
@@ -181,7 +224,7 @@ export function AppShell() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
+    <div className="min-h-screen flex flex-col bg-background">
       {/* Add Product Dialog */}
       <AddProductDialog open={addProductOpen} onOpenChange={setAddProductOpen} />
 
@@ -197,13 +240,13 @@ export function AppShell() {
       <div className="flex flex-1">
         {/* Desktop sidebar */}
         <aside className="hidden lg:block w-64 border-r bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700 h-screen sticky top-0 shadow-lg">
-          <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} />
+          <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} />
         </aside>
 
         {/* Main area */}
         <div className="flex-1 flex flex-col min-h-screen">
           {/* Header */}
-          <header className="sticky top-0 z-30 bg-gradient-to-r from-white to-emerald-50/10 shadow-sm px-4 py-2 flex items-center justify-between gap-4 border-b border-emerald-100/50">
+          <header className="sticky top-0 z-30 bg-gradient-to-r from-white to-emerald-50/10 shadow-sm px-4 py-2 flex items-center justify-between gap-4 border-b border-emerald-100/50 dark:bg-gradient-to-r dark:from-slate-900 dark:to-slate-800 dark:border-slate-700">
             <div className="flex items-center gap-3">
               {/* Mobile menu */}
               <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -214,12 +257,12 @@ export function AppShell() {
                 </SheetTrigger>
                 <SheetContent side="left" className="w-72 p-0 bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700">
                   <SheetTitle className="px-4 pt-4 pb-2 text-sm font-semibold text-emerald-200">Navigation</SheetTitle>
-                  <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} onNavClick={() => setMobileOpen(false)} />
+                  <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} onNavClick={() => setMobileOpen(false)} />
                 </SheetContent>
               </Sheet>
-              <h1 className="text-xl font-semibold text-slate-800">{VIEW_LABELS[currentView]}</h1>
+              <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">{VIEW_LABELS[currentView]}</h1>
               {products.length > 0 && (
-                <Badge className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">{products.length} products</Badge>
+                <Badge className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-700">{products.length} products</Badge>
               )}
             </div>
 
@@ -244,21 +287,35 @@ export function AppShell() {
           </header>
 
           {/* Content */}
-          <main className="flex-1 p-6 lg:p-8 overflow-auto bg-slate-50/30">
+          <main className="flex-1 p-6 lg:p-8 overflow-auto bg-slate-50/30 dark:bg-slate-900/30 relative">
             <div key={currentView} className="animate-fade-in">
               {renderView()}
             </div>
+            {/* Feature 2: Animated Loading Overlay */}
+            {isCalculating && (
+              <div className="absolute inset-0 z-40 flex items-center justify-center bg-emerald-900/10 dark:bg-emerald-900/30 backdrop-blur-sm transition-opacity duration-300 animate-fade-in">
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl px-8 py-6 flex flex-col items-center gap-3 border border-emerald-200 dark:border-emerald-700">
+                  <div className="relative">
+                    <div className="h-10 w-10 rounded-full border-4 border-emerald-200 dark:border-emerald-700" />
+                    <div className="absolute inset-0 h-10 w-10 rounded-full border-4 border-transparent border-t-emerald-500 animate-spin" />
+                  </div>
+                  <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Recalculating...</span>
+                </div>
+              </div>
+            )}
           </main>
 
           {/* Footer */}
-          <footer className="bg-gradient-to-r from-emerald-50 to-slate-50 px-4 py-2 mt-auto border-t-2 border-emerald-200/50">
+          <footer className="bg-gradient-to-r from-emerald-50 to-slate-50 px-4 py-2 mt-auto border-t-2 border-emerald-200/50 dark:bg-gradient-to-r dark:from-slate-900 dark:to-slate-800 dark:border-slate-700">
             {products.length > 0 && (
-              <div className="flex items-center justify-center gap-4 text-xs text-emerald-700/80 pb-1 border-b border-emerald-100/50 mb-1">
-                <span className="font-medium">{products.length} products</span>
-                <span className="text-emerald-300">•</span>
-                <span>{(products.reduce((sum, p) => sum + p.calculatedMarginPercent, 0) / products.length).toFixed(1)}% avg margin</span>
-                <span className="text-emerald-300">•</span>
-                <span className="text-amber-600">{products.filter(p => p.lifecycleStatus === 'needs-review').length} needs review</span>
+              <div className="bg-emerald-100/30 dark:bg-emerald-900/20 rounded-md px-3 py-1.5 mb-2">
+                <div className="flex items-center justify-center gap-4 text-xs text-emerald-700/80 pb-1 border-b border-emerald-200/40 dark:border-emerald-700/30">
+                  <span className="font-medium">{products.length} products</span>
+                  <span className="text-emerald-300 dark:text-emerald-600">•</span>
+                  <span>{(products.reduce((sum, p) => sum + p.calculatedMarginPercent, 0) / products.length).toFixed(1)}% avg margin</span>
+                  <span className="text-emerald-300 dark:text-emerald-600">•</span>
+                  <span className="text-amber-600 dark:text-amber-400">{products.filter(p => p.lifecycleStatus === 'needs-review').length} needs review</span>
+                </div>
               </div>
             )}
             <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -266,8 +323,11 @@ export function AppShell() {
                 <ShieldCheck className="h-3.5 w-3.5 text-emerald-500 animate-pulse" />
                 <span>All data stored locally in your browser. Nothing is sent to any server.</span>
               </div>
-              <div className="text-emerald-600/70">
-                {lastSaved ? `Last saved: ${new Date(lastSaved).toLocaleTimeString()}` : 'Not saved yet'}
+              <div className="flex items-center gap-3">
+                <span className="text-emerald-600/70">
+                  {lastSaved ? `Last saved: ${new Date(lastSaved).toLocaleTimeString()}` : 'Not saved yet'}
+                </span>
+                <span className="text-emerald-600/40 font-mono border border-emerald-200/30 dark:border-emerald-700/30 rounded px-1.5 py-0.5">v0.3</span>
               </div>
             </div>
           </footer>

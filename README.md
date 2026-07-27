@@ -81,6 +81,19 @@
 - **Print-friendly Styles**: Clean professional print output (hides navigation elements)
 - **Enhanced Dashboard Empty State**: Animated icons, gradient backgrounds, decorative patterns
 
+### 🆕 New Features (v0.4)
+- **Dark Mode Toggle**: Light/dark/system theme modes, fully functional with persistent settings
+- **Animated Recalculation Overlay**: Shows spinner and progress when recalculating all products
+- **Cost Breakdown Area Chart**: Stacked area chart showing cost composition by category
+- **Export Progress Indicator**: Animated progress bar during file download with completion message
+- **Product Health Score**: 0-100 score summarizing margin health, cost coverage, and price alignment
+- **Loading Skeletons**: Emerald-tinted skeleton placeholders on dashboard during initial load
+- **Sidebar Notification Badges**: Red badge for loss-making products, amber badge for inactive rules
+- **Background Noise Pattern**: Subtle SVG noise overlay for depth
+- **Custom Shadow Variants**: Soft, modern shadow styles (.shadow-soft, .shadow-soft-emerald)
+- **Onboarding Illustrations**: Decorative CSS building/storefront/calculator shapes behind each step
+- **Footer Version Indicator**: Shows v0.3 version number and enhanced stats section
+
 ## Pricing Calculation Engine
 
 ### Break-Even Formula
@@ -111,6 +124,12 @@ This correctly accounts for percentage fees being charged on the selling price (
 
 ### Rounding Rules
 - No rounding, Nearest whole number, Nearest 5, Nearest 10, End-in-99, End-in-95
+
+### Health Score (0-100)
+Each product receives a health score summarizing overall pricing health:
+- **Margin Health** (0-40): Loss-making=0, Below break-even=10, Low margin=20, Healthy=30, High margin=40
+- **Cost Coverage** (0-30): Based on how much margin covers costs (30 if margin > 25%)
+- **Price Alignment** (0-30): How close current price is to recommended (30 if within 5%)
 
 ## Supported Currencies
 
