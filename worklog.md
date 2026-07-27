@@ -286,3 +286,27 @@ Stage Summary:
 - Health Score shown as colored progress bar in product detail drawer + average on dashboard
 - Lint passes cleanly with no errors
 - All existing functionality preserved
+
+---
+Task ID: QA-1
+Agent: general-purpose
+Task: Visual QA review of PricePilot screenshots
+
+Work Log:
+- Read first 100 and last 100 lines of worklog.md to understand project history (v0.4 app with 4 phases of styling/feature work; prior agent-browser QA limited by sandbox networking)
+- Verified the 6 PNG screenshots exist in /home/z/my-project/download (each 1280x577, 8-bit RGB)
+- Used the z-ai vision CLI (glm-5v-turbo VLM) to analyze each screenshot with a detailed QA-review prompt
+- Discovered that phase5-products.png actually shows the Price Simulator page (not the Products page) - flagged as a likely navigation bug or mislabeled capture
+- Ran a follow-up VLM verification pass on the products + simulator screenshots to confirm both render the Simulator view
+- Compiled per-screenshot findings (visual issues, bugs, UX suggestions) and consolidated the TOP 5 most impactful improvements
+
+Stage Summary:
+- 6 screenshots reviewed; 5 distinct page states analyzed (products screenshot duplicates the simulator)
+- Most severe recurring bug: header currency selector shows "₹ INF" on every page (Dashboard, Simulator, Settings, etc.) - looks like an Infinity value being formatted
+- Critical layout bugs: onboarding "Tax Treatment" field is clipped by the card's bottom edge; simulator's bottom input row (Marketplace Commission/Fixed Fee) is cut off at the viewport
+- Critical functional bug on simulator: "Live Results" placeholder asks for a selling price but no Selling Price input is visible above the fold - either missing or below the fold
+- Settings page has no visible "Save Changes" button
+- Dashboard has redundant "Dashboard" title (top bar + page heading), inconsistent number formatting (34% vs 49.4%, ₹48.43K vs ₹24.8K), and no charts/sparklines despite being a pricing analytics tool
+- Styling polish issues: light subtitle text may fail WCAG AA contrast, faint "Reset Application" link in sidebar footer, orphan Freight (%) field in simulator grid, all dashboard KPI cards use identical green accent (no semantic color differentiation)
+- TOP 5 most impactful fixes: (1) Fix "₹ INF" currency bug globally; (2) Fix onboarding Tax Treatment clipping; (3) Fix simulator missing Selling Price field + bottom cutoff; (4) Add visible Save button on Settings; (5) Investigate why Products nav renders the Simulator page (routing bug or capture error)
+- Research-only task: no files modified other than appending this worklog entry
