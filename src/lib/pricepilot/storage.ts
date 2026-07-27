@@ -4,6 +4,10 @@
  * All data is stored in localStorage with a version prefix.
  * Supports save/load, export/import for backup, and partial resets.
  * Includes auto-save with debouncing and lastSaved timestamp tracking.
+ *
+ * IMPORTANT: Storage MUST store and retrieve records ONLY.
+ * It must NOT use any pricing engine or recalculate through a legacy engine.
+ * All calculation is done through the canonical pricing engine in the Zustand store.
  */
 
 import {
@@ -18,7 +22,6 @@ import {
   createDefaultAppSettings,
   createDefaultImportState,
 } from './types';
-import { calculateProduct } from './calculations';
 
 // ============================================================
 // Constants
@@ -166,18 +169,17 @@ export function loadProducts(): Product[] {
 /**
  * Save a single product. If it has an existing ID, update it.
  * Otherwise, add it to the list.
+ * 
+ * IMPORTANT: This does NOT recalculate. Calculation is handled by the store.
  */
-export function saveProduct(product: Product, settings: BusinessSettings, rules: PricingRule[]): Product[] {
+export function saveProduct(product: Product): Product[] {
   const products = loadProducts();
-  
-  // Recalculate the product before saving
-  const calculated = calculateProduct(product, settings, rules) as Product;
   
   const existingIndex = products.findIndex(p => p.id === product.id);
   if (existingIndex >= 0) {
-    products[existingIndex] = calculated;
+    products[existingIndex] = product;
   } else {
-    products.push(calculated);
+    products.push(product);
   }
   
   saveProducts(products);
@@ -203,12 +205,13 @@ export function clearProducts(): void {
 
 /**
  * Recalculate all products.
+ * 
+ * IMPORTANT: This is now a thin wrapper that just saves pre-calculated products.
+ * The actual calculation is done in the Zustand store using the canonical engine.
  */
-export function recalculateAllProducts(settings: BusinessSettings, rules: PricingRule[]): Product[] {
-  const products = loadProducts();
-  const recalculated = products.map(p => calculateProduct(p, settings, rules) as Product);
-  saveProducts(recalculated);
-  return recalculated;
+export function recalculateAllProducts(products: Product[]): Product[] {
+  saveProducts(products);
+  return products;
 }
 
 // ============================================================

@@ -1,16 +1,19 @@
 /**
  * PricePilot - Pricing Policy Resolver
  *
- * Implements field-by-field resolution of pricing policies with
- * source tracing. Each field inherits from the highest-priority
- * rule that defines it.
+ * THE SINGLE AUTHORITY for resolving effective pricing policy values.
+ * Each field is resolved independently from the highest-priority source:
+ * Product > Brand > Category > Channel > Global > BusinessSettings defaults
  *
- * Priority order: Product > Brand > Category > Channel > Global
+ * Higher-specificity rules override only the fields they define.
+ * A product-level rule that sets a target margin must not erase a
+ * category-level rounding rule or global marketplace fee.
  *
- * Unlike the old resolveRuleForProduct() in calculations.ts which
- * returned a single "best match" PricingRule, this resolver merges
- * fields from multiple rules, allowing a global rule to set the
- * rounding rule while a category rule sets the target margin, etc.
+ * sourceTrace is for explanation and auditability only.
+ * Components must read final values directly from ResolvedPricingPolicy.
+ *
+ * CRITICAL: Uses resolveNumber() pattern instead of safeNonNegative() ?? fallback,
+ * because safeNonNegative(undefined) returns zero, preventing the fallback.
  */
 
 import {
@@ -18,6 +21,9 @@ import {
   BusinessSettings,
   PricingRule,
   RoundingRule,
+  TaxTreatment,
+  CompetitorStrategy,
+  FeeBasePolicy,
   ResolvedPricingPolicy,
 } from './types';
 
@@ -82,34 +88,87 @@ function ruleSourceLabel(rule: PricingRule): string {
   }
 }
 
-// ============================================================
-// Field-by-Field Resolution
-// ============================================================
-
 /**
- * Resolvable fields for the pricing policy.
- * Each field is resolved independently from the highest-priority
- * rule that provides a meaningful value.
+ * Resolve a numeric field using the correct precedence:
+ * 1. Rule override (if defined and finite)
+ * 2. Product value (if defined and finite)
+ * 3. Business settings default
  *
- * We consider a value "defined" if it is:
- * - For numeric fields: > 0 (or explicitly set, even if 0 for some)
- * - For string/enum fields: not empty/undefined
+ * CRITICAL: We check for undefined/null BEFORE applying Math.max(0, ...).
+ * This prevents undefined from becoming 0 and blocking the fallback.
  */
-interface ResolvableFields {
-  targetMarginPercent: number;
-  minimumMarginPercent: number;
-  premiumMarginPercent: number;
-  minimumProfitPerUnit: number;
-  roundingRule: RoundingRule;
+function resolveNumber(
+  override: unknown,
+  productValue: unknown,
+  defaultValue: number,
+): number {
+  if (typeof override === 'number' && Number.isFinite(override)) {
+    return Math.max(0, override);
+  }
+  if (typeof productValue === 'number' && Number.isFinite(productValue)) {
+    return Math.max(0, productValue);
+  }
+  return Math.max(0, defaultValue);
 }
 
 /**
- * Determine whether a numeric value is "defined" for resolution purposes.
- * For margin targets, 0 IS defined (the user may want 0% minimum margin).
- * But for minimumProfitPerUnit, we consider it defined if >= 0 (even 0 is intentional).
+ * Resolve a numeric field from rules only (no product override),
+ * then fall back to business settings default.
+ * Used for fields that are policy-level (tax rates, fees) rather than product-level.
  */
-function isNumericDefined(value: number | undefined): boolean {
-  return value !== undefined && value !== null && !isNaN(value);
+function resolvePolicyNumber(
+  ruleOverride: unknown,
+  defaultValue: number,
+): number {
+  if (typeof ruleOverride === 'number' && Number.isFinite(ruleOverride)) {
+    return Math.max(0, ruleOverride);
+  }
+  return Math.max(0, defaultValue);
+}
+
+/**
+ * Find the highest-priority matching rule that provides a numeric override.
+ */
+function findNumericOverride(
+  matchingRules: PricingRule[],
+  fieldExtractor: (rule: PricingRule) => number | undefined,
+): { value: number; source: string } | null {
+  for (const rule of matchingRules) {
+    const val = fieldExtractor(rule);
+    if (typeof val === 'number' && Number.isFinite(val)) {
+      return { value: Math.max(0, val), source: ruleSourceLabel(rule) };
+    }
+  }
+  return null;
+}
+
+/**
+ * Find the highest-priority matching rule that provides a string/object override.
+ */
+function findStringOverride(
+  matchingRules: PricingRule[],
+  fieldExtractor: (rule: PricingRule) => string | undefined | null,
+): { value: string; source: string } | null {
+  for (const rule of matchingRules) {
+    const val = fieldExtractor(rule);
+    if (val !== undefined && val !== null && val !== '') {
+      return { value: val, source: ruleSourceLabel(rule) };
+    }
+  }
+  return null;
+}
+
+function findObjectOverride<T>(
+  matchingRules: PricingRule[],
+  fieldExtractor: (rule: PricingRule) => T | undefined,
+): { value: T; source: string } | null {
+  for (const rule of matchingRules) {
+    const val = fieldExtractor(rule);
+    if (val !== undefined && val !== null) {
+      return { value: val, source: ruleSourceLabel(rule) };
+    }
+  }
+  return null;
 }
 
 // ============================================================
@@ -125,103 +184,219 @@ function isNumericDefined(value: number | undefined): boolean {
  * Each field inherits from the highest-priority source that defines it.
  * Returns a ResolvedPricingPolicy with sourceTrace showing which rule
  * (or business settings default) provided each value.
- *
- * @param product - The product to resolve the policy for
- * @param rules - All pricing rules to consider
- * @param businessSettings - Business settings providing defaults
- * @returns ResolvedPricingPolicy with merged values and source trace
  */
 export function resolveEffectivePricingPolicy(
   product: Product,
   rules: PricingRule[],
-  businessSettings: BusinessSettings
+  businessSettings: BusinessSettings,
 ): ResolvedPricingPolicy {
-  // Filter rules that match this product
+  // Filter rules that match this product, sorted by specificity
   const matchingRules = rules
     .filter(r => ruleMatchesProduct(r, product))
     .sort((a, b) => {
-      // Sort by specificity first (descending), then by priority within level (descending)
       const levelDiff = levelScore(b.level) - levelScore(a.level);
       if (levelDiff !== 0) return levelDiff;
       return b.priority - a.priority;
     });
 
-  const sourceTrace: Record<string, { value: number | string; source: string }> = {};
+  const sourceTrace: Record<string, { value: number | string | object; source: string }> = {};
 
-  // --- targetMarginPercent ---
-  const targetMarginRule = matchingRules.find(r => isNumericDefined(r.targetMarginPercent));
-  if (targetMarginRule) {
-    sourceTrace['targetMarginPercent'] = {
-      value: targetMarginRule.targetMarginPercent,
-      source: ruleSourceLabel(targetMarginRule),
-    };
-  } else {
-    sourceTrace['targetMarginPercent'] = {
-      value: businessSettings.defaultTargetMarginPercent,
-      source: 'Business Settings (defaultTargetMarginPercent)',
-    };
-  }
+  // --- Margin Targets ---
+  // These can be overridden by rules
+  const targetMarginOverride = findNumericOverride(matchingRules, r => r.targetMarginPercent);
+  sourceTrace['targetMarginPercent'] = targetMarginOverride
+    ? { value: targetMarginOverride.value, source: targetMarginOverride.source }
+    : { value: businessSettings.defaultTargetMarginPercent, source: 'Business Settings (defaultTargetMarginPercent)' };
 
-  // --- minimumMarginPercent ---
-  const minimumMarginRule = matchingRules.find(r => isNumericDefined(r.minimumMarginPercent));
-  if (minimumMarginRule) {
-    sourceTrace['minimumMarginPercent'] = {
-      value: minimumMarginRule.minimumMarginPercent,
-      source: ruleSourceLabel(minimumMarginRule),
-    };
-  } else {
-    sourceTrace['minimumMarginPercent'] = {
-      value: businessSettings.defaultMinimumMarginPercent,
-      source: 'Business Settings (defaultMinimumMarginPercent)',
-    };
-  }
+  const minimumMarginOverride = findNumericOverride(matchingRules, r => r.minimumMarginPercent);
+  sourceTrace['minimumMarginPercent'] = minimumMarginOverride
+    ? { value: minimumMarginOverride.value, source: minimumMarginOverride.source }
+    : { value: businessSettings.defaultMinimumMarginPercent, source: 'Business Settings (defaultMinimumMarginPercent)' };
 
-  // --- premiumMarginPercent ---
-  // Uses maximumMarginPercent from PricingRule as the "premium" target
-  const premiumMarginRule = matchingRules.find(r => isNumericDefined(r.maximumMarginPercent));
-  if (premiumMarginRule) {
-    sourceTrace['premiumMarginPercent'] = {
-      value: premiumMarginRule.maximumMarginPercent,
-      source: ruleSourceLabel(premiumMarginRule),
-    };
-  } else {
-    sourceTrace['premiumMarginPercent'] = {
-      value: businessSettings.defaultMaximumMarginPercent,
-      source: 'Business Settings (defaultMaximumMarginPercent)',
-    };
-  }
+  const premiumMarginOverride = findNumericOverride(matchingRules, r => r.maximumMarginPercent);
+  sourceTrace['premiumMarginPercent'] = premiumMarginOverride
+    ? { value: premiumMarginOverride.value, source: premiumMarginOverride.source }
+    : { value: businessSettings.defaultMaximumMarginPercent, source: 'Business Settings (defaultMaximumMarginPercent)' };
 
-  // --- minimumProfitPerUnit ---
-  // Not in PricingRule yet, so comes from businessSettings
-  // (Future: may be added to PricingRule)
-  sourceTrace['minimumProfitPerUnit'] = {
-    value: businessSettings.minimumProfitPerUnit,
-    source: 'Business Settings (minimumProfitPerUnit)',
-  };
+  const minimumProfitOverride = findNumericOverride(matchingRules, r => r.overrideMinimumProfitPerUnit);
+  sourceTrace['minimumProfitPerUnit'] = minimumProfitOverride
+    ? { value: minimumProfitOverride.value, source: minimumProfitOverride.source }
+    : { value: businessSettings.minimumProfitPerUnit, source: 'Business Settings (minimumProfitPerUnit)' };
 
-  // --- roundingRule ---
-  const roundingRule = matchingRules.find(r => r.roundingRule && r.roundingRule !== 'custom' || r.roundingRule === 'custom');
-  // Any active rule will have a roundingRule; use the highest priority one
-  const roundingSourceRule = matchingRules.find(r => r.roundingRule !== undefined);
-  if (roundingSourceRule) {
-    sourceTrace['roundingRule'] = {
-      value: roundingSourceRule.roundingRule,
-      source: ruleSourceLabel(roundingSourceRule),
-    };
-  } else {
-    sourceTrace['roundingRule'] = {
-      value: businessSettings.defaultRoundingRule,
-      source: 'Business Settings (defaultRoundingRule)',
-    };
-  }
+  // --- Tax ---
+  // Rule override > product value > business settings default
+  const taxRateOverride = findNumericOverride(matchingRules, r => r.overrideTaxRatePercent);
+  const taxRateValue = resolveNumber(
+    taxRateOverride?.value,
+    product.taxRatePercent,
+    businessSettings.defaultTaxRatePercent,
+  );
+  sourceTrace['taxRatePercent'] = taxRateOverride
+    ? { value: taxRateOverride.value, source: taxRateOverride.source }
+    : (typeof product.taxRatePercent === 'number' && Number.isFinite(product.taxRatePercent) && product.taxRatePercent > 0)
+      ? { value: product.taxRatePercent, source: `Product: ${product.name}` }
+      : { value: businessSettings.defaultTaxRatePercent, source: 'Business Settings (defaultTaxRatePercent)' };
 
-  // Build the resolved policy
+  const taxTreatmentOverride = findStringOverride(matchingRules, r => r.overrideTaxTreatment);
+  sourceTrace['taxTreatment'] = taxTreatmentOverride
+    ? { value: taxTreatmentOverride.value, source: taxTreatmentOverride.source }
+    : (product.taxTreatment && product.taxTreatment !== 'inclusive') // Only use product if explicitly set to non-default
+      ? { value: product.taxTreatment, source: `Product: ${product.name}` }
+      : { value: businessSettings.taxTreatment, source: 'Business Settings (taxTreatment)' };
+
+  // --- Marketplace Fees ---
+  const mktFeePercentOverride = findNumericOverride(matchingRules, r => r.overrideMarketplaceFeePercent);
+  const mktFeePercentValue = resolveNumber(
+    mktFeePercentOverride?.value,
+    product.marketplaceFeePercent,
+    businessSettings.defaultMarketplaceFeePercent,
+  );
+  sourceTrace['marketplaceFeePercent'] = mktFeePercentOverride
+    ? { value: mktFeePercentOverride.value, source: mktFeePercentOverride.source }
+    : (typeof product.marketplaceFeePercent === 'number' && Number.isFinite(product.marketplaceFeePercent) && product.marketplaceFeePercent > 0)
+      ? { value: product.marketplaceFeePercent, source: `Product: ${product.name}` }
+      : { value: businessSettings.defaultMarketplaceFeePercent, source: 'Business Settings (defaultMarketplaceFeePercent)' };
+
+  const mktFeeFixedOverride = findNumericOverride(matchingRules, r => r.overrideMarketplaceFeeFixed);
+  const mktFeeFixedValue = resolveNumber(
+    mktFeeFixedOverride?.value,
+    product.marketplaceFeeFixed,
+    businessSettings.defaultMarketplaceFeeFixed,
+  );
+  sourceTrace['marketplaceFeeFixed'] = mktFeeFixedOverride
+    ? { value: mktFeeFixedOverride.value, source: mktFeeFixedOverride.source }
+    : (typeof product.marketplaceFeeFixed === 'number' && Number.isFinite(product.marketplaceFeeFixed) && product.marketplaceFeeFixed > 0)
+      ? { value: product.marketplaceFeeFixed, source: `Product: ${product.name}` }
+      : { value: businessSettings.defaultMarketplaceFeeFixed, source: 'Business Settings (defaultMarketplaceFeeFixed)' };
+
+  // --- Payment Fees ---
+  const payFeePercentOverride = findNumericOverride(matchingRules, r => r.overridePaymentFeePercent);
+  const payFeePercentValue = resolveNumber(
+    payFeePercentOverride?.value,
+    product.paymentFeePercent,
+    businessSettings.defaultPaymentFeePercent,
+  );
+  sourceTrace['paymentFeePercent'] = payFeePercentOverride
+    ? { value: payFeePercentOverride.value, source: payFeePercentOverride.source }
+    : (typeof product.paymentFeePercent === 'number' && Number.isFinite(product.paymentFeePercent) && product.paymentFeePercent > 0)
+      ? { value: product.paymentFeePercent, source: `Product: ${product.name}` }
+      : { value: businessSettings.defaultPaymentFeePercent, source: 'Business Settings (defaultPaymentFeePercent)' };
+
+  const payFeeFixedOverride = findNumericOverride(matchingRules, r => r.overridePaymentFeeFixed);
+  const payFeeFixedValue = resolveNumber(
+    payFeeFixedOverride?.value,
+    product.paymentFeeFixed,
+    businessSettings.defaultPaymentFeeFixed,
+  );
+  sourceTrace['paymentFeeFixed'] = payFeeFixedOverride
+    ? { value: payFeeFixedOverride.value, source: payFeeFixedOverride.source }
+    : (typeof product.paymentFeeFixed === 'number' && Number.isFinite(product.paymentFeeFixed) && product.paymentFeeFixed > 0)
+      ? { value: product.paymentFeeFixed, source: `Product: ${product.name}` }
+      : { value: businessSettings.defaultPaymentFeeFixed, source: 'Business Settings (defaultPaymentFeeFixed)' };
+
+  // --- Other Fees ---
+  const otherFeesPercentOverride = findNumericOverride(matchingRules, r => r.overrideOtherFeesPercent);
+  const otherFeesPercentValue = resolveNumber(
+    otherFeesPercentOverride?.value,
+    product.otherFeesPercent,
+    businessSettings.defaultOtherFeesPercent,
+  );
+  sourceTrace['otherFeesPercent'] = otherFeesPercentOverride
+    ? { value: otherFeesPercentOverride.value, source: otherFeesPercentOverride.source }
+    : (typeof product.otherFeesPercent === 'number' && Number.isFinite(product.otherFeesPercent) && product.otherFeesPercent > 0)
+      ? { value: product.otherFeesPercent, source: `Product: ${product.name}` }
+      : { value: businessSettings.defaultOtherFeesPercent, source: 'Business Settings (defaultOtherFeesPercent)' };
+
+  const otherFeesFixedOverride = findNumericOverride(matchingRules, r => r.overrideOtherFeesFixed);
+  const otherFeesFixedValue = resolveNumber(
+    otherFeesFixedOverride?.value,
+    product.otherFeesFixed,
+    businessSettings.defaultOtherFeesFixed,
+  );
+  sourceTrace['otherFeesFixed'] = otherFeesFixedOverride
+    ? { value: otherFeesFixedOverride.value, source: otherFeesFixedOverride.source }
+    : (typeof product.otherFeesFixed === 'number' && Number.isFinite(product.otherFeesFixed) && product.otherFeesFixed > 0)
+      ? { value: product.otherFeesFixed, source: `Product: ${product.name}` }
+      : { value: businessSettings.defaultOtherFeesFixed, source: 'Business Settings (defaultOtherFeesFixed)' };
+
+  // --- Competitor Strategy ---
+  const competitorOverride = findObjectOverride<CompetitorStrategy>(matchingRules, r => r.overrideCompetitorStrategy);
+  sourceTrace['competitorStrategy'] = competitorOverride
+    ? { value: competitorOverride.value, source: competitorOverride.source }
+    : { value: matchingRules.length > 0 ? matchingRules[0].competitorStrategy : businessSettings.defaultTargetMarginPercent, source: matchingRules.length > 0 ? ruleSourceLabel(matchingRules[0]) : 'Business Settings' };
+  const competitorStrategy: CompetitorStrategy = competitorOverride?.value ?? (matchingRules.length > 0 ? matchingRules[0].competitorStrategy : { mode: 'match-average', weightPercent: 30 });
+
+  // --- Rounding ---
+  const roundingOverride = findStringOverride(matchingRules, r => r.roundingRule);
+  sourceTrace['roundingRule'] = roundingOverride
+    ? { value: roundingOverride.value, source: roundingOverride.source }
+    : { value: businessSettings.defaultRoundingRule, source: 'Business Settings (defaultRoundingRule)' };
+  const roundingRule = (roundingOverride?.value ?? businessSettings.defaultRoundingRule) as RoundingRule;
+
+  const customRoundingOverride = findNumericOverride(matchingRules, r => r.overrideCustomRoundingValue ?? r.customRoundingValue);
+  sourceTrace['customRoundingValue'] = customRoundingOverride
+    ? { value: customRoundingOverride.value, source: customRoundingOverride.source }
+    : businessSettings.customRoundingValue
+      ? { value: businessSettings.customRoundingValue, source: 'Business Settings (customRoundingValue)' }
+      : { value: 0, source: 'Default (0)' };
+
+  // --- Fee Base Policy ---
+  const feeBaseOverride = findStringOverride(matchingRules, r => r.overrideFeeBasePolicy);
+  sourceTrace['feeBasePolicy'] = feeBaseOverride
+    ? { value: feeBaseOverride.value, source: feeBaseOverride.source }
+    : (product.feeBasePolicy && product.feeBasePolicy !== 'product-price-only')
+      ? { value: product.feeBasePolicy, source: `Product: ${product.name}` }
+      : { value: businessSettings.feeBasePolicy, source: 'Business Settings (feeBasePolicy)' };
+  const feeBasePolicy = (feeBaseOverride?.value ?? product.feeBasePolicy ?? businessSettings.feeBasePolicy) as FeeBasePolicy;
+
+  // --- Input Tax Recovery ---
+  const inputTaxRecoverablePercent = resolveNumber(
+    undefined, // No rule override for this yet
+    product.inputTaxRecoverablePercent,
+    businessSettings.defaultInputTaxRecoverablePercent,
+  );
+  sourceTrace['inputTaxRecoverablePercent'] = (typeof product.inputTaxRecoverablePercent === 'number' && Number.isFinite(product.inputTaxRecoverablePercent))
+    ? { value: product.inputTaxRecoverablePercent, source: `Product: ${product.name}` }
+    : { value: businessSettings.defaultInputTaxRecoverablePercent, source: 'Business Settings (defaultInputTaxRecoverablePercent)' };
+
+  // Build the resolved policy with ALL final values
   const resolvedPolicy: ResolvedPricingPolicy = {
+    // Margin targets
     targetMarginPercent: sourceTrace['targetMarginPercent'].value as number,
     minimumMarginPercent: sourceTrace['minimumMarginPercent'].value as number,
     premiumMarginPercent: sourceTrace['premiumMarginPercent'].value as number,
     minimumProfitPerUnit: sourceTrace['minimumProfitPerUnit'].value as number,
-    roundingRule: sourceTrace['roundingRule'].value as RoundingRule,
+    
+    // Tax
+    taxRatePercent: taxRateValue,
+    taxTreatment: sourceTrace['taxTreatment'].value as TaxTreatment,
+    
+    // Marketplace fees
+    marketplaceFeePercent: mktFeePercentValue,
+    marketplaceFeeFixed: mktFeeFixedValue,
+    
+    // Payment fees
+    paymentFeePercent: payFeePercentValue,
+    paymentFeeFixed: payFeeFixedValue,
+    
+    // Other fees
+    otherFeesPercent: otherFeesPercentValue,
+    otherFeesFixed: otherFeesFixedValue,
+    
+    // Competitor strategy
+    competitorStrategy,
+    
+    // Rounding
+    roundingRule,
+    customRoundingValue: customRoundingOverride?.value ?? businessSettings.customRoundingValue,
+    
+    // Fee base policy
+    feeBasePolicy,
+    
+    // Purchase-side tax
+    inputTaxRecoverablePercent,
+    
+    // Source trace
     sourceTrace,
   };
 

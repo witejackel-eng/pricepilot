@@ -340,7 +340,7 @@ export function DashboardPage() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" minHeight={280}>
-                <RechartsBar data={categoryMargins} barSize={40} animationBegin={0} animationDuration={800}>
+                <RechartsBar data={categoryMargins} barSize={40}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                   <XAxis dataKey="category" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
                   <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={45} />
@@ -361,7 +361,7 @@ export function DashboardPage() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" minHeight={280}>
-                <RechartsBar data={recBarData} barSize={40} animationBegin={0} animationDuration={800}>
+                <RechartsBar data={recBarData} barSize={40}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
                   <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={45} allowDecimals={false} />

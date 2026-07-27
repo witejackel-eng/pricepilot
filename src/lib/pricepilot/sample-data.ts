@@ -13,7 +13,7 @@
  * and should be populated by running the calculation engine.
  */
 
-import { Product, PricingRule, CompetitorPrice, SalesChannel, TaxTreatment, InputTaxCreditRecoverable, PurchaseCostTaxMode, RecommendationMode, PriceApprovalStatus } from './types';
+import { Product, PricingRule, CompetitorPrice, SalesChannel, TaxTreatment, InputTaxCreditRecoverable, PurchaseCostTaxMode, RecommendationMode, PriceApprovalStatus, FeeBasePolicy, RecommendedPrices } from './types';
 
 // ============================================================
 // Helper for generating IDs
@@ -27,7 +27,9 @@ function generateId(index: number): string {
 const ENGINE_DEFAULTS = {
   purchaseTaxRatePercent: 18,
   inputTaxCreditRecoverable: 'recoverable' as InputTaxCreditRecoverable,
+  inputTaxRecoverablePercent: 100,
   purchaseCostTaxMode: 'including-tax' as PurchaseCostTaxMode,
+  feeBasePolicy: 'product-price-only' as FeeBasePolicy,
   selectedRecommendationMode: 'balanced' as RecommendationMode,
   customRecommendedPrice: 0,
   finalApprovedPrice: 0,
@@ -36,6 +38,8 @@ const ENGINE_DEFAULTS = {
   quantity: 50,
   monthlyUnitsSold: 0,
   expectedMonthlyUnits: 0,
+  recommendedOutcomes: undefined as any,
+  lifecycleStatus: 'active' as const,
 };
 
 /** Apply the new engine fields to a partial product definition */

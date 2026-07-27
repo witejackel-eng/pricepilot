@@ -347,29 +347,16 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="add-paymentFee" className="text-sm font-medium text-slate-600">Payment Fee (%)</Label>
-                  <Input
-                    id="add-paymentFee"
-                    type="number"
-                    value={form.paymentFeePercent || ''}
-                    onChange={e => updateField('paymentFeePercent', parseFloat(e.target.value) || 0)}
-                    placeholder="2"
-                    className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="add-targetMargin" className="text-sm font-medium text-slate-600">Target Margin (%)</Label>
-                  <Input
-                    id="add-targetMargin"
-                    type="number"
-                    value={form.targetMarginPercent || ''}
-                    onChange={e => updateField('targetMarginPercent', parseFloat(e.target.value) || 0)}
-                    placeholder="25"
-                    className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 rounded-lg"
-                  />
-                </div>
+              <div>
+                <Label htmlFor="add-paymentFee" className="text-sm font-medium text-slate-600">Payment Fee (%)</Label>
+                <Input
+                  id="add-paymentFee"
+                  type="number"
+                  value={form.paymentFeePercent || ''}
+                  onChange={e => updateField('paymentFeePercent', parseFloat(e.target.value) || 0)}
+                  placeholder="2"
+                  className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 rounded-lg"
+                />
               </div>
             </div>
 
@@ -499,34 +486,22 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-sm font-medium text-slate-600">Minimum Profit per Unit</Label>
-                    <Input
-                      type="number"
-                      value={form.minimumProfitPerUnit || ''}
-                      onChange={e => updateField('minimumProfitPerUnit', parseFloat(e.target.value) || 0)}
-                      placeholder="0"
-                      className="bg-white shadow-sm border-slate-200 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-slate-600">Sales Channel</Label>
-                    <Select value={form.salesChannel || 'online-marketplace'} onValueChange={v => updateField('salesChannel', v as SalesChannel)}>
-                      <SelectTrigger className="bg-white shadow-sm border-slate-200 rounded-lg">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="online-marketplace">Online Marketplace</SelectItem>
-                        <SelectItem value="own-website">Own Website</SelectItem>
-                        <SelectItem value="retail-store">Retail Store</SelectItem>
-                        <SelectItem value="wholesale">Wholesale</SelectItem>
-                        <SelectItem value="distributor">Distributor</SelectItem>
-                        <SelectItem value="offline">Offline</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div>
+                  <Label className="text-sm font-medium text-slate-600">Sales Channel</Label>
+                  <Select value={form.salesChannel || 'online-marketplace'} onValueChange={v => updateField('salesChannel', v as SalesChannel)}>
+                    <SelectTrigger className="bg-white shadow-sm border-slate-200 rounded-lg">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="online-marketplace">Online Marketplace</SelectItem>
+                      <SelectItem value="own-website">Own Website</SelectItem>
+                      <SelectItem value="retail-store">Retail Store</SelectItem>
+                      <SelectItem value="wholesale">Wholesale</SelectItem>
+                      <SelectItem value="distributor">Distributor</SelectItem>
+                      <SelectItem value="offline">Offline</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

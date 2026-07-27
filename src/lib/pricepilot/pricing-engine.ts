@@ -31,6 +31,7 @@ import {
   PricingConfidence,
   WarningSeverity,
   RoundingRule,
+  FeeBasePolicy,
 } from './types';
 import { roundTo2Decimals, roundTo4Decimals } from './formatting';
 
@@ -222,9 +223,12 @@ function calculatePurchaseSideTax(
           nonRecoverableInputTax: roundTo2Decimals(totalInputTax),
         };
       case 'partially-recoverable':
-        // 50% recoverable is a common partial model; in practice
-        // the spec may define a specific percentage. We use 50% as default.
-        const recoverable = safeMul(totalInputTax, 0.5);
+        // Use the configurable recoverable percentage (0-100)
+        // Default to 100 if not set (fully recoverable)
+        const recoverablePercent = percentageToDecimal(
+          safeNumber(product.inputTaxRecoverablePercent, 100)
+        );
+        const recoverable = safeMul(totalInputTax, recoverablePercent);
         const nonRecoverable = safeSub(totalInputTax, recoverable);
         return {
           netPurchaseCost: roundTo2Decimals(netPurchaseCost),
@@ -260,12 +264,15 @@ function calculatePurchaseSideTax(
           nonRecoverableInputTax: roundTo2Decimals(inputTaxAmount),
         };
       case 'partially-recoverable':
-        const recoverable = safeMul(inputTaxAmount, 0.5);
-        const nonRecoverable = safeSub(inputTaxAmount, recoverable);
+        const exclRecoverablePercent = percentageToDecimal(
+          safeNumber(product.inputTaxRecoverablePercent, 100)
+        );
+        const exclRecoverable = safeMul(inputTaxAmount, exclRecoverablePercent);
+        const exclNonRecoverable = safeSub(inputTaxAmount, exclRecoverable);
         return {
           netPurchaseCost: purchaseCost,
-          recoverableInputTax: roundTo2Decimals(recoverable),
-          nonRecoverableInputTax: roundTo2Decimals(nonRecoverable),
+          recoverableInputTax: roundTo2Decimals(exclRecoverable),
+          nonRecoverableInputTax: roundTo2Decimals(exclNonRecoverable),
         };
       default:
         return {
@@ -304,22 +311,27 @@ function calculateSellingTax(
   netSalesRevenue: number;
   outputTax: number;
   customerPayableAmount: number;
+  grossSalesAmount: number;
 } {
-  const taxRatePercent = safeNonNegative(
-    effectiveRule?.sourceTrace?.['taxRatePercent']?.value as number ?? undefined
-  ) ?? safeNonNegative(safeNumber(product.taxRatePercent, businessSettings.defaultTaxRatePercent));
+  // Read tax rate directly from ResolvedPricingPolicy (THE AUTHORITY)
+  // CRITICAL: Do NOT use safeNonNegative(undefined) ?? fallback pattern.
+  // safeNonNegative(undefined) returns 0, blocking the fallback.
+  const taxRatePercent = effectiveRule
+    ? effectiveRule.taxRatePercent
+    : (typeof product.taxRatePercent === 'number' && Number.isFinite(product.taxRatePercent) && product.taxRatePercent > 0)
+      ? product.taxRatePercent
+      : businessSettings.defaultTaxRatePercent;
 
-  const taxTreatment = product.taxTreatment ?? businessSettings.taxTreatment;
+  const taxTreatment = effectiveRule
+    ? effectiveRule.taxTreatment
+    : product.taxTreatment ?? businessSettings.taxTreatment;
   const taxDecimal = percentageToDecimal(taxRatePercent);
 
   switch (taxTreatment) {
     case 'inclusive':
-      // Tax is included in the selling price
-      // Net revenue = inclusive price / (1 + taxRate)
-      // Output tax = inclusive price - net revenue
-      // Customer pays the inclusive price
       if (sellingPrice <= 0 || taxDecimal === 0) {
         return {
+          grossSalesAmount: roundTo2Decimals(sellingPrice),
           netSalesRevenue: roundTo2Decimals(sellingPrice),
           outputTax: 0,
           customerPayableAmount: roundTo2Decimals(sellingPrice),
@@ -329,47 +341,43 @@ function calculateSellingTax(
       const netRevenue = safeDiv(sellingPrice, denominator);
       const outputTax = safeSub(sellingPrice, netRevenue);
       return {
+        grossSalesAmount: roundTo2Decimals(sellingPrice),
         netSalesRevenue: roundTo2Decimals(netRevenue),
         outputTax: roundTo2Decimals(outputTax),
         customerPayableAmount: roundTo2Decimals(sellingPrice),
       };
 
     case 'exclusive':
-      // Tax is added on top of the selling price
-      // Net revenue = entered price
-      // Output tax = entered price * taxRate
-      // Customer payable = entered price + output tax
       const exclusiveOutputTax = safeMul(sellingPrice, taxDecimal);
       const customerPayable = safeAdd(sellingPrice, exclusiveOutputTax);
       return {
+        grossSalesAmount: roundTo2Decimals(sellingPrice),
         netSalesRevenue: roundTo2Decimals(sellingPrice),
         outputTax: roundTo2Decimals(exclusiveOutputTax),
         customerPayableAmount: roundTo2Decimals(customerPayable),
       };
 
     case 'exempt':
-      // No tax applied
       return {
+        grossSalesAmount: roundTo2Decimals(sellingPrice),
         netSalesRevenue: roundTo2Decimals(sellingPrice),
         outputTax: 0,
         customerPayableAmount: roundTo2Decimals(sellingPrice),
       };
 
     case 'reverse':
-      // Reverse charge - treated like exclusive for calculation purposes
-      // (the buyer accounts for the tax, but we still compute it)
       const reverseTax = safeMul(sellingPrice, taxDecimal);
       return {
+        grossSalesAmount: roundTo2Decimals(sellingPrice),
         netSalesRevenue: roundTo2Decimals(sellingPrice),
         outputTax: roundTo2Decimals(reverseTax),
         customerPayableAmount: roundTo2Decimals(safeAdd(sellingPrice, reverseTax)),
       };
 
     case 'composite':
-      // Composite tax scheme - treated as inclusive for calculation
-      // (GST with multiple components is still tax-inclusive)
       if (sellingPrice <= 0 || taxDecimal === 0) {
         return {
+          grossSalesAmount: roundTo2Decimals(sellingPrice),
           netSalesRevenue: roundTo2Decimals(sellingPrice),
           outputTax: 0,
           customerPayableAmount: roundTo2Decimals(sellingPrice),
@@ -379,14 +387,15 @@ function calculateSellingTax(
       const compositeNetRevenue = safeDiv(sellingPrice, compositeDenominator);
       const compositeOutputTax = safeSub(sellingPrice, compositeNetRevenue);
       return {
+        grossSalesAmount: roundTo2Decimals(sellingPrice),
         netSalesRevenue: roundTo2Decimals(compositeNetRevenue),
         outputTax: roundTo2Decimals(compositeOutputTax),
         customerPayableAmount: roundTo2Decimals(sellingPrice),
       };
 
     default:
-      // Default to inclusive
       return {
+        grossSalesAmount: roundTo2Decimals(sellingPrice),
         netSalesRevenue: roundTo2Decimals(sellingPrice),
         outputTax: 0,
         customerPayableAmount: roundTo2Decimals(sellingPrice),
@@ -542,30 +551,80 @@ function calculateSellingFees(
   otherFixedFees: number;
   totalSellingFees: number;
 } {
-  // Percentage fees are computed on the SELLING PRICE (customer-facing amount)
-  // Most platforms charge on the gross amount including tax
-  const marketplaceFeePercent = safeNonNegative(
-    effectiveRule?.sourceTrace?.['marketplaceFeePercent']?.value as number ?? undefined
-  ) ?? safeNonNegative(safeNumber(product.marketplaceFeePercent, businessSettings.defaultMarketplaceFeePercent));
+  // Read fee values directly from ResolvedPricingPolicy (THE AUTHORITY)
+  // CRITICAL: Do NOT use safeNonNegative(undefined) ?? fallback pattern
+  const marketplaceFeePercent = effectiveRule
+    ? effectiveRule.marketplaceFeePercent
+    : (typeof product.marketplaceFeePercent === 'number' && Number.isFinite(product.marketplaceFeePercent) && product.marketplaceFeePercent > 0)
+      ? product.marketplaceFeePercent
+      : businessSettings.defaultMarketplaceFeePercent;
 
-  const paymentFeePercent = safeNonNegative(
-    effectiveRule?.sourceTrace?.['paymentFeePercent']?.value as number ?? undefined
-  ) ?? safeNonNegative(safeNumber(product.paymentFeePercent, businessSettings.defaultPaymentFeePercent));
+  const paymentFeePercent = effectiveRule
+    ? effectiveRule.paymentFeePercent
+    : (typeof product.paymentFeePercent === 'number' && Number.isFinite(product.paymentFeePercent) && product.paymentFeePercent > 0)
+      ? product.paymentFeePercent
+      : businessSettings.defaultPaymentFeePercent;
 
-  const otherFeesPercent = safeNonNegative(safeNumber(product.otherFeesPercent, 0));
+  const otherFeesPercent = effectiveRule
+    ? effectiveRule.otherFeesPercent
+    : (typeof product.otherFeesPercent === 'number' && Number.isFinite(product.otherFeesPercent) && product.otherFeesPercent > 0)
+      ? product.otherFeesPercent
+      : businessSettings.defaultOtherFeesPercent;
 
-  const marketplaceFeeFixed = safeNonNegative(
-    safeNumber(product.marketplaceFeeFixed, businessSettings.defaultMarketplaceFeeFixed)
-  );
-  const paymentFeeFixed = safeNonNegative(
-    safeNumber(product.paymentFeeFixed, businessSettings.defaultPaymentFeeFixed)
-  );
-  const otherFeesFixed = safeNonNegative(safeNumber(product.otherFeesFixed, 0));
+  const marketplaceFeeFixed = effectiveRule
+    ? effectiveRule.marketplaceFeeFixed
+    : (typeof product.marketplaceFeeFixed === 'number' && Number.isFinite(product.marketplaceFeeFixed))
+      ? product.marketplaceFeeFixed
+      : businessSettings.defaultMarketplaceFeeFixed;
 
-  // Percentage fee amounts (on selling price)
-  const marketplacePercentageFee = roundTo2Decimals(safeMul(sellingPrice, percentageToDecimal(marketplaceFeePercent)));
-  const paymentPercentageFee = roundTo2Decimals(safeMul(sellingPrice, percentageToDecimal(paymentFeePercent)));
-  const otherPercentageFees = roundTo2Decimals(safeMul(sellingPrice, percentageToDecimal(otherFeesPercent)));
+  const paymentFeeFixed = effectiveRule
+    ? effectiveRule.paymentFeeFixed
+    : (typeof product.paymentFeeFixed === 'number' && Number.isFinite(product.paymentFeeFixed))
+      ? product.paymentFeeFixed
+      : businessSettings.defaultPaymentFeeFixed;
+
+  const otherFeesFixed = effectiveRule
+    ? effectiveRule.otherFeesFixed
+    : (typeof product.otherFeesFixed === 'number' && Number.isFinite(product.otherFeesFixed))
+      ? product.otherFeesFixed
+      : businessSettings.defaultOtherFeesFixed;
+
+  // --- Fee Base Policy ---
+  // Determines what base percentage fees are calculated on
+  const feeBasePolicy: FeeBasePolicy = effectiveRule
+    ? effectiveRule.feeBasePolicy
+    : product.feeBasePolicy ?? businessSettings.feeBasePolicy ?? 'product-price-only';
+
+  // Calculate the fee base amount depending on the policy
+  // For 'product-price-only': fees are on the selling price (entered/net price)
+  // For 'product-price-plus-shipping': fees are on selling price + customer shipping
+  // For 'customer-payable-gross': fees are on the total customer-payable amount
+  let feeBaseAmount: number;
+  switch (feeBasePolicy) {
+    case 'product-price-plus-shipping':
+      feeBaseAmount = roundTo2Decimals(safeAdd(sellingPrice, product.shippingChargeToCustomer ?? 0));
+      break;
+    case 'customer-payable-gross':
+      // Need to calculate customer payable first
+      // Simplified: for inclusive tax, it's the selling price; for exclusive, it's selling price + output tax
+      const taxTreatment = effectiveRule ? effectiveRule.taxTreatment : (product.taxTreatment ?? businessSettings.taxTreatment);
+      const taxRate = effectiveRule ? effectiveRule.taxRatePercent : (product.taxRatePercent ?? businessSettings.defaultTaxRatePercent);
+      if (taxTreatment === 'exclusive' || taxTreatment === 'reverse') {
+        feeBaseAmount = roundTo2Decimals(safeAdd(sellingPrice, safeMul(sellingPrice, percentageToDecimal(taxRate))));
+      } else {
+        feeBaseAmount = roundTo2Decimals(sellingPrice);
+      }
+      break;
+    case 'product-price-only':
+    default:
+      feeBaseAmount = roundTo2Decimals(sellingPrice);
+      break;
+  }
+
+  // Percentage fee amounts (on the fee base amount)
+  const marketplacePercentageFee = roundTo2Decimals(safeMul(feeBaseAmount, percentageToDecimal(marketplaceFeePercent)));
+  const paymentPercentageFee = roundTo2Decimals(safeMul(feeBaseAmount, percentageToDecimal(paymentFeePercent)));
+  const otherPercentageFees = roundTo2Decimals(safeMul(feeBaseAmount, percentageToDecimal(otherFeesPercent)));
 
   const totalSellingFees = roundTo2Decimals(
     safeSum([
@@ -606,21 +665,34 @@ function calculateTotalPercentageFeesDecimal(
   businessSettings: BusinessSettings,
   effectiveRule?: ResolvedPricingPolicy
 ): number {
-  const marketplaceFeePercent = safeNonNegative(
-    effectiveRule?.sourceTrace?.['marketplaceFeePercent']?.value as number ?? undefined
-  ) ?? safeNonNegative(safeNumber(product.marketplaceFeePercent, businessSettings.defaultMarketplaceFeePercent));
+  // Read fee values directly from ResolvedPricingPolicy (THE AUTHORITY)
+  const marketplaceFeePercent = effectiveRule
+    ? effectiveRule.marketplaceFeePercent
+    : (typeof product.marketplaceFeePercent === 'number' && Number.isFinite(product.marketplaceFeePercent) && product.marketplaceFeePercent > 0)
+      ? product.marketplaceFeePercent
+      : businessSettings.defaultMarketplaceFeePercent;
 
-  const paymentFeePercent = safeNonNegative(
-    effectiveRule?.sourceTrace?.['paymentFeePercent']?.value as number ?? undefined
-  ) ?? safeNonNegative(safeNumber(product.paymentFeePercent, businessSettings.defaultPaymentFeePercent));
+  const paymentFeePercent = effectiveRule
+    ? effectiveRule.paymentFeePercent
+    : (typeof product.paymentFeePercent === 'number' && Number.isFinite(product.paymentFeePercent) && product.paymentFeePercent > 0)
+      ? product.paymentFeePercent
+      : businessSettings.defaultPaymentFeePercent;
 
-  const otherFeesPercent = safeNonNegative(safeNumber(product.otherFeesPercent, 0));
+  const otherFeesPercent = effectiveRule
+    ? effectiveRule.otherFeesPercent
+    : (typeof product.otherFeesPercent === 'number' && Number.isFinite(product.otherFeesPercent) && product.otherFeesPercent > 0)
+      ? product.otherFeesPercent
+      : businessSettings.defaultOtherFeesPercent;
 
-  const taxRatePercent = safeNonNegative(
-    effectiveRule?.sourceTrace?.['taxRatePercent']?.value as number ?? undefined
-  ) ?? safeNonNegative(safeNumber(product.taxRatePercent, businessSettings.defaultTaxRatePercent));
+  const taxRatePercent = effectiveRule
+    ? effectiveRule.taxRatePercent
+    : (typeof product.taxRatePercent === 'number' && Number.isFinite(product.taxRatePercent) && product.taxRatePercent > 0)
+      ? product.taxRatePercent
+      : businessSettings.defaultTaxRatePercent;
 
-  const taxTreatment = product.taxTreatment ?? businessSettings.taxTreatment;
+  const taxTreatment = effectiveRule
+    ? effectiveRule.taxTreatment
+    : product.taxTreatment ?? businessSettings.taxTreatment;
 
   // Tax is a percentage fee ONLY if treatment is 'exclusive' or 'reverse'
   // (inclusive means tax is already in the selling price, not an additional charge)
@@ -970,6 +1042,7 @@ export function calculateOutcomeAtPrice({
   const netSalesRevenue = sellingTax.netSalesRevenue;
   const outputTax = sellingTax.outputTax;
   const customerPayableAmount = sellingTax.customerPayableAmount;
+  const grossSalesAmount = sellingTax.grossSalesAmount;
 
   // ========================================
   // Step 3: Cost Calculations
@@ -1060,14 +1133,18 @@ export function calculateOutcomeAtPrice({
   return {
     enteredSellingPrice: roundTo2Decimals(sellingPrice),
     customerPayableAmount,
+    grossSalesAmount,
     netSalesRevenue,
     outputTax,
+    grossPurchaseCost: roundTo2Decimals(purchaseCost),
+    netPurchaseCost: roundTo2Decimals(netPurchaseCost),
     recoverableInputTax,
     nonRecoverableInputTax,
     purchaseCost: roundTo2Decimals(purchaseCost),
     fixedProductCosts,
     expectedReturnCost,
     expectedDamageCost,
+    customDutyCost: roundTo2Decimals(customDutyCost),
     totalLandedCost,
     marketplacePercentageFee: fees.marketplacePercentageFee,
     marketplaceFixedFee: fees.marketplaceFixedFee,

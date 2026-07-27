@@ -199,11 +199,16 @@ export interface Product {
 
   // --- Recommendations (populated by engine) ---
   recommendedPrices: RecommendedPrices;
+  recommendedOutcomes?: RecommendedOutcomes;
 
   // --- Purchase-Side Tax ---
   purchaseTaxRatePercent: number;       // Purchase-side tax rate (%) - default 0
   inputTaxCreditRecoverable: InputTaxCreditRecoverable; // Whether input tax is recoverable
+  inputTaxRecoverablePercent: number;   // 0-100: percentage of input tax recoverable (for partially-recoverable)
   purchaseCostTaxMode: PurchaseCostTaxMode;             // Whether purchaseCost includes tax
+  
+  // --- Fee Base ---
+  feeBasePolicy: FeeBasePolicy;         // What base percentage fees are calculated on
 
   // --- Recommendation Selection ---
   selectedRecommendationMode: RecommendationMode;  // Which recommendation mode was selected
@@ -220,6 +225,7 @@ export interface Product {
   // --- Import Tracking ---
   importBatchId?: string;           // Batch ID if imported
   importSourceFileName?: string;    // Original file name if imported
+  importSourceSheet?: string;       // Sheet name in the imported file
   importOriginalRowNumber?: number; // Row number in original file if imported
 
   // --- Lifecycle ---
@@ -278,8 +284,17 @@ export interface PricingRule {
 
   // --- Override Settings ---
   overrideTaxRatePercent?: number;
+  overrideTaxTreatment?: TaxTreatment;
   overrideMarketplaceFeePercent?: number;
+  overrideMarketplaceFeeFixed?: number;
   overridePaymentFeePercent?: number;
+  overridePaymentFeeFixed?: number;
+  overrideOtherFeesPercent?: number;
+  overrideOtherFeesFixed?: number;
+  overrideFeeBasePolicy?: FeeBasePolicy;
+  overrideCompetitorStrategy?: CompetitorStrategy;
+  overrideMinimumProfitPerUnit?: number;
+  overrideCustomRoundingValue?: number;
 
   // --- Priority & Metadata ---
   priority: number;            // Higher number = higher priority within same level
@@ -340,6 +355,13 @@ export interface BusinessSettings {
   // --- Minimum Profit ---
   minimumProfitPerUnit: number;         // Minimum absolute profit per unit required
 
+  // --- Fee Base Policy ---
+  feeBasePolicy: FeeBasePolicy;         // What base percentage fees are calculated on
+  defaultOtherFeesPercent: number;      // Default other percentage-based fees
+  defaultOtherFeesFixed: number;        // Default other fixed fees
+  defaultInputTaxRecoverablePercent: number; // Default percentage of input tax recoverable (0-100)
+  defaultPurchaseTaxRatePercent: number;      // Default purchase-side tax rate
+  
   // --- Onboarding ---
   onboardingCompleted: boolean;
   onboardingStep: number;
@@ -359,10 +381,18 @@ export interface Scenario {
   createdAt: string;
   updatedAt: string;
   
-  // --- Snapshot Data ---
+  // --- Scenario Type ---
+  scenarioType: 'catalogue' | 'simulator';
+  
+  // --- Catalogue Snapshot Data ---
   snapshotProducts: Product[];
   snapshotPricingRules: PricingRule[];
   snapshotBusinessSettings: BusinessSettings;
+  
+  // --- Simulator Data ---
+  simulatorInputs?: Record<string, number | string>;  // Simulator input values
+  simulatorOutcome?: PriceOutcome;                    // Outcome at proposed price
+  simulatorRecommendations?: RecommendedOutcomes;     // Recommendation results
   
   // --- Comparison ---
   comparisonScenarioId?: string;  // If this scenario was created by comparing with another
@@ -573,15 +603,23 @@ export interface PricingWarning {
 export interface PriceOutcome {
   enteredSellingPrice: number;
   customerPayableAmount: number;
-  netSalesRevenue: number;
+  
+  grossSalesAmount: number;        // Gross sales (inclusive: selling price; exclusive: net revenue)
+  netSalesRevenue: number;         // Revenue after removing output tax
   outputTax: number;
+
+  grossPurchaseCost: number;       // Purchase cost before tax adjustments
+  netPurchaseCost: number;         // Purchase cost after removing recoverable input tax
   recoverableInputTax: number;
   nonRecoverableInputTax: number;
-  purchaseCost: number;
-  fixedProductCosts: number;
+  
+  purchaseCost: number;            // Base purchase cost (same as product.purchaseCost)
+  fixedProductCosts: number;       // Shipping + packaging + handling + other
   expectedReturnCost: number;
   expectedDamageCost: number;
+  customDutyCost: number;
   totalLandedCost: number;
+  
   marketplacePercentageFee: number;
   marketplaceFixedFee: number;
   paymentPercentageFee: number;
@@ -589,10 +627,12 @@ export interface PriceOutcome {
   otherPercentageFees: number;
   otherFixedFees: number;
   totalSellingFees: number;
+  
   totalCostPerSuccessfulSale: number;
   netProfit: number;
   effectiveMarginPercent: number;
   markupPercent: number;
+  
   isProfitable: boolean;
   isBreakEven: boolean;
   satisfiesMinimumMargin: boolean;
@@ -602,15 +642,88 @@ export interface PriceOutcome {
   confidence: PricingConfidence;
 }
 
-/** Resolved pricing policy with source tracing */
+/** Resolved pricing policy with source tracing.
+ * 
+ * THE SINGLE AUTHORITY for all effective policy values.
+ * Every field is resolved independently from the highest-priority source:
+ * Product > Brand > Category > Channel > Global > BusinessSettings defaults
+ * 
+ * Components must read final values directly from this interface.
+ * sourceTrace is for explanation and auditability only.
+ */
 export interface ResolvedPricingPolicy {
+  // --- Margin Targets ---
   targetMarginPercent: number;
   minimumMarginPercent: number;
   premiumMarginPercent: number;
   minimumProfitPerUnit: number;
+  
+  // --- Tax ---
+  taxRatePercent: number;
+  taxTreatment: TaxTreatment;
+  
+  // --- Marketplace Fees ---
+  marketplaceFeePercent: number;
+  marketplaceFeeFixed: number;
+  
+  // --- Payment Fees ---
+  paymentFeePercent: number;
+  paymentFeeFixed: number;
+  
+  // --- Other Fees ---
+  otherFeesPercent: number;
+  otherFeesFixed: number;
+  
+  // --- Competitor Strategy ---
+  competitorStrategy: CompetitorStrategy;
+  
+  // --- Rounding ---
   roundingRule: RoundingRule;
-  // Source tracing - shows which rule provided each value
-  sourceTrace: Record<string, { value: number | string; source: string }>;
+  customRoundingValue?: number;
+  
+  // --- Fee Base Policy ---
+  feeBasePolicy: FeeBasePolicy;
+  
+  // --- Purchase-Side Tax ---
+  inputTaxRecoverablePercent: number;  // 0-100: percentage of input tax that is recoverable
+  
+  // --- Source tracing - shows which rule provided each value ---
+  sourceTrace: Record<string, { value: number | string | object; source: string }>;
+}
+
+/** Policy for what selling-price base percentage fees are calculated on */
+export type FeeBasePolicy =
+  | 'product-price-only'            // Fees on product selling price only
+  | 'product-price-plus-shipping'   // Fees on product price + customer shipping
+  | 'customer-payable-gross';       // Fees on total customer-payable amount
+
+/** Recommendation result status */
+export type RecommendationStatus =
+  | 'success'              // A valid recommendation was found
+  | 'missing-data'         // Critical data missing (e.g. no purchase cost)
+  | 'impossible'           // No price satisfies the constraints
+  | 'market-conflict'      // Competitor data conflicts with minimum safe price
+  | 'unresolved';          // Rounding could not find a safe value
+
+/** Recommendation result with structured outcome */
+export interface RecommendationResult {
+  mode: 'break-even' | 'minimum' | 'competitive' | 'balanced' | 'premium';
+  status: RecommendationStatus;
+  rawPrice?: number;            // Price before rounding
+  finalPrice?: number;          // Price after rounding and validation
+  outcome?: PriceOutcome;       // Full outcome at the recommended price
+  confidence: PricingConfidence;
+  warnings: PricingWarning[];
+  explanation: string;          // Human-readable explanation of how the price was determined
+}
+
+/** All recommendation outcomes for a product */
+export interface RecommendedOutcomes {
+  breakEven: RecommendationResult;
+  minimum: RecommendationResult;
+  competitive: RecommendationResult;
+  balanced: RecommendationResult;
+  premium: RecommendationResult;
 }
 
 // ============================================================
@@ -660,6 +773,11 @@ export function createDefaultBusinessSettings(): BusinessSettings {
     strongMarginThresholdPercent: 40,
     aboveMarketThresholdPercent: 30,
     minimumProfitPerUnit: 0,
+    feeBasePolicy: 'product-price-only',
+    defaultOtherFeesPercent: 0,
+    defaultOtherFeesFixed: 0,
+    defaultInputTaxRecoverablePercent: 100,
+    defaultPurchaseTaxRatePercent: 0,
     onboardingCompleted: false,
     onboardingStep: 0,
     createdAt: new Date().toISOString(),
@@ -711,7 +829,9 @@ export function createDefaultProduct(): Partial<Product> {
     calculatedProfitabilityMeter: 'loss',
     purchaseTaxRatePercent: 0,
     inputTaxCreditRecoverable: 'not-recoverable',
+    inputTaxRecoverablePercent: 100,
     purchaseCostTaxMode: 'excluding-tax',
+    feeBasePolicy: 'product-price-only',
     selectedRecommendationMode: 'balanced',
     customRecommendedPrice: 0,
     finalApprovedPrice: 0,

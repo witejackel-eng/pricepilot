@@ -429,6 +429,7 @@ export function calculateRecommendedPrices(
   const resolvedRule = resolveRuleForProduct(product, rules);
 
   return {
+    breakEven: 0,
     minimum: calculateMinimumSafePrice(product, settings, resolvedRule),
     competitive: calculateCompetitivePrice(product, settings, resolvedRule),
     balanced: calculateBalancedPrice(product, settings, resolvedRule),

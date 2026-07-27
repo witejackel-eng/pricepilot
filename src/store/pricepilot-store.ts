@@ -43,6 +43,7 @@ import {
 import { calculateAllRecommendations, mapRecommendationsToProduct } from '@/lib/pricepilot/recommendations';
 import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
 import { SAMPLE_PRODUCTS, SAMPLE_PRICING_RULES } from '@/lib/pricepilot/sample-data';
+import { RecommendationResult, RecommendedOutcomes } from '@/lib/pricepilot/types';
 
 /**
  * Helper: Calculate product using the new recommendations engine.

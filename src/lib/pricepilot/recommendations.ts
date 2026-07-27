@@ -27,6 +27,10 @@ import {
   RoundingRule,
   CompetitorStrategy,
   PricingRule,
+  RecommendationResult,
+  RecommendationStatus,
+  RecommendedOutcomes,
+  PricingWarning,
 } from './types';
 import {
   calculateOutcomeAtPrice,
@@ -912,8 +916,8 @@ function computePriceForMargin(
     product, businessSettings, effectiveRule
   );
   const marginDecimal = percentageToDecimal(marginTargetPercent);
-  const taxTreatment = product.taxTreatment ?? businessSettings.taxTreatment;
-  const taxRatePercent = safeNumber(product.taxRatePercent, businessSettings.defaultTaxRatePercent);
+  const taxTreatment = effectiveRule.taxTreatment;
+  const taxRatePercent = effectiveRule.taxRatePercent;
   const taxDecimal = percentageToDecimal(taxRatePercent);
 
   if (taxTreatment === 'inclusive' || taxTreatment === 'composite') {
@@ -957,19 +961,12 @@ function computeTotalPercentageFeesDecimal(
   businessSettings: BusinessSettings,
   effectiveRule: ResolvedPricingPolicy
 ): number {
-  const marketplaceFeePercent = safeNonNegative(
-    safeNumber(product.marketplaceFeePercent, businessSettings.defaultMarketplaceFeePercent)
-  );
-  const paymentFeePercent = safeNonNegative(
-    safeNumber(product.paymentFeePercent, businessSettings.defaultPaymentFeePercent)
-  );
-  const otherFeesPercent = safeNonNegative(safeNumber(product.otherFeesPercent, 0));
-
-  const taxRatePercent = safeNonNegative(
-    safeNumber(product.taxRatePercent, businessSettings.defaultTaxRatePercent)
-  );
-
-  const taxTreatment = product.taxTreatment ?? businessSettings.taxTreatment;
+  // Read fee values directly from ResolvedPricingPolicy (THE AUTHORITY)
+  const marketplaceFeePercent = effectiveRule.marketplaceFeePercent;
+  const paymentFeePercent = effectiveRule.paymentFeePercent;
+  const otherFeesPercent = effectiveRule.otherFeesPercent;
+  const taxRatePercent = effectiveRule.taxRatePercent;
+  const taxTreatment = effectiveRule.taxTreatment;
 
   // Tax is a percentage fee ONLY for exclusive/reverse treatment
   const taxAsFeePercent = (taxTreatment === 'exclusive' || taxTreatment === 'reverse')
@@ -1176,6 +1173,106 @@ export function mapRecommendationsToProduct(
       premium: roundTo2Decimals(allRecs.premium),
       confidence: allRecs.confidence,
     },
+    // Structured recommendation outcomes
+    recommendedOutcomes: buildRecommendedOutcomes(allRecs, product, businessSettings),
     updatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Build RecommendedOutcomes from AllRecommendations, creating structured
+ * RecommendationResult objects for each mode with status, explanation, etc.
+ */
+function buildRecommendedOutcomes(
+  allRecs: AllRecommendations,
+  product: Product,
+  businessSettings: BusinessSettings
+): RecommendedOutcomes {
+  const hasCost = hasPurchaseCost(product);
+  const isImpossible = allRecs.isImpossible;
+  
+  function buildRecResult(
+    mode: 'break-even' | 'minimum' | 'competitive' | 'balanced' | 'premium',
+    rawPrice: number,
+    outcome: PriceOutcome,
+  ): RecommendationResult {
+    if (!hasCost) {
+      return {
+        mode,
+        status: 'missing-data',
+        rawPrice: undefined,
+        finalPrice: undefined,
+        outcome: undefined,
+        confidence: 'low',
+        warnings: [{ type: 'missing-cost', severity: 'critical', message: 'Purchase cost is missing or zero', suggestion: 'Enter the purchase cost to enable full pricing analysis.' }],
+        explanation: 'Purchase cost is missing. Recommendation unavailable.',
+      };
+    }
+    
+    if (isImpossible || rawPrice >= 99999999) {
+      return {
+        mode,
+        status: 'impossible',
+        rawPrice: undefined,
+        finalPrice: undefined,
+        outcome: undefined,
+        confidence: 'low',
+        warnings: [{ type: 'impossible-margin', severity: 'critical', message: 'Percentage fees and margin requirements exceed 100% of revenue.', suggestion: 'Reduce fees or margin targets.' }],
+        explanation: 'No profitable price exists under current settings.',
+      };
+    }
+    
+    // Check if the outcome satisfies constraints
+    const satisfiesAll = outcome.isProfitable && outcome.satisfiesMinimumMargin && outcome.satisfiesMinimumProfit;
+    const status: RecommendationStatus = satisfiesAll ? 'success' : 
+      (outcome.netProfit >= 0 && !outcome.satisfiesMinimumMargin ? 'market-conflict' : 'unresolved');
+    
+    // Apply rounding
+    const roundedPrice = roundTo2Decimals(rawPrice);
+    
+    return {
+      mode,
+      status,
+      rawPrice: roundTo2Decimals(rawPrice),
+      finalPrice: roundedPrice,
+      outcome,
+      confidence: outcome.confidence,
+      warnings: outcome.warnings,
+      explanation: buildExplanation(mode, rawPrice, outcome, product),
+    };
+  }
+  
+  return {
+    breakEven: buildRecResult('break-even', allRecs.breakEven, allRecs.outcomes.breakEven),
+    minimum: buildRecResult('minimum', allRecs.minimumSafe, allRecs.outcomes.minimumSafe),
+    competitive: buildRecResult('competitive', allRecs.competitive, allRecs.outcomes.competitive),
+    balanced: buildRecResult('balanced', allRecs.balanced, allRecs.outcomes.balanced),
+    premium: buildRecResult('premium', allRecs.premium, allRecs.outcomes.premium),
+  };
+}
+
+/**
+ * Build a human-readable explanation for a recommendation.
+ */
+function buildExplanation(
+  mode: 'break-even' | 'minimum' | 'competitive' | 'balanced' | 'premium',
+  rawPrice: number,
+  outcome: PriceOutcome,
+  product: Product
+): string {
+  const margin = roundTo2Decimals(outcome.effectiveMarginPercent);
+  const profit = roundTo2Decimals(outcome.netProfit);
+  
+  switch (mode) {
+    case 'break-even':
+      return `Break-even price of ${roundTo2Decimals(rawPrice)} covers all costs and fees with 0% margin.`;
+    case 'minimum':
+      return `Minimum safe price of ${roundTo2Decimals(rawPrice)} achieves ${margin}% margin and ${profit} profit per unit.`;
+    case 'competitive':
+      return `Competitive price of ${roundTo2Decimals(rawPrice)} balances market positioning with ${margin}% margin.`;
+    case 'balanced':
+      return `Balanced price of ${roundTo2Decimals(rawPrice)} blends target margin with market context, yielding ${margin}% margin.`;
+    case 'premium':
+      return `Premium price of ${roundTo2Decimals(rawPrice)} targets high margin at ${margin}%, maximizing profit per unit.`;
+  }
 }

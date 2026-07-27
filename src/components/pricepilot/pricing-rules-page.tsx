@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Separator } from '@/components/ui/separator';
-import { PricingRule, RuleLevel, RoundingRule, createDefaultPricingRule } from '@/lib/pricepilot/types';
+import { PricingRule, RuleLevel, RoundingRule, SalesChannel, createDefaultPricingRule } from '@/lib/pricepilot/types';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { applyRoundingRule } from '@/lib/pricepilot/calculations';
 import { Plus, Copy, Trash2, Edit, RefreshCw, AlertTriangle } from 'lucide-react';
@@ -279,7 +279,7 @@ export function PricingRulesPage() {
               {editRule.level === 'channel' && (
                 <div>
                   <Label>Target Channel</Label>
-                  <Select value={editRule.targetChannel || ''} onValueChange={v => setEditRule({ ...editRule, targetChannel: v })}>
+                  <Select value={editRule.targetChannel || ''} onValueChange={v => setEditRule({ ...editRule, targetChannel: v as SalesChannel | undefined })}>
                     <SelectTrigger><SelectValue placeholder="Select channel" /></SelectTrigger>
                     <SelectContent>
                       {channels.map(ch => <SelectItem key={ch} value={ch}>{ch}</SelectItem>)}

@@ -214,7 +214,7 @@ export function ProductsPage() {
 
         {/* Filter tabs */}
         <div className="flex gap-2 flex-wrap">
-          {(['all', 'profitable', 'low-margin', 'loss-making', 'missing-cost', 'needs-review'] as FilterTab).map(tab => (
+          {(['all', 'profitable', 'low-margin', 'loss-making', 'missing-cost', 'needs-review'] as FilterTab[]).map(tab => (
             <Button
               key={tab}
               size="sm"

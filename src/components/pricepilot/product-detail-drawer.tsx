@@ -49,16 +49,54 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
 
   const product = products.find(p => p.id === productId);
 
-  // Initialize edit form when product changes
-  useMemo(() => {
-    if (product) {
-      setEditForm({ ...product });
-      setEditCompetitors([...(product.competitorPrices || [])]);
-      setEditHistory([]);
-      setIsEditing(false);
-      setSelectedMode(product.selectedRecommendationMode || 'balanced');
+  // Initialize edit form when product changes (React pattern for adjusting state when props change)
+  const [prevProductId, setPrevProductId] = useState<string | undefined>(undefined);
+  if (product && product.id !== prevProductId) {
+    setPrevProductId(product.id);
+    setEditForm({ ...product });
+    setEditCompetitors([...(product.competitorPrices || [])]);
+    setEditHistory([]);
+    setIsEditing(false);
+    setSelectedMode(product.selectedRecommendationMode || 'balanced');
+  }
+
+  // Edit form handlers (must be declared before any early return)
+  const updateEditField = useCallback(<K extends keyof Product>(key: K, value: Product[K]) => {
+    const oldValue = editForm[key];
+    setEditForm(prev => ({ ...prev, [key]: value }));
+    setEditHistory(prev => [...prev.slice(-9), { field: key, oldValue, newValue: value }]);
+  }, [editForm]);
+
+  const undoLastEdit = useCallback(() => {
+    if (editHistory.length === 0) return;
+    const last = editHistory[editHistory.length - 1];
+    setEditForm(prev => ({ ...prev, [last.field]: last.oldValue }));
+    setEditHistory(prev => prev.slice(0, -1));
+  }, [editHistory]);
+
+  const handleSaveEdit = useCallback(() => {
+    if (!product) return;
+    const updates: Partial<Product> = { ...editForm, competitorPrices: editCompetitors } as Partial<Product>;
+    updateProduct(product.id, updates);
+    setIsEditing(false);
+    setEditHistory([]);
+  }, [product, editForm, editCompetitors, updateProduct]);
+
+  // Edit preview (must be before early return per React hooks rules)
+  const editPreviewOutcome = useMemo(() => {
+    if (!editForm.purchaseCost || editForm.purchaseCost <= 0) return null;
+    const previewProduct: Product = {
+      ...(editForm as Product),
+      competitorPrices: editCompetitors,
+    };
+    const effectiveRule = resolveEffectivePricingPolicy(previewProduct, pricingRules, businessSettings);
+    try {
+      const price = editForm.currentSellingPrice || 0;
+      return calculateOutcomeAtPrice({ product: previewProduct, sellingPrice: price, businessSettings, effectiveRule });
+    } catch {
+      return null;
     }
-  }, [product?.id]);
+  }, [editForm, editCompetitors, businessSettings, pricingRules]);
 
   if (!product) {
     return (
@@ -101,28 +139,6 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
     { label: 'Other Costs', value: product.otherCosts },
     { label: 'Total Landed Cost', value: product.calculatedTotalLandedCost, isTotal: true },
   ];
-
-  // Edit form handlers
-  const updateEditField = useCallback(<K extends keyof Product>(key: K, value: Product[K]) => {
-    const oldValue = editForm[key];
-    setEditForm(prev => ({ ...prev, [key]: value }));
-    setEditHistory(prev => [...prev.slice(-9), { field: key, oldValue, newValue: value }]);
-  }, [editForm]);
-
-  const undoLastEdit = useCallback(() => {
-    if (editHistory.length === 0) return;
-    const last = editHistory[editHistory.length - 1];
-    setEditForm(prev => ({ ...prev, [last.field]: last.oldValue }));
-    setEditHistory(prev => prev.slice(0, -1));
-  }, [editHistory]);
-
-  const handleSaveEdit = useCallback(() => {
-    if (!product) return;
-    const updates: Partial<Product> = { ...editForm, competitorPrices: editCompetitors } as Partial<Product>;
-    updateProduct(product.id, updates);
-    setIsEditing(false);
-    setEditHistory([]);
-  }, [product, editForm, editCompetitors, updateProduct]);
 
   // Lifecycle status badge colors
   const lifecycleBadgeStyle = (status: LifecycleStatus): string => {
@@ -167,22 +183,6 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
       default: return 'Unknown';
     }
   };
-
-  // Edit preview
-  const editPreviewOutcome = useMemo(() => {
-    if (!editForm.purchaseCost || editForm.purchaseCost <= 0) return null;
-    const previewProduct: Product = {
-      ...(editForm as Product),
-      competitorPrices: editCompetitors,
-    };
-    const effectiveRule = resolveEffectivePricingPolicy(previewProduct, pricingRules, businessSettings);
-    try {
-      const price = editForm.currentSellingPrice || 0;
-      return calculateOutcomeAtPrice({ product: previewProduct, sellingPrice: price, businessSettings, effectiveRule });
-    } catch {
-      return null;
-    }
-  }, [editForm, editCompetitors, businessSettings, pricingRules]);
 
   return (
     <Sheet open={!!productId} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -714,28 +714,22 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-sm font-medium text-slate-600">Min Profit per Unit</Label>
-                    <Input type="number" value={editForm.minimumProfitPerUnit || ''} onChange={e => updateEditField('minimumProfitPerUnit', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 rounded-lg" />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-slate-600">Sales Channel</Label>
-                    <Select value={editForm.salesChannel || 'online-marketplace'} onValueChange={v => updateEditField('salesChannel', v as SalesChannel)}>
-                      <SelectTrigger className="bg-white shadow-sm border-slate-200 rounded-lg">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="online-marketplace">Online Marketplace</SelectItem>
-                        <SelectItem value="own-website">Own Website</SelectItem>
-                        <SelectItem value="retail-store">Retail Store</SelectItem>
-                        <SelectItem value="wholesale">Wholesale</SelectItem>
-                        <SelectItem value="distributor">Distributor</SelectItem>
-                        <SelectItem value="offline">Offline</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div>
+                  <Label className="text-sm font-medium text-slate-600">Sales Channel</Label>
+                  <Select value={editForm.salesChannel || 'online-marketplace'} onValueChange={v => updateEditField('salesChannel', v as SalesChannel)}>
+                    <SelectTrigger className="bg-white shadow-sm border-slate-200 rounded-lg">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="online-marketplace">Online Marketplace</SelectItem>
+                      <SelectItem value="own-website">Own Website</SelectItem>
+                      <SelectItem value="retail-store">Retail Store</SelectItem>
+                      <SelectItem value="wholesale">Wholesale</SelectItem>
+                      <SelectItem value="distributor">Distributor</SelectItem>
+                      <SelectItem value="offline">Offline</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

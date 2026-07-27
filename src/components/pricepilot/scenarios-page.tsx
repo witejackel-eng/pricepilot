@@ -32,6 +32,7 @@ export function ScenariosPage() {
       description: newDescription,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      scenarioType: 'catalogue',
       snapshotProducts: [...products],
       snapshotPricingRules: [...pricingRules],
       snapshotBusinessSettings: { ...businessSettings },
