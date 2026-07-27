@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Progress } from '@/components/ui/progress';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge } from './status-badge';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import {
@@ -37,10 +38,12 @@ import {
 import { toast } from 'sonner';
 
 export function ProductDetailDrawer({ productId, onClose }: { productId: string | null; onClose: () => void }) {
-  const { products, businessSettings, pricingRules, updateProduct, approveProductPrice, applyApprovedPrice, duplicateProduct, deleteProduct, addRecentlyViewed } = usePricePilotStore();
+  const { products, businessSettings, pricingRules, updateProduct, approveProductPrice, applyApprovedPrice, duplicateProduct, deleteProduct, addRecentlyViewed, appSettings } = usePricePilotStore();
+  const isOwnerMode = appSettings.applicationMode === 'owner';
   const [selectedMode, setSelectedMode] = useState<RecommendationMode>('balanced');
   const [customPrice, setCustomPrice] = useState<string>('');
   const [activeTab, setActiveTab] = useState<string>('recommendations');
+  const [showOtherPricingOptions, setShowOtherPricingOptions] = useState(false);
 
   // Edit state
   const [editForm, setEditForm] = useState<Partial<Product>>({});
@@ -327,53 +330,161 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
 
             {/* Recommendation cards */}
             <div className="mt-4">
-              <h3 className="text-sm font-semibold mb-2">Price Recommendations</h3>
-              <div className="grid grid-cols-2 gap-3">
-                {recCards.map(card => {
-                  const isSelected = selectedMode === card.mode;
-                  const diff = diffFromExisting(card.price);
-                  return (
-                    <Card
-                      key={card.mode}
-                      className={`cursor-pointer transition-all duration-200 bg-white shadow-sm rounded-lg border border-slate-100 hover:shadow-md hover:border-emerald-200 ${isSelected ? 'ring-2 ring-emerald-500 bg-emerald-50 border-emerald-300 shadow-md' : ''}`}
-                      onClick={() => { setSelectedMode(card.mode); setCustomPrice(''); }}
-                    >
-                      <CardContent className="p-3">
-                        <div className="text-sm font-semibold mb-1">{card.label}</div>
-                        <div className="text-lg font-bold">{formatCurrency(card.price, cc)}</div>
-                        <div className="text-xs text-slate-500">
-                          Profit: {formatCurrency(profitAt(card.price), cc)} | Margin: {formatPercentage(marginAt(card.price))}
+              <h3 className="text-sm font-semibold mb-2">{isOwnerMode ? 'Recommended Selling Price' : 'Price Recommendations'}</h3>
+              {isOwnerMode ? (
+                <>
+                  {/* Primary recommendation card for Owner Mode */}
+                  <Card className="cursor-pointer transition-all bg-gradient-to-br from-emerald-50 to-white shadow-md rounded-xl border border-emerald-200 ring-2 ring-emerald-500">
+                    <CardContent className="p-4">
+                      <div className="text-sm font-semibold text-emerald-700 mb-1">Recommended Selling Price</div>
+                      <div className="text-2xl font-bold text-emerald-800">{formatCurrency(product.recommendedPrices.balanced, cc)}</div>
+                      <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                        <div>
+                          <span className="text-slate-500">Expected profit: </span>
+                          <span className="font-semibold">{formatCurrency(profitAt(product.recommendedPrices.balanced), cc)}</span>
                         </div>
-                        <div className={`text-xs mt-1 flex items-center gap-1 ${diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-red-600' : 'text-slate-500'}`}>
-                          {diff > 0 ? <ArrowUpRight className="h-3.5 w-3.5" /> : diff < 0 ? <ArrowDownRight className="h-3.5 w-3.5" /> : null}
-                          {diff > 0 ? '+' : ''}{formatCurrency(diff, cc)} vs existing
+                        <div>
+                          <span className="text-slate-500">Expected margin: </span>
+                          <span className="font-semibold">{formatPercentage(marginAt(product.recommendedPrices.balanced))}</span>
                         </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
+                        <div>
+                          <span className="text-slate-500">Current price: </span>
+                          <span className="font-semibold">{formatCurrency(product.currentSellingPrice, cc)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Suggested change: </span>
+                          <span className="font-semibold {diffFromExisting(product.recommendedPrices.balanced) > 0 ? 'text-emerald-600' : diffFromExisting(product.recommendedPrices.balanced) < 0 ? 'text-red-600' : 'text-slate-500'}">
+                            {diffFromExisting(product.recommendedPrices.balanced) > 0 ? '+' : ''}{formatCurrency(diffFromExisting(product.recommendedPrices.balanced), cc)}
+                          </span>
+                        </div>
+                      </div>
+                      {product.recommendedPrices.confidence && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <Badge variant="outline" className={`text-xs ${product.recommendedPrices.confidence === 'high' ? 'text-emerald-600 border-emerald-200' : product.recommendedPrices.confidence === 'medium' ? 'text-amber-600 border-amber-200' : 'text-red-600 border-red-200'}`}>Confidence: {product.recommendedPrices.confidence}</Badge>
+                          {(product.taxTreatment === 'inclusive' || product.taxTreatment === 'composite') && (
+                            <Badge variant="outline" className="text-xs text-slate-500 border-slate-200">GST included</Badge>
+                          )}
+                        </div>
+                      )}
+                      {/* Plain-language explanation */}
+                      <div className="mt-3 text-xs text-slate-600 bg-emerald-50/50 rounded-lg p-2 border border-emerald-100">
+                        {product.purchaseCost > 0 && product.recommendedPrices.balanced > 0 ? (
+                          <>
+                            Your total cost is {formatCurrency(product.calculatedTotalLandedCost, cc)} per unit.
+                            {product.currentSellingPrice > 0 && (
+                              <> At the current price of {formatCurrency(product.currentSellingPrice, cc)}, expected profit is {formatCurrency(product.calculatedProfitPerUnit, cc)}.</>
+                            )}
+                            <> At the recommended price of {formatCurrency(product.recommendedPrices.balanced, cc)}, expected profit becomes {formatCurrency(profitAt(product.recommendedPrices.balanced), cc)}.</>
+                          </>
+                        ) : (
+                          <>Recommendation unavailable — purchase cost or other critical data is missing.</>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
 
-              {/* Custom price input */}
-              <div className="mt-3">
-                <Label htmlFor="customPrice" className="text-sm font-medium text-slate-600">Custom Price</Label>
-                <div className="flex items-center gap-2 mt-1">
-                  <Input
-                    id="customPrice"
-                    type="number"
-                    value={customPrice}
-                    onChange={e => { setCustomPrice(e.target.value); if (e.target.value) setSelectedMode('custom'); }}
-                    placeholder="Enter custom price"
-                    className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 rounded-lg"
-                  />
-                  {customPrice && (
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">Margin: </span>
-                      <span className="font-semibold">{formatPercentage(marginAt(parseFloat(customPrice) || 0))}</span>
+                  {/* Other pricing options collapsible */}
+                  <Collapsible open={showOtherPricingOptions} onOpenChange={setShowOtherPricingOptions} className="mt-3">
+                    <CollapsibleTrigger asChild>
+                      <Button variant="ghost" size="sm" className="w-full text-emerald-600 hover:text-emerald-700">
+                        {showOtherPricingOptions ? <ChevronUp className="h-4 w-4 mr-1" /> : <ChevronDown className="h-4 w-4 mr-1" />}
+                        {showOtherPricingOptions ? 'Hide other pricing options' : 'See other pricing options'}
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="grid grid-cols-2 gap-3 mt-2">
+                        <Card className="shadow-sm rounded-lg border border-slate-100 bg-white">
+                          <CardContent className="p-3">
+                            <div className="text-sm font-semibold">Lowest Safe Price</div>
+                            <div className="text-lg font-bold">{formatCurrency(product.recommendedPrices.minimum, cc)}</div>
+                            <div className="text-xs text-slate-500">Min margin covered. Never price below this.</div>
+                          </CardContent>
+                        </Card>
+                        <Card className="shadow-sm rounded-lg border border-slate-100 bg-white">
+                          <CardContent className="p-3">
+                            <div className="text-sm font-semibold">Competitive Price</div>
+                            <div className="text-lg font-bold">{formatCurrency(product.recommendedPrices.competitive, cc)}</div>
+                            <div className="text-xs text-slate-500">Aligned with competitor pricing.</div>
+                          </CardContent>
+                        </Card>
+                        <Card className="shadow-sm rounded-lg border border-slate-100 bg-white">
+                          <CardContent className="p-3">
+                            <div className="text-sm font-semibold">Premium Price</div>
+                            <div className="text-lg font-bold">{formatCurrency(product.recommendedPrices.premium, cc)}</div>
+                            <div className="text-xs text-slate-500">Higher margin positioning.</div>
+                          </CardContent>
+                        </Card>
+                        {/* Custom price */}
+                        <Card className="shadow-sm rounded-lg border border-slate-100 bg-white">
+                          <CardContent className="p-3">
+                            <Label className="text-sm font-semibold">Custom Price</Label>
+                            <Input
+                              type="number"
+                              value={customPrice}
+                              onChange={e => { setCustomPrice(e.target.value); setSelectedMode('custom'); }}
+                              placeholder="Enter price"
+                              className="mt-1 bg-white shadow-sm border-slate-200 rounded-lg text-sm"
+                            />
+                            {customPrice && (
+                              <div className="text-xs mt-1">Margin: {formatPercentage(marginAt(parseFloat(customPrice) || 0))}</div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </>
+              ) : (
+                <>
+                  {/* Advanced mode: show all recommendations */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {recCards.map(card => {
+                      const isSelected = selectedMode === card.mode;
+                      const diff = diffFromExisting(card.price);
+                      return (
+                        <Card
+                          key={card.mode}
+                          className={`cursor-pointer transition-all duration-200 bg-white shadow-sm rounded-lg border border-slate-100 hover:shadow-md hover:border-emerald-200 ${isSelected ? 'ring-2 ring-emerald-500 bg-emerald-50 border-emerald-300 shadow-md' : ''}`}
+                          onClick={() => { setSelectedMode(card.mode); setCustomPrice(''); }}
+                        >
+                          <CardContent className="p-3">
+                            <div className="text-sm font-semibold mb-1">{card.label}</div>
+                            <div className="text-lg font-bold">{formatCurrency(card.price, cc)}</div>
+                            <div className="text-xs text-slate-500">
+                              Profit: {formatCurrency(profitAt(card.price), cc)} | Margin: {formatPercentage(marginAt(card.price))}
+                            </div>
+                            <div className={`text-xs mt-1 flex items-center gap-1 ${diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-red-600' : 'text-slate-500'}`}>
+                              {diff > 0 ? <ArrowUpRight className="h-3.5 w-3.5" /> : diff < 0 ? <ArrowDownRight className="h-3.5 w-3.5" /> : null}
+                              {diff > 0 ? '+' : ''}{formatCurrency(diff, cc)} vs existing
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+
+                  {/* Custom price input */}
+                  <div className="mt-3">
+                    <Label htmlFor="customPrice" className="text-sm font-medium text-slate-600">Custom Price</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input
+                        id="customPrice"
+                        type="number"
+                        value={customPrice}
+                        onChange={e => { setCustomPrice(e.target.value); if (e.target.value) setSelectedMode('custom'); }}
+                        placeholder="Enter custom price"
+                        className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 rounded-lg"
+                      />
+                      {customPrice && (
+                        <div className="text-sm">
+                          <span className="text-muted-foreground">Margin: </span>
+                          <span className="font-semibold">{formatPercentage(marginAt(parseFloat(customPrice) || 0))}</span>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Approval workflow */}

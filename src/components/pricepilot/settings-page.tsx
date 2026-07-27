@@ -11,9 +11,12 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { SUPPORTED_CURRENCIES, RoundingRule, TaxTreatment } from '@/lib/pricepilot/types';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { SUPPORTED_CURRENCIES, RoundingRule, TaxTreatment, ApplicationMode } from '@/lib/pricepilot/types';
+import { AutoBackup } from '@/store/pricepilot-store';
 import { HelpSection } from './help-section';
-import { Building2, Coins, Palette, Database, Download, Upload, Trash2, RefreshCw, Shield } from 'lucide-react';
+import { Building2, Coins, Palette, Database, Download, Upload, Trash2, RefreshCw, Shield, ChevronDown, ChevronRight, AlertTriangle, FileDown, Eye, Clock } from 'lucide-react';
+import { toast } from 'sonner';
 
 const COUNTRIES = [
   { code: 'IN', name: 'India' },
@@ -46,30 +49,96 @@ const inputClass = 'bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-
 const labelClass = 'text-sm font-medium text-slate-600';
 
 export function SettingsPage() {
-  const { businessSettings, updateBusinessSettings, appSettings, updateAppSettings, exportData, importData, clearAllProducts, resetApplication, products } = usePricePilotStore();
+  const { businessSettings, updateBusinessSettings, appSettings, updateAppSettings, setApplicationMode, exportData, importData, clearAllProducts, resetApplication, products, downloadBackup, restoreBackup, createAutoBackup, autoBackups, setCurrentView } = usePricePilotStore();
   const [importText, setImportText] = useState('');
+  const [resetConfirm, setResetConfirm] = useState('');
+  const [backupsOpen, setBackupsOpen] = useState(false);
+  const [dangerOpen, setDangerOpen] = useState(false);
+  const [selectedBackupId, setSelectedBackupId] = useState<string | null>(null);
+
+  const applicationMode = appSettings.applicationMode || 'owner';
 
   const handleExportData = () => {
-    const data = exportData();
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `pricepilot-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBackup();
+    toast.success('Backup downloaded', { description: 'Your data has been saved as a JSON file' });
   };
 
   const handleImportData = () => {
     if (!importText) return;
+    // Create backup before import
+    createAutoBackup('manual', 'Before manual data import');
     const success = importData(importText);
     if (success) {
       setImportText('');
+      toast.success('Data imported', { description: 'Your data has been restored from the backup' });
+    } else {
+      toast.error('Import failed', { description: 'The data format was invalid' });
     }
+  };
+
+  const handleRestoreBackup = (backup: AutoBackup) => {
+    createAutoBackup('manual', `Before restoring backup from ${new Date(backup.timestamp).toLocaleDateString()}`);
+    const success = restoreBackup(backup.dataString);
+    if (success) {
+      toast.success('Backup restored', { description: backup.description });
+    } else {
+      toast.error('Restore failed', { description: 'The backup data was invalid' });
+    }
+  };
+
+  const handleResetApplication = () => {
+    if (resetConfirm !== 'RESET') {
+      toast.error('Confirmation required', { description: 'Type RESET to confirm' });
+      return;
+    }
+    resetApplication();
+    setResetConfirm('');
+    setDangerOpen(false);
+    toast.success('Application reset', { description: 'All data has been cleared' });
+  };
+
+  const handleModeSwitch = (mode: ApplicationMode) => {
+    setApplicationMode(mode);
+    toast.success(`Switched to ${mode === 'owner' ? 'Owner' : 'Advanced'} mode`, {
+      description: mode === 'owner' ? 'Recommended for everyday pricing work' : 'For detailed rules, simulation and financial configuration',
+    });
   };
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
+      {/* Interface Mode */}
+      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-3">
+            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-200 to-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm"><Palette className="h-4 w-4" /></span>
+            Interface Mode
+          </CardTitle>
+          <CardDescription>Choose how PricePilot presents its features</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <RadioGroup value={applicationMode} onValueChange={v => handleModeSwitch(v as ApplicationMode)} className="space-y-3">
+            <div className={`flex items-start space-x-3 p-3 rounded-lg border transition-all duration-200 cursor-pointer shadow-sm ${
+              applicationMode === 'owner' ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 hover:bg-emerald-50/50'
+            }`}>
+              <RadioGroupItem value="owner" id="owner" className="mt-1" />
+              <div>
+                <Label htmlFor="owner" className="font-semibold cursor-pointer">Owner Mode</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">Recommended for everyday pricing work. Simplified navigation, plain-language labels, and focused workflows for importing, reviewing, approving, and exporting prices.</p>
+              </div>
+            </div>
+            <div className={`flex items-start space-x-3 p-3 rounded-lg border transition-all duration-200 cursor-pointer shadow-sm ${
+              applicationMode === 'advanced' ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 hover:bg-emerald-50/50'
+            }`}>
+              <RadioGroupItem value="advanced" id="advanced" className="mt-1" />
+              <div>
+                <Label htmlFor="advanced" className="font-semibold cursor-pointer">Advanced Mode</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">For detailed rules, simulation and financial configuration. Full access to pricing rules, price simulator, scenarios, and all advanced settings.</p>
+              </div>
+            </div>
+          </RadioGroup>
+        </CardContent>
+      </Card>
+
       {/* Business Settings */}
       <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200">
         <CardHeader className="pb-3">
@@ -247,14 +316,14 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Data Settings */}
-      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-slate-50/20 hover:shadow-lg transition-shadow duration-200">
+      {/* Data Backup */}
+      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-3">
-            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-slate-200 to-slate-100 text-slate-600 flex items-center justify-center shadow-sm"><Database className="h-4 w-4" /></span>
-            Data Management
+            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-200 to-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm"><Database className="h-4 w-4" /></span>
+            Data Backup
           </CardTitle>
-          <CardDescription>Backup, restore, or clear your application data</CardDescription>
+          <CardDescription>Backup and restore your application data</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="bg-gradient-to-r from-emerald-50 to-emerald-25/20 rounded-lg p-3 border border-emerald-200/50 flex items-center gap-2 shadow-sm">
@@ -262,81 +331,166 @@ export function SettingsPage() {
             <span className="text-sm text-emerald-700">Your data is stored locally in your browser and is never sent to any server.</span>
           </div>
 
-          <Separator />
-
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium text-sm">Export Application Data</p>
-                <p className="text-xs text-muted-foreground">Download a backup of all your settings, products, rules, and scenarios</p>
-              </div>
-              <Button variant="outline" size="sm" onClick={handleExportData} className="rounded-lg shadow-sm">
-                <Download className="h-4 w-4 mr-1" /> Export
-              </Button>
-            </div>
-
+          <div className="grid grid-cols-2 gap-4">
+            <Button variant="outline" onClick={handleExportData} className="rounded-lg shadow-sm h-12">
+              <FileDown className="h-4 w-4 mr-2" /> Download Backup
+            </Button>
             <div>
-              <p className="font-medium text-sm mb-2">Import Application Data</p>
-              <p className="text-xs text-muted-foreground mb-2">Paste a previously exported JSON backup to restore all data</p>
+              <p className="text-xs text-muted-foreground mb-2">Restore from a previously downloaded backup file</p>
               <Input
-                placeholder="Paste exported JSON data here..."
-                value={importText}
-                onChange={e => setImportText(e.target.value)}
-                className={`mb-2 ${inputClass}`}
+                type="file"
+                accept=".json"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      const text = ev.target?.result as string;
+                      createAutoBackup('manual', 'Before file restore');
+                      const success = restoreBackup(text);
+                      if (success) {
+                        toast.success('Backup restored', { description: 'Your data has been restored' });
+                      } else {
+                        toast.error('Restore failed', { description: 'The backup file was invalid' });
+                      }
+                    };
+                    reader.readAsText(file);
+                  }
+                }}
+                className={inputClass}
               />
-              <Button variant="outline" size="sm" onClick={handleImportData} disabled={!importText} className="rounded-lg shadow-sm">
-                <Upload className="h-4 w-4 mr-1" /> Import
-              </Button>
             </div>
           </div>
 
+          {/* Auto-backups list */}
+          <Collapsible open={backupsOpen} onOpenChange={setBackupsOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="w-full justify-between p-2 h-auto">
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  Auto-backups ({autoBackups.length})
+                </span>
+                {backupsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-2 mt-2">
+              {autoBackups.length === 0 ? (
+                <p className="text-xs text-muted-foreground p-2">No auto-backups yet. Backups are created before imports and dangerous actions.</p>
+              ) : (
+                <div className="max-h-48 overflow-y-auto space-y-2">
+                  {autoBackups.map(backup => (
+                    <div key={backup.id} className="bg-slate-50 dark:bg-slate-800 rounded-lg p-2 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-medium">{backup.description}</p>
+                        <p className="text-xs text-muted-foreground">{new Date(backup.timestamp).toLocaleString()} • {backup.trigger}</p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs rounded-lg"
+                        onClick={() => handleRestoreBackup(backup)}
+                      >
+                        Restore
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
+
           <Separator />
 
-          <div className="space-y-4">
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-sm">Clear Product Data</p>
-                    <p className="text-xs text-muted-foreground">Remove all products ({products.length}) but keep settings and rules</p>
-                  </div>
-                  <Button variant="outline" size="sm" className="text-destructive rounded-lg hover:bg-red-50 hover:text-red-600">
-                    <Trash2 className="h-4 w-4 mr-1" /> Clear
-                  </Button>
-                </div>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Clear All Products?</AlertDialogTitle>
-                  <AlertDialogDescription>This will permanently remove all {products.length} products. Settings and pricing rules will be preserved.</AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => clearAllProducts()} className="bg-destructive text-destructive-foreground">Clear Products</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+          <div>
+            <p className="font-medium text-sm mb-2">Import Application Data (JSON text)</p>
+            <p className="text-xs text-muted-foreground mb-2">Paste a previously exported JSON backup to restore all data</p>
+            <Input
+              placeholder="Paste exported JSON data here..."
+              value={importText}
+              onChange={e => setImportText(e.target.value)}
+              className={`mb-2 ${inputClass}`}
+            />
+            <Button variant="outline" size="sm" onClick={handleImportData} disabled={!importText} className="rounded-lg shadow-sm">
+              <Upload className="h-4 w-4 mr-1" /> Import
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-sm">Reset Entire Application</p>
-                    <p className="text-xs text-muted-foreground">Remove everything and start fresh</p>
-                  </div>
-                  <Button variant="outline" size="sm" className="text-destructive rounded-lg hover:bg-red-50 hover:text-red-600">
-                    <RefreshCw className="h-4 w-4 mr-1" /> Reset
-                  </Button>
+      {/* Danger Zone */}
+      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-red-50/5 hover:shadow-lg transition-shadow duration-200 border-t-2 border-red-200">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-3 text-red-700">
+            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-red-200 to-red-100 text-red-600 flex items-center justify-center shadow-sm"><AlertTriangle className="h-4 w-4" /></span>
+            Danger Zone
+          </CardTitle>
+          <CardDescription>Irreversible and destructive actions</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Clear Product Data */}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <div className="flex items-center justify-between p-3 bg-red-50/50 dark:bg-red-900/10 rounded-lg cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                <div>
+                  <p className="font-medium text-sm">Clear Product Data</p>
+                  <p className="text-xs text-muted-foreground">Remove all products ({products.length}) but keep settings and rules</p>
                 </div>
+                <Button variant="outline" size="sm" className="text-destructive rounded-lg hover:bg-red-50 hover:text-red-600">
+                  <Trash2 className="h-4 w-4 mr-1" /> Clear
+                </Button>
+              </div>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Clear All Products?</AlertDialogTitle>
+                <AlertDialogDescription>This will permanently remove all {products.length} products. Settings and pricing rules will be preserved.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => clearAllProducts()} className="bg-destructive text-destructive-foreground">Clear Products</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <Separator />
+
+          {/* Reset Entire Application */}
+          <div className="p-4 bg-red-50/50 dark:bg-red-900/10 rounded-lg border border-red-200/50">
+            <p className="font-medium text-sm mb-1">Reset Entire Application</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              This will permanently delete ALL your data — products, rules, scenarios, and settings. A backup will be created before reset.
+            </p>
+            <Button variant="outline" size="sm" onClick={handleExportData} className="text-emerald-600 rounded-lg mb-3 hover:bg-emerald-50">
+              <Download className="h-4 w-4 mr-1" /> Download Backup First
+            </Button>
+            <AlertDialog open={dangerOpen} onOpenChange={setDangerOpen}>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" className="text-destructive rounded-lg hover:bg-red-50 hover:text-red-600">
+                  <RefreshCw className="h-4 w-4 mr-1" /> Reset Application
+                </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Reset Entire Application?</AlertDialogTitle>
-                  <AlertDialogDescription>This will permanently delete ALL your data — products, rules, scenarios, and settings. This cannot be undone.</AlertDialogDescription>
+                  <AlertDialogDescription>
+                    This will permanently delete ALL your data. Type <strong>RESET</strong> below to confirm.
+                  </AlertDialogDescription>
                 </AlertDialogHeader>
+                <Input
+                  placeholder="Type RESET to confirm"
+                  value={resetConfirm}
+                  onChange={e => setResetConfirm(e.target.value)}
+                  className={`${inputClass} mb-2`}
+                />
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => resetApplication()} className="bg-destructive text-destructive-foreground">Reset Everything</AlertDialogAction>
+                  <AlertDialogCancel onClick={() => setResetConfirm('')}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleResetApplication}
+                    disabled={resetConfirm !== 'RESET'}
+                    className="bg-destructive text-destructive-foreground disabled:opacity-50"
+                  >
+                    Reset Everything
+                  </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>

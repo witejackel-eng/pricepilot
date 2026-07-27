@@ -109,6 +109,9 @@ export type ExportPreset =
   | 'competitor'     // Competitor comparison
   | 'custom';        // Custom column selection
 
+/** Application interface mode */
+export type ApplicationMode = 'owner' | 'advanced';
+
 /** Tax treatment types */
 export type TaxTreatment =
   | 'inclusive'   // Tax included in selling price
@@ -552,6 +555,9 @@ export interface AppSettings {
   highlightLossMaking: boolean;
   highlightAboveMarket: boolean;
   
+  // --- Interface Mode ---
+  applicationMode: ApplicationMode;  // 'owner' (default) or 'advanced'
+  
   // --- Data ---
   autoRecalculate: boolean;     // Auto-run calculations when data changes
   confirmBeforeDelete: boolean;
@@ -564,6 +570,10 @@ export interface AppSettings {
   // --- Export ---
   defaultExportPreset: ExportPreset;
   includeCalculatedInExport: boolean;
+  
+  // --- Onboarding ---
+  tourCompleted: boolean;         // Whether guided tour has been completed
+  sampleDataLoaded: boolean;      // Whether sample/demo data is currently loaded
   
   updatedAt: string;
 }
@@ -882,6 +892,7 @@ export function createDefaultAppSettings(): AppSettings {
     pageSize: 20,
     highlightLossMaking: true,
     highlightAboveMarket: true,
+    applicationMode: 'owner',
     autoRecalculate: true,
     confirmBeforeDelete: true,
     confirmBeforeBulkAction: true,
@@ -889,6 +900,8 @@ export function createDefaultAppSettings(): AppSettings {
     autoSaveIntervalMs: 30000,
     defaultExportPreset: 'full',
     includeCalculatedInExport: true,
+    tourCompleted: false,
+    sampleDataLoaded: false,
     updatedAt: new Date().toISOString(),
   };
 }

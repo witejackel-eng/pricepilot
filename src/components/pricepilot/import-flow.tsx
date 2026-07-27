@@ -90,6 +90,14 @@ export function ImportFlow() {
   const [cleaningResult, setCleaningResult] = useState<CleanImportResult | null>(null);
   const [previewProducts, setPreviewProducts] = useState<Partial<Product>[]>([]);
   const [error, setError] = useState('');
+  const [headingRow, setHeadingRow] = useState(0);
+  const [importComplete, setImportComplete] = useState(false);
+  const [importSummary, setImportSummary] = useState<{
+    added: number;
+    needingAttention: number;
+    duplicates: number;
+    skipped: number;
+  } | null>(null);
 
   // Cleaning options state
   const [cleaningOptions, setCleaningOptions] = useState<CleaningOptions>(createDefaultCleaningOptions());
@@ -238,7 +246,23 @@ export function ImportFlow() {
     })) as Product[];
 
     importProducts(newProducts);
-    toast.success('Products imported', { description: `${newProducts.length} products have been successfully imported` });
+
+    // Calculate import summary
+    const needingAttention = newProducts.filter(p =>
+      !p.purchaseCost || !p.currentSellingPrice ||
+      p.calculatedPricingStatus === 'loss-making' ||
+      p.calculatedPricingStatus === 'below-break-even' ||
+      p.calculatedPricingStatus === 'missing-data' ||
+      p.calculatedPricingStatus === 'needs-review'
+    ).length;
+
+    setImportSummary({
+      added: newProducts.length,
+      needingAttention,
+      duplicates: stats?.duplicateRows ?? 0,
+      skipped: stats?.skippedRows ?? 0,
+    });
+    setImportComplete(true);
   };
 
   const stats = cleaningResult?.statistics;
@@ -280,6 +304,60 @@ export function ImportFlow() {
 
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
+      {/* Import completion summary */}
+      {importComplete && importSummary && (
+        <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><CheckCircle className="h-5 w-5 text-emerald-600" /> Import Complete</CardTitle>
+            <CardDescription>Your products have been imported successfully</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-emerald-50 rounded-lg p-3 text-center border border-emerald-200">
+                <p className="text-lg font-semibold text-emerald-700">{importSummary.added}</p>
+                <p className="text-xs text-emerald-600">Products imported</p>
+              </div>
+              <div className="bg-amber-50 rounded-lg p-3 text-center border border-amber-200">
+                <p className="text-lg font-semibold text-amber-700">{importSummary.needingAttention}</p>
+                <p className="text-xs text-amber-600">Need attention</p>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-3 text-center border border-slate-200">
+                <p className="text-lg font-semibold text-slate-700">{importSummary.duplicates}</p>
+                <p className="text-xs text-slate-600">Duplicates skipped</p>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-3 text-center border border-slate-200">
+                <p className="text-lg font-semibold text-slate-700">{importSummary.skipped}</p>
+                <p className="text-xs text-slate-600">Rows skipped</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button onClick={() => setCurrentView('review-prices')} className="bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-md rounded-lg">
+                Review Problems
+              </Button>
+              <Button variant="outline" onClick={() => setCurrentView('products')} className="rounded-lg shadow-sm">
+                View All Products
+              </Button>
+              <Button variant="outline" onClick={() => {
+                setImportComplete(false);
+                setImportSummary(null);
+                setStep('upload');
+                setFileName('');
+                setFileData({ headers: [], rows: [] });
+                setMappings([]);
+                setCleaningResult(null);
+                setPreviewProducts([]);
+                setError('');
+              }} className="rounded-lg shadow-sm">
+                Import Another File
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!importComplete && (
+      <>
       <Progress value={progress} className="h-2 rounded-full mb-2" />
       <div className="flex items-center justify-between text-sm font-medium text-slate-600 mb-4">
         <span>Step {stepIndex + 1} of {STEPS.length}: {STEP_LABELS[stepIndex]}</span>
@@ -616,6 +694,8 @@ export function ImportFlow() {
             </div>
           </CardContent>
         </Card>
+      )}
+      </>
       )}
     </div>
   );

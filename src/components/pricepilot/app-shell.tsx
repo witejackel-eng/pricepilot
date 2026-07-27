@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { usePricePilotStore, AppView } from '@/store/pricepilot-store';
+import { ApplicationMode } from '@/lib/pricepilot/types';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   LayoutDashboard,
   Package,
@@ -20,10 +22,17 @@ import {
   Menu,
   ShieldCheck,
   Upload,
-  LogOut,
+  Home,
+  ClipboardCheck,
+  ChevronDown,
+  ChevronRight,
+  Undo2,
+  HelpCircle,
 } from 'lucide-react';
 import { SUPPORTED_CURRENCIES } from '@/lib/pricepilot/types';
 import { DashboardPage } from './dashboard-page';
+import { OwnerHome } from './owner-home';
+import { ReviewPricesPage } from './review-prices-page';
 import { ProductsPage } from './products-page';
 import { ImportFlow } from './import-flow';
 import { PricingRulesPage } from './pricing-rules-page';
@@ -33,9 +42,20 @@ import { ExportPage } from './export-page';
 import { SettingsPage } from './settings-page';
 import { AddProductDialog } from './add-product-dialog';
 import { KeyboardShortcuts } from './keyboard-shortcuts';
+import { HelpPanel } from './help-panel';
 import { toast } from 'sonner';
 
-const NAV_ITEMS: { view: AppView; label: string; icon: React.ElementType }[] = [
+// Owner mode navigation items
+const OWNER_NAV_ITEMS: { view: AppView; label: string; icon: React.ElementType }[] = [
+  { view: 'owner-home', label: 'Home', icon: Home },
+  { view: 'products', label: 'Products', icon: Package },
+  { view: 'import', label: 'Import Price List', icon: FileUp },
+  { view: 'review-prices', label: 'Review Prices', icon: ClipboardCheck },
+  { view: 'export', label: 'Download Excel', icon: Download },
+];
+
+// Advanced mode navigation items
+const ADVANCED_NAV_ITEMS: { view: AppView; label: string; icon: React.ElementType }[] = [
   { view: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { view: 'products', label: 'Products', icon: Package },
   { view: 'import', label: 'Import Products', icon: FileUp },
@@ -46,10 +66,20 @@ const NAV_ITEMS: { view: AppView; label: string; icon: React.ElementType }[] = [
   { view: 'settings', label: 'Settings', icon: Settings },
 ];
 
+// Advanced tools section for owner mode
+const ADVANCED_TOOLS_ITEMS: { view: AppView; label: string; icon: React.ElementType }[] = [
+  { view: 'pricing-rules', label: 'Pricing Rules', icon: Scale },
+  { view: 'price-simulator', label: 'Price Simulator', icon: Calculator },
+  { view: 'scenarios', label: 'Saved Scenarios', icon: Bookmark },
+  { view: 'settings', label: 'Advanced Settings', icon: Settings },
+];
+
 const VIEW_LABELS: Record<AppView, string> = {
+  'owner-home': 'Home',
+  'review-prices': 'Review Prices',
   'dashboard': 'Dashboard',
   'products': 'Products',
-  'import': 'Import Products',
+  'import': 'Import',
   'pricing-rules': 'Pricing Rules',
   'price-simulator': 'Price Simulator',
   'scenarios': 'Saved Scenarios',
@@ -57,7 +87,7 @@ const VIEW_LABELS: Record<AppView, string> = {
   'settings': 'Settings',
 };
 
-function SidebarContent({ currentView, setCurrentView, businessSettings, resetApplication, onNavClick, lossMakingCount, inactiveRulesCount }: {
+function SidebarContent({ currentView, setCurrentView, businessSettings, resetApplication, onNavClick, lossMakingCount, inactiveRulesCount, applicationMode }: {
   currentView: AppView;
   setCurrentView: (view: AppView) => void;
   businessSettings: { businessName: string };
@@ -65,7 +95,13 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
   onNavClick?: () => void;
   lossMakingCount: number;
   inactiveRulesCount: number;
+  applicationMode: ApplicationMode;
 }) {
+  const { undoHistory, undoLastAction } = usePricePilotStore();
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const navItems = applicationMode === 'owner' ? OWNER_NAV_ITEMS : ADVANCED_NAV_ITEMS;
+
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 flex items-center gap-3">
@@ -78,13 +114,23 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
 
       <Separator className="my-2 mx-3 bg-emerald-700/50" />
 
+      {/* Undo button */}
+      {undoHistory.length > 0 && (
+        <div className="px-3 pb-2">
+          <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-emerald-300/70 hover:text-emerald-200 transition-colors duration-200 text-xs rounded-lg bg-emerald-800/30">
+            <Undo2 className="h-3 w-3" />
+            Undo: {undoHistory[0].description.slice(0, 30)}...
+          </Button>
+        </div>
+      )}
+
       <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-        {NAV_ITEMS.map(item => {
+        {navItems.map(item => {
           const Icon = item.icon;
           const isActive = currentView === item.view;
           // Notification badge counts
-          const badgeCount = item.view === 'products' ? lossMakingCount : item.view === 'pricing-rules' ? inactiveRulesCount : 0;
-          const badgeColor = item.view === 'products' ? 'bg-red-500' : 'bg-amber-500';
+          const badgeCount = item.view === 'products' ? lossMakingCount : item.view === 'pricing-rules' ? inactiveRulesCount : item.view === 'review-prices' ? lossMakingCount : 0;
+          const badgeColor = item.view === 'products' || item.view === 'review-prices' ? 'bg-red-500' : 'bg-amber-500';
           return (
             <Button
               key={item.view}
@@ -113,45 +159,81 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
             </Button>
           );
         })}
+
+        {/* Owner mode: Advanced Tools collapsible section */}
+        {applicationMode === 'owner' && (
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="w-full justify-start gap-2 text-emerald-300/60 hover:text-emerald-200 text-xs rounded-lg mt-2">
+                {advancedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                Advanced Tools
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-1 pl-2">
+              {ADVANCED_TOOLS_ITEMS.map(item => {
+                const Icon = item.icon;
+                const isActive = currentView === item.view;
+                return (
+                  <Button
+                    key={item.view}
+                    variant="ghost"
+                    title={item.label}
+                    className={`w-full justify-start gap-3 rounded-lg transition-all duration-200 text-xs ${
+                      isActive
+                        ? 'bg-emerald-600/30 text-white font-medium'
+                        : 'text-emerald-200/60 hover:bg-emerald-700/40 hover:text-emerald-200'
+                    }`}
+                    onClick={() => { setCurrentView(item.view); if (onNavClick) onNavClick(); }}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {item.label}
+                  </Button>
+                );
+              })}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
       </nav>
 
       <Separator className="my-2 mx-3 bg-emerald-700/50" />
 
       <div className="p-4 space-y-3">
-        <div className="rounded bg-emerald-700/40 p-2 flex items-center gap-2 text-xs text-emerald-200 animate-pulse">
+        <div className="rounded bg-emerald-700/40 p-2 flex items-center gap-2 text-xs text-emerald-200">
           <ShieldCheck className="h-4 w-4 text-emerald-300 shrink-0" />
           <span>Your data stays local</span>
         </div>
-
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-emerald-300/70 hover:text-red-400 transition-colors duration-200">
-              <LogOut className="h-3 w-3" />
-              Reset Application
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Reset Entire Application?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will permanently delete all your products, pricing rules, scenarios, and settings. This action cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => resetApplication()} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                Reset Everything
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {/* Reset Application only shown in advanced mode sidebar */}
+        {applicationMode === 'advanced' && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-emerald-300/70 hover:text-red-400 transition-colors duration-200">
+                Reset Application
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reset Entire Application?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete all your products, pricing rules, scenarios, and settings. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => resetApplication()} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                  Reset Everything
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
       </div>
     </div>
   );
 }
 
 export function AppShell() {
-  const { currentView, setCurrentView, businessSettings, updateBusinessSettings, products, pricingRules, resetApplication, lastSaved, recalculateProducts, addScenario, appSettings, isCalculating } = usePricePilotStore();
+  const { currentView, setCurrentView, businessSettings, updateBusinessSettings, products, pricingRules, resetApplication, lastSaved, recalculateProducts, addScenario, appSettings, isCalculating, undoHistory, undoLastAction, helpPanelOpen, setHelpPanelOpen } = usePricePilotStore();
+  const applicationMode = appSettings.applicationMode || 'owner';
 
   // Compute badge counts
   const lossMakingCount = products.filter(p => p.calculatedPricingStatus === 'loss-making' || p.calculatedPricingStatus === 'below-break-even').length;
@@ -190,6 +272,8 @@ export function AppShell() {
 
   const renderView = () => {
     switch (currentView) {
+      case 'owner-home': return <OwnerHome />;
+      case 'review-prices': return <ReviewPricesPage />;
       case 'dashboard': return <DashboardPage />;
       case 'products': return <ProductsPage />;
       case 'import': return <ImportFlow />;
@@ -198,7 +282,7 @@ export function AppShell() {
       case 'scenarios': return <ScenariosPage />;
       case 'export': return <ExportPage />;
       case 'settings': return <SettingsPage />;
-      default: return <DashboardPage />;
+      default: return applicationMode === 'owner' ? <OwnerHome /> : <DashboardPage />;
     }
   };
 
@@ -223,6 +307,17 @@ export function AppShell() {
     toast.success('Recalculated', { description: 'All product prices have been recalculated' });
   };
 
+  const handleUndo = () => {
+    if (undoHistory.length > 0) {
+      undoLastAction();
+      toast.success('Action undone', { description: undoHistory[0].description });
+    }
+  };
+
+  // Owner mode: header shows Home/Import/Export buttons, Help button
+  // Advanced mode: header shows Import/Export as before
+  const isOwnerMode = applicationMode === 'owner';
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Add Product Dialog */}
@@ -236,11 +331,14 @@ export function AppShell() {
         onRecalculate={handleRecalculate}
       />
 
+      {/* Help Panel */}
+      <HelpPanel open={helpPanelOpen} onOpenChange={setHelpPanelOpen} />
+
       {/* Desktop layout */}
       <div className="flex flex-1">
         {/* Desktop sidebar */}
         <aside className="hidden lg:block w-64 border-r bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700 h-screen sticky top-0 shadow-lg">
-          <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} />
+          <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} applicationMode={applicationMode} />
         </aside>
 
         {/* Main area */}
@@ -257,7 +355,7 @@ export function AppShell() {
                 </SheetTrigger>
                 <SheetContent side="left" className="w-72 p-0 bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700">
                   <SheetTitle className="px-4 pt-4 pb-2 text-sm font-semibold text-emerald-200">Navigation</SheetTitle>
-                  <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} onNavClick={() => setMobileOpen(false)} />
+                  <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} onNavClick={() => setMobileOpen(false)} applicationMode={applicationMode} />
                 </SheetContent>
               </Sheet>
               <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">{VIEW_LABELS[currentView]}</h1>
@@ -267,12 +365,34 @@ export function AppShell() {
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setCurrentView('import')} className="hidden sm:flex transition-colors duration-200">
-                <Upload className="h-4 w-4 mr-1" /> Import
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200">
-                <Download className="h-4 w-4 mr-1" /> Export
-              </Button>
+              {/* Undo button in header */}
+              {undoHistory.length > 0 && (
+                <Button variant="outline" size="sm" onClick={handleUndo} className="hidden sm:flex transition-colors duration-200 text-xs">
+                  <Undo2 className="h-3 w-3 mr-1" /> Undo
+                </Button>
+              )}
+              {isOwnerMode ? (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => setCurrentView('import')} className="hidden sm:flex transition-colors duration-200">
+                    <Upload className="h-4 w-4 mr-1" /> Import
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200">
+                    <Download className="h-4 w-4 mr-1" /> Download
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setHelpPanelOpen(true)} className="transition-colors duration-200">
+                    <HelpCircle className="h-4 w-4" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => setCurrentView('import')} className="hidden sm:flex transition-colors duration-200">
+                    <Upload className="h-4 w-4 mr-1" /> Import
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200">
+                    <Download className="h-4 w-4 mr-1" /> Export
+                  </Button>
+                </>
+              )}
               <Select value={businessSettings.currencyCode} onValueChange={v => updateBusinessSettings({ currencyCode: v })}>
                 <SelectTrigger className="w-[80px] h-8 text-xs">
                   <SelectValue />

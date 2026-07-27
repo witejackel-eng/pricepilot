@@ -234,7 +234,8 @@ export function calculateBreakEvenPrice(
 
   if (denominator <= 0) {
     // Impossible state — fees exceed 100% of revenue
-    return 99999999;
+    // Return 0 to indicate impossible; the structured result will capture this
+    return 0;
   }
 
   const numerator = safeAdd(totalLandedCost, fixedFees);
@@ -295,8 +296,8 @@ export function calculateMinimumSafePrice(
   let algebraicEstimate: number;
 
   if (marginDenominator <= 0) {
-    // Impossible state
-    return 99999999;
+    // Impossible state — fees + margin exceed 100% of revenue
+    return 0;
   }
 
   algebraicEstimate = roundTo2Decimals(
@@ -313,7 +314,7 @@ export function calculateMinimumSafePrice(
   if (taxTreatment === 'inclusive' || taxTreatment === 'composite') {
     const revenueFactor = safeSub(safeDiv(1, safeAdd(1, taxDecimal)), totalPercentageFeesDecimal);
     if (revenueFactor <= 0) {
-      priceForMinProfit = 99999999;
+      priceForMinProfit = 0;
     } else {
       priceForMinProfit = roundTo2Decimals(
         safeDiv(safeAdd(totalLandedCost, safeAdd(fixedFees, minimumProfit)), revenueFactor)
@@ -323,7 +324,7 @@ export function calculateMinimumSafePrice(
     // tax-exclusive, exempt, reverse
     const exclDenominator = safeSub(1, totalPercentageFeesDecimal);
     if (exclDenominator <= 0) {
-      priceForMinProfit = 99999999;
+      priceForMinProfit = 0;
     } else {
       priceForMinProfit = roundTo2Decimals(
         safeDiv(safeAdd(totalLandedCost, safeAdd(fixedFees, minimumProfit)), exclDenominator)
@@ -374,8 +375,9 @@ export function calculateMinimumSafePrice(
     }
   }
 
-  // If we couldn't find a valid price within maxIterations, return impossible
-  return 99999999;
+  // If we couldn't find a valid price within maxIterations, return 0
+  // (indicates impossible; structured result will capture this)
+  return 0;
 }
 
 // ============================================================
@@ -822,13 +824,15 @@ export function calculateAllRecommendations(
   });
 
   // Step 6: Check for impossible state
-  const isImpossible = breakEvenPrice >= 99999999 || minimumSafePrice >= 99999999;
+  // Impossible if: no purchase cost, or all recommendation prices are 0 (meaning they couldn't be calculated)
+  const isImpossible = !hasPurchaseCost(product) ||
+    (breakEvenPrice === 0 && minimumSafePrice === 0 && balancedPrice === 0);
   let impossibleReason: string | undefined;
 
   if (!hasPurchaseCost(product)) {
     impossibleReason = 'Purchase cost is missing or zero. No trusted recommendation possible.';
   } else if (isImpossible) {
-    impossibleReason = 'Percentage fees and margin requirements exceed 100% of revenue. No profitable price exists.';
+    impossibleReason = 'Percentage fees and margin requirements exceed 100% of revenue. No profitable price exists under current settings.';
   }
 
   // Step 7: Determine overall confidence (use the worst confidence among outcomes)
@@ -929,7 +933,7 @@ function computePriceForMargin(
     );
 
     if (revenueFactor <= 0) {
-      return 99999999;
+      return 0;
     }
 
     return roundTo2Decimals(safeDiv(safeAdd(totalLandedCost, fixedFees), revenueFactor));
@@ -938,7 +942,7 @@ function computePriceForMargin(
     const denominator = safeSub(1, safeAdd(totalPercentageFeesDecimal, marginDecimal));
 
     if (denominator <= 0) {
-      return 99999999;
+      return 0;
     }
 
     return roundTo2Decimals(safeDiv(safeAdd(totalLandedCost, fixedFees), denominator));
@@ -951,7 +955,16 @@ function computePriceForMargin(
 
 /**
  * Compute the total percentage fees as a decimal fraction.
- * Includes marketplace, payment, other percentage fees, and tax (if exclusive).
+ *
+ * CRITICAL: Only includes fees that REDUCE the seller's net revenue.
+ * - Marketplace percentage fee
+ * - Payment percentage fee
+ * - Other selling percentage fee
+ *
+ * DOES NOT include tax-exclusive GST as a fee.
+ * Tax-exclusive GST is added ON TOP of the net selling price and
+ * collected by the government — it does NOT reduce the seller's revenue.
+ * The net revenue for a tax-exclusive price is the full base selling price.
  *
  * All percentages are stored as whole numbers (18 = 18%).
  * Only divide by 100 when computing.
@@ -965,15 +978,11 @@ function computeTotalPercentageFeesDecimal(
   const marketplaceFeePercent = effectiveRule.marketplaceFeePercent;
   const paymentFeePercent = effectiveRule.paymentFeePercent;
   const otherFeesPercent = effectiveRule.otherFeesPercent;
-  const taxRatePercent = effectiveRule.taxRatePercent;
-  const taxTreatment = effectiveRule.taxTreatment;
 
-  // Tax is a percentage fee ONLY for exclusive/reverse treatment
-  const taxAsFeePercent = (taxTreatment === 'exclusive' || taxTreatment === 'reverse')
-    ? taxRatePercent : 0;
-
+  // ONLY actual selling fees that reduce the seller's revenue
+  // Tax-exclusive output GST does NOT reduce net revenue — it is collected separately
   const totalPercent = clamp(
-    safeSum([marketplaceFeePercent, paymentFeePercent, otherFeesPercent, taxAsFeePercent]),
+    safeSum([marketplaceFeePercent, paymentFeePercent, otherFeesPercent]),
     0, 100
   );
 
@@ -1133,14 +1142,11 @@ export function mapRecommendationsToProduct(
   const profitabilityMeter = deriveProfitabilityMeter(currentOutcome, businessSettings);
 
   // Compute total percentage fees as whole-number percent (for display)
-  // The engine stores this as decimal; multiply by 100 for the Product field
+  // ONLY actual selling fees — tax-exclusive output GST does NOT reduce seller revenue
   const totalPercentageFeesPercent = roundTo2Decimals(
     currentOutcome.marketplacePercentageFee +
     currentOutcome.paymentPercentageFee +
-    currentOutcome.otherPercentageFees +
-    // For tax-exclusive, output tax is also a percentage fee on selling price
-    (product.taxTreatment === 'exclusive' || product.taxTreatment === 'reverse'
-      ? currentOutcome.outputTax : 0)
+    currentOutcome.otherPercentageFees
   );
 
   return {
@@ -1284,7 +1290,7 @@ function buildRecommendedOutcomes(
       };
     }
     
-    if (isImpossible || rawPrice >= 99999999) {
+    if (isImpossible || rawPrice === 0) {
       return {
         mode,
         status: 'impossible',

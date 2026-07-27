@@ -316,8 +316,8 @@ export function calculateBreakEvenPrice(
   
   if (denominator <= 0) {
     // Fees + margin exceed 100% — impossible to break even
-    // Return a very large number to signal impossibility
-    return 99999999;
+    // Return 0 to indicate impossibility; structured result will capture this
+    return 0;
   }
 
   const numerator = safeAdd(totalLandedCost, fixedFees);

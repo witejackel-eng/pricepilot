@@ -14,6 +14,7 @@ import {
   PricingStatus,
   RecommendationMode,
   LifecycleStatus,
+  ApplicationMode,
   createDefaultBusinessSettings,
   createDefaultAppSettings,
   createDefaultImportState,
@@ -57,6 +58,8 @@ function recalcProduct(product: Product, settings: BusinessSettings, rules: Pric
 
 // Navigation views
 export type AppView =
+  | 'owner-home'
+  | 'review-prices'
   | 'dashboard'
   | 'products'
   | 'import'
@@ -65,6 +68,25 @@ export type AppView =
   | 'scenarios'
   | 'export'
   | 'settings';
+
+// Undo history item
+export interface UndoAction {
+  type: 'price-approve' | 'price-apply' | 'product-edit' | 'bulk-approve' | 'import' | 'product-delete';
+  productId?: string;
+  productIds?: string[];
+  previousState: Partial<Product> | Product[];
+  timestamp: string;
+  description: string;
+}
+
+// Auto-backup entry
+export interface AutoBackup {
+  id: string;
+  timestamp: string;
+  trigger: 'import' | 'reset' | 'bulk-action' | 'manual';
+  dataString: string;
+  description: string;
+}
 
 interface PricePilotState {
   // Core data
@@ -89,6 +111,9 @@ interface PricePilotState {
   isCalculating: boolean;
   sidebarCollapsed: boolean;
   recentlyViewedIds: string[];
+  undoHistory: UndoAction[];
+  autoBackups: AutoBackup[];
+  helpPanelOpen: boolean;
 
   // Actions
   initialize: () => void;
@@ -97,6 +122,7 @@ interface PricePilotState {
   setSelectedProductId: (id: string | null) => void;
   setSelectedProducts: (ids: string[]) => void;
   setInitialFilterTab: (tab: string | null) => void;
+  setHelpPanelOpen: (open: boolean) => void;
 
   // Business settings
   updateBusinessSettings: (settings: Partial<BusinessSettings>) => void;
@@ -111,6 +137,8 @@ interface PricePilotState {
   approveSelectedProducts: () => void;
   markSelectedForReview: () => void;
   loadSampleData: () => void;
+  loadDemoSampleData: () => void;
+  removeDemoSampleData: () => void;
   clearAllProducts: () => void;
   recalculateProducts: () => void;
 
@@ -141,14 +169,49 @@ interface PricePilotState {
 
   // Settings
   updateAppSettings: (settings: Partial<AppSettings>) => void;
+  setApplicationMode: (mode: ApplicationMode) => void;
 
   // Recently viewed
   addRecentlyViewed: (productId: string) => void;
+
+  // Undo
+  undoLastAction: () => void;
+  pushUndoAction: (action: UndoAction) => void;
+
+  // Backup
+  createAutoBackup: (trigger: AutoBackup['trigger'], description: string) => void;
+  downloadBackup: () => void;
+  restoreBackup: (dataString: string) => boolean;
+  getBackupList: () => AutoBackup[];
 
   // Data management
   exportData: () => string;
   importData: (data: string) => boolean;
   resetApplication: () => void;
+}
+
+const MAX_UNDO_HISTORY = 20;
+const MAX_AUTO_BACKUPS = 10;
+const AUTO_BACKUP_KEY = 'pricepilot_auto_backups';
+
+function loadAutoBackups(): AutoBackup[] {
+  try {
+    const raw = localStorage.getItem(AUTO_BACKUP_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as AutoBackup[];
+  } catch {
+    return [];
+  }
+}
+
+function saveAutoBackups(backups: AutoBackup[]): void {
+  try {
+    localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify(backups.slice(0, MAX_AUTO_BACKUPS)));
+  } catch {
+    // If storage is full, remove oldest backups
+    const trimmed = backups.slice(0, MAX_AUTO_BACKUPS - 2);
+    localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify(trimmed));
+  }
 }
 
 export const usePricePilotStore = create<PricePilotState>((set, get) => ({
@@ -159,7 +222,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   scenarios: [],
   appSettings: createDefaultAppSettings(),
   onboardingCompleted: false,
-  currentView: 'dashboard',
+  currentView: 'owner-home',
   selectedProductId: null,
   selectedProducts: [],
   initialFilterTab: null,
@@ -168,12 +231,17 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   isCalculating: false,
   sidebarCollapsed: false,
   recentlyViewedIds: [],
+  undoHistory: [],
+  autoBackups: loadAutoBackups(),
+  helpPanelOpen: false,
 
   // Initialize from localStorage
   initialize: () => {
     const data = initializeStorage();
     // Run calculations on all loaded products
     const recalculated = data.products.map(p => recalcProduct(p, data.businessSettings, data.pricingRules));
+    const mode = data.appSettings.applicationMode || 'owner';
+    const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
     set({
       businessSettings: data.businessSettings,
       products: recalculated,
@@ -182,7 +250,8 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       appSettings: data.appSettings,
       onboardingCompleted: data.onboardingCompleted,
       lastSaved: getLastSavedTimestamp(),
-      currentView: data.onboardingCompleted ? data.appSettings.defaultView : 'dashboard',
+      currentView: data.onboardingCompleted ? defaultView : 'dashboard',
+      autoBackups: loadAutoBackups(),
     });
     // Save recalculated products
     saveProducts(recalculated);
@@ -194,6 +263,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   setSelectedProductId: (id) => set({ selectedProductId: id }),
   setSelectedProducts: (ids) => set({ selectedProducts: ids }),
   setInitialFilterTab: (tab) => set({ initialFilterTab: tab }),
+  setHelpPanelOpen: (open) => set({ helpPanelOpen: open }),
 
   // Business settings
   updateBusinessSettings: (updates) => {
@@ -211,7 +281,10 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const newSettings = { ...get().businessSettings, ...settings, onboardingCompleted: true, updatedAt: new Date().toISOString() };
     saveBusinessSettings(newSettings);
     saveOnboardingCompleted(true);
-    set({ businessSettings: newSettings, onboardingCompleted: true });
+    // After onboarding, set default view based on mode
+    const mode = get().appSettings.applicationMode || 'owner';
+    const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
+    set({ businessSettings: newSettings, onboardingCompleted: true, currentView: defaultView });
   },
 
   // Products
@@ -225,6 +298,16 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   updateProduct: (id, updates) => {
     const { products, businessSettings, pricingRules } = get();
+    const productBefore = products.find(p => p.id === id);
+    if (productBefore) {
+      get().pushUndoAction({
+        type: 'product-edit',
+        productId: id,
+        previousState: { ...productBefore },
+        timestamp: new Date().toISOString(),
+        description: `Edited ${productBefore.name || 'product'}`,
+      });
+    }
     const updated = products.map(p => {
       if (p.id === id) {
         const merged = { ...p, ...updates, updatedAt: new Date().toISOString() };
@@ -237,7 +320,18 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   deleteProduct: (id) => {
-    const newProducts = get().products.filter(p => p.id !== id);
+    const { products } = get();
+    const productBefore = products.find(p => p.id === id);
+    if (productBefore) {
+      get().pushUndoAction({
+        type: 'product-delete',
+        productId: id,
+        previousState: { ...productBefore },
+        timestamp: new Date().toISOString(),
+        description: `Deleted ${productBefore.name || 'product'}`,
+      });
+    }
+    const newProducts = products.filter(p => p.id !== id);
     saveProducts(newProducts);
     set({ products: newProducts, lastSaved: getLastSavedTimestamp() });
   },
@@ -300,6 +394,14 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const product = products.find(p => p.id === productId);
     if (!product) return;
     const approvedPrice = product.recommendedPrices[recommendationMode] || product.recommendedPrices.balanced;
+    // Push undo action
+    get().pushUndoAction({
+      type: 'price-approve',
+      productId,
+      previousState: { ...product },
+      timestamp: new Date().toISOString(),
+      description: `Approved price for ${product.name || 'product'}: ${approvedPrice.toFixed(2)}`,
+    });
     const updated = products.map(p => {
       if (p.id === productId) {
         const merged = {
@@ -323,6 +425,14 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const { products, businessSettings, pricingRules } = get();
     const product = products.find(p => p.id === productId);
     if (!product || product.priceApprovalStatus !== 'approved' || product.finalApprovedPrice <= 0) return;
+    // Push undo action
+    get().pushUndoAction({
+      type: 'price-apply',
+      productId,
+      previousState: { ...product },
+      timestamp: new Date().toISOString(),
+      description: `Applied approved price for ${product.name || 'product'}: ${product.finalApprovedPrice.toFixed(2)}`,
+    });
     const updated = products.map(p => {
       if (p.id === productId) {
         const merged = {
@@ -353,6 +463,13 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   bulkApprovePrices: (productIds) => {
     const { products, businessSettings, pricingRules } = get();
+    get().pushUndoAction({
+      type: 'bulk-approve',
+      productIds,
+      previousState: productIds.map(id => ({ ...products.find(p => p.id === id)! })).filter(Boolean),
+      timestamp: new Date().toISOString(),
+      description: `Bulk approved prices for ${productIds.length} products`,
+    });
     const updated = products.map(p => {
       if (productIds.includes(p.id)) {
         const approvedPrice = p.recommendedPrices[p.selectedRecommendationMode || 'balanced'] || p.recommendedPrices.balanced;
@@ -388,6 +505,26 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     set({ products: calculated, lastSaved: getLastSavedTimestamp() });
   },
 
+  loadDemoSampleData: () => {
+    get().createAutoBackup('manual', 'Before loading demo sample data');
+    const { businessSettings, pricingRules } = get();
+    const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
+    const calculated = SAMPLE_PRODUCTS.map(p => recalcProduct(p, businessSettings, existingRules));
+    saveProducts(calculated);
+    if (pricingRules.length === 0) {
+      savePricingRules(SAMPLE_PRICING_RULES);
+      set({ pricingRules: SAMPLE_PRICING_RULES });
+    }
+    get().updateAppSettings({ sampleDataLoaded: true });
+    set({ products: calculated, lastSaved: getLastSavedTimestamp() });
+  },
+
+  removeDemoSampleData: () => {
+    clearProductsStorage();
+    get().updateAppSettings({ sampleDataLoaded: false });
+    set({ products: [], lastSaved: getLastSavedTimestamp() });
+  },
+
   clearAllProducts: () => {
     clearProductsStorage();
     set({ products: [], lastSaved: getLastSavedTimestamp() });
@@ -407,8 +544,18 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   importProducts: (newProducts) => {
+    // Create auto-backup before import
+    get().createAutoBackup('import', `Before importing ${newProducts.length} products`);
     const { businessSettings, pricingRules, products } = get();
     const calculated = newProducts.map(p => recalcProduct(p, businessSettings, pricingRules));
+    // Push undo action
+    get().pushUndoAction({
+      type: 'import',
+      productIds: calculated.map(p => p.id),
+      previousState: [...products],
+      timestamp: new Date().toISOString(),
+      description: `Imported ${calculated.length} products`,
+    });
     const allProducts = [...products, ...calculated];
     saveProducts(allProducts);
     set({ products: allProducts, lastSaved: getLastSavedTimestamp(), currentView: 'products' });
@@ -499,12 +646,113 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     set({ appSettings: newSettings, lastSaved: getLastSavedTimestamp() });
   },
 
+  setApplicationMode: (mode) => {
+    get().updateAppSettings({ applicationMode: mode });
+    const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
+    set({ currentView: defaultView });
+  },
+
   // Recently viewed
   addRecentlyViewed: (productId) => {
     const { recentlyViewedIds } = get();
     // Remove if already in list, then add at front (most recent)
     const updated = [productId, ...recentlyViewedIds.filter(id => id !== productId)].slice(0, 5);
     set({ recentlyViewedIds: updated });
+  },
+
+  // Undo
+  pushUndoAction: (action) => {
+    const { undoHistory } = get();
+    const newHistory = [action, ...undoHistory].slice(0, MAX_UNDO_HISTORY);
+    set({ undoHistory: newHistory });
+  },
+
+  undoLastAction: () => {
+    const { undoHistory, products, businessSettings, pricingRules } = get();
+    if (undoHistory.length === 0) return;
+    const lastAction = undoHistory[0];
+    const remainingHistory = undoHistory.slice(1);
+
+    if (lastAction.type === 'price-approve' || lastAction.type === 'price-apply' || lastAction.type === 'product-edit') {
+      // Restore the product from previousState
+      const previousProduct = lastAction.previousState as Product;
+      const updated = products.map(p => {
+        if (p.id === lastAction.productId) {
+          return recalcProduct(previousProduct, businessSettings, pricingRules);
+        }
+        return p;
+      });
+      saveProducts(updated);
+      set({ products: updated, undoHistory: remainingHistory, lastSaved: getLastSavedTimestamp() });
+    } else if (lastAction.type === 'product-delete') {
+      // Re-add the deleted product
+      const previousProduct = lastAction.previousState as Product;
+      const recalculated = recalcProduct(previousProduct, businessSettings, pricingRules);
+      const newProducts = [...products, recalculated];
+      saveProducts(newProducts);
+      set({ products: newProducts, undoHistory: remainingHistory, lastSaved: getLastSavedTimestamp() });
+    } else if (lastAction.type === 'bulk-approve') {
+      // Restore all products from previousState
+      const previousProducts = lastAction.previousState as Product[];
+      const updated = products.map(p => {
+        const prev = previousProducts.find(pp => pp.id === p.id);
+        if (prev) return recalcProduct(prev, businessSettings, pricingRules);
+        return p;
+      });
+      saveProducts(updated);
+      set({ products: updated, undoHistory: remainingHistory, lastSaved: getLastSavedTimestamp() });
+    } else if (lastAction.type === 'import') {
+      // Remove imported products (restore to pre-import state)
+      const previousProducts = lastAction.previousState as Product[];
+      const recalculated = previousProducts.map(p => recalcProduct(p, businessSettings, pricingRules));
+      saveProducts(recalculated);
+      set({ products: recalculated, undoHistory: remainingHistory, lastSaved: getLastSavedTimestamp() });
+    }
+  },
+
+  // Backup
+  createAutoBackup: (trigger, description) => {
+    const dataString = get().exportData();
+    const backup: AutoBackup = {
+      id: `backup-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      trigger,
+      dataString,
+      description,
+    };
+    const { autoBackups } = get();
+    const newBackups = [backup, ...autoBackups].slice(0, MAX_AUTO_BACKUPS);
+    saveAutoBackups(newBackups);
+    set({ autoBackups: newBackups });
+  },
+
+  downloadBackup: () => {
+    const data = get().exportData();
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pricepilot-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  restoreBackup: (dataString) => {
+    try {
+      const data = JSON.parse(dataString);
+      const success = importAllData(data);
+      if (success) {
+        get().initialize();
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  },
+
+  getBackupList: () => {
+    return get().autoBackups;
   },
 
   // Data management
@@ -528,6 +776,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   resetApplication: () => {
+    get().createAutoBackup('reset', 'Before application reset');
     resetAllStorage();
     set({
       businessSettings: createDefaultBusinessSettings(),
@@ -540,6 +789,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       selectedProductId: null,
       selectedProducts: [],
       importState: createDefaultImportState(),
+      undoHistory: [],
     });
   },
 }));

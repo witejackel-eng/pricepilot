@@ -8,6 +8,17 @@ import { Card, CardContent } from '@/components/ui/card';
 import { StatusBadge } from './status-badge';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { ArrowLeftRight } from 'lucide-react';
+import { PricingStatus } from '@/lib/pricepilot/types';
+
+// Explicit comparison value type union (fixes TS inference issue)
+type ComparisonValueType = 'currency' | 'percent' | 'number' | 'text' | 'status';
+
+interface ComparisonRow {
+  label: string;
+  valueA: string | number;
+  valueB: string | number;
+  type: ComparisonValueType;
+}
 
 interface ProductComparisonDrawerProps {
   productIds: [string, string] | null;
@@ -24,25 +35,25 @@ export function ProductComparisonDrawer({ productIds, onClose }: ProductComparis
   const isOpen = productIds !== null && productA !== null && productB !== null;
 
   // Comparison rows
-  const comparisonRows = [
-    { label: 'Name', valueA: productA?.name || '', valueB: productB?.name || '', type: 'text' as const },
-    { label: 'SKU', valueA: productA?.sku || '', valueB: productB?.sku || '', type: 'text' as const },
-    { label: 'Category', valueA: productA?.category || '', valueB: productB?.category || '', type: 'text' as const },
-    { label: 'Brand', valueA: productA?.brand || '', valueB: productB?.brand || '', type: 'text' as const },
-    { label: 'Purchase Cost', valueA: productA?.purchaseCost || 0, valueB: productB?.purchaseCost || 0, type: 'currency' as const },
-    { label: 'Total Landed Cost', valueA: productA?.calculatedTotalLandedCost || 0, valueB: productB?.calculatedTotalLandedCost || 0, type: 'currency' as const },
-    { label: 'Current Price', valueA: productA?.currentSellingPrice || 0, valueB: productB?.currentSellingPrice || 0, type: 'currency' as const },
-    { label: 'Recommended Price', valueA: productA?.recommendedPrices.balanced || 0, valueB: productB?.recommendedPrices.balanced || 0, type: 'currency' as const },
-    { label: 'Profit', valueA: productA?.calculatedProfitPerUnit || 0, valueB: productB?.calculatedProfitPerUnit || 0, type: 'currency' as const },
-    { label: 'Margin', valueA: productA?.calculatedMarginPercent || 0, valueB: productB?.calculatedMarginPercent || 0, type: 'percent' as const },
-    { label: 'Markup', valueA: productA?.calculatedMarkupPercent || 0, valueB: productB?.calculatedMarkupPercent || 0, type: 'percent' as const },
-    { label: 'Status', valueA: productA?.calculatedPricingStatus || 'missing-data', valueB: productB?.calculatedPricingStatus || 'missing-data', type: 'status' as const },
+  const comparisonRows: ComparisonRow[] = [
+    { label: 'Name', valueA: productA?.name || '', valueB: productB?.name || '', type: 'text' },
+    { label: 'SKU', valueA: productA?.sku || '', valueB: productB?.sku || '', type: 'text' },
+    { label: 'Category', valueA: productA?.category || '', valueB: productB?.category || '', type: 'text' },
+    { label: 'Brand', valueA: productA?.brand || '', valueB: productB?.brand || '', type: 'text' },
+    { label: 'Purchase Cost', valueA: productA?.purchaseCost || 0, valueB: productB?.purchaseCost || 0, type: 'currency' },
+    { label: 'Total Landed Cost', valueA: productA?.calculatedTotalLandedCost || 0, valueB: productB?.calculatedTotalLandedCost || 0, type: 'currency' },
+    { label: 'Current Price', valueA: productA?.currentSellingPrice || 0, valueB: productB?.currentSellingPrice || 0, type: 'currency' },
+    { label: 'Recommended Price', valueA: productA?.recommendedPrices.balanced || 0, valueB: productB?.recommendedPrices.balanced || 0, type: 'currency' },
+    { label: 'Profit', valueA: productA?.calculatedProfitPerUnit || 0, valueB: productB?.calculatedProfitPerUnit || 0, type: 'currency' },
+    { label: 'Margin', valueA: productA?.calculatedMarginPercent || 0, valueB: productB?.calculatedMarginPercent || 0, type: 'percent' },
+    { label: 'Markup', valueA: productA?.calculatedMarkupPercent || 0, valueB: productB?.calculatedMarkupPercent || 0, type: 'percent' },
+    { label: 'Status', valueA: productA?.calculatedPricingStatus || 'missing-data', valueB: productB?.calculatedPricingStatus || 'missing-data', type: 'status' },
   ];
 
-  const formatValue = (value: string | number, type: 'text' | 'currency' | 'percent' | 'status') => {
+  const formatValue = (value: string | number, type: ComparisonValueType) => {
     if (type === 'currency') return formatCurrency(value as number, cc);
-    if (type === 'percent') return formatPercentage(value as number);
-    if (type === 'status') return <StatusBadge status={value as any} />;
+    if (type === 'percent' || type === 'number') return formatPercentage(value as number);
+    if (type === 'status') return <StatusBadge status={value as PricingStatus} />;
     return value as string;
   };
 

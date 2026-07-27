@@ -73,8 +73,9 @@ const ALL_COLUMNS = [
 ];
 
 export function ExportPage() {
-  const { products, businessSettings, selectedProducts } = usePricePilotStore();
+  const { products, businessSettings, selectedProducts, appSettings } = usePricePilotStore();
   const cc = businessSettings.currencyCode;
+  const isOwnerMode = appSettings.applicationMode === 'owner';
 
   const [preset, setPreset] = useState<ExportPreset>('full');
   const [format, setFormat] = useState<'xlsx' | 'csv'>('xlsx');
@@ -240,6 +241,205 @@ export function ExportPage() {
       console.error('Export failed:', err);
     }
   };
+
+  const handleOwnerExport = async () => {
+    if (products.length === 0) return;
+    setExportComplete(false);
+    setExportProgress(0);
+
+    const progressInterval = setInterval(() => {
+      setExportProgress(prev => {
+        if (prev === null) return 0;
+        const next = prev + 8;
+        if (next >= 80) { clearInterval(progressInterval); return 80; }
+        return next;
+      });
+    }, 100);
+
+    try {
+      const XLSX = await import('xlsx');
+
+      // Sheet 1: Updated Prices
+      const updatedPricesRows = products.map(p => ({
+        'Product Name': p.name,
+        'SKU': p.sku,
+        'Purchase Cost': p.purchaseCost,
+        'Previous Price': p.currentSellingPrice,
+        'Approved Price': p.priceApprovalStatus === 'approved' ? p.finalApprovedPrice : '',
+        'Price Difference': p.priceApprovalStatus === 'approved' ? p.finalApprovedPrice - p.currentSellingPrice : '',
+        'Profit': p.calculatedProfitPerUnit,
+        'Margin (%)': p.calculatedMarginPercent,
+        'GST Rate (%)': p.taxRatePercent,
+        'Approval Status': p.priceApprovalStatus,
+        'Approval Date': p.approvedAt ? new Date(p.approvedAt).toLocaleDateString() : '',
+        'Warning': p.calculatedProfitPerUnit < 0 ? 'Loss-making' : p.calculatedMarginPercent < businessSettings.defaultMinimumMarginPercent ? 'Low margin' : '',
+      }));
+      const wsUpdated = XLSX.utils.json_to_sheet(updatedPricesRows);
+
+      // Sheet 2: Products Needing Attention
+      const attentionProducts = products.filter(p =>
+        !p.purchaseCost || !p.currentSellingPrice ||
+        p.calculatedPricingStatus === 'loss-making' ||
+        p.calculatedPricingStatus === 'below-break-even' ||
+        p.calculatedPricingStatus === 'missing-data' ||
+        p.calculatedPricingStatus === 'needs-review' ||
+        p.recommendedPrices.confidence === 'low'
+      );
+      const attentionRows = attentionProducts.map(p => ({
+        'Product Name': p.name,
+        'SKU': p.sku,
+        'Problem': !p.purchaseCost ? 'Missing cost' : !p.currentSellingPrice ? 'Missing price' : p.calculatedPricingStatus === 'loss-making' ? 'Loss-making' : p.calculatedPricingStatus === 'below-break-even' ? 'Below break-even' : p.calculatedPricingStatus === 'missing-data' ? 'Missing data' : p.calculatedPricingStatus === 'needs-review' ? 'Needs review' : p.recommendedPrices.confidence === 'low' ? 'Low confidence' : 'Unknown',
+        'Current Price': p.currentSellingPrice,
+        'Recommended Price': p.recommendedPrices.balanced,
+        'Margin (%)': p.calculatedMarginPercent,
+        'Confidence': p.recommendedPrices.confidence || '',
+      }));
+      const wsAttention = XLSX.utils.json_to_sheet(attentionRows);
+
+      // Sheet 3: Summary
+      const summaryData = [
+        { Metric: 'Total Products', Value: products.length },
+        { Metric: 'Products Needing Attention', Value: attentionProducts.length },
+        { Metric: 'Products Approved', Value: products.filter(p => p.priceApprovalStatus === 'approved').length },
+        { Metric: 'Average Margin (%)', Value: products.length > 0 ? products.reduce((s, p) => s + p.calculatedMarginPercent, 0) / products.length : 0 },
+        { Metric: 'Loss-making Products', Value: products.filter(p => p.calculatedProfitPerUnit < 0).length },
+        { Metric: 'Business Name', Value: businessSettings.businessName },
+        { Metric: 'Currency', Value: cc },
+        { Metric: 'Export Date', Value: new Date().toISOString() },
+      ];
+      const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+
+      // Sheet 4: Export Information
+      const exportInfo = [
+        { Field: 'Application', Value: 'PricePilot v0.3' },
+        { Field: 'Export Type', Value: 'Owner Mode - Updated Price List' },
+        { Field: 'Export Date', Value: new Date().toISOString() },
+        { Field: 'Total Products', Value: products.length },
+        { Field: 'Products Approved', Value: products.filter(p => p.priceApprovalStatus === 'approved').length },
+        { Field: 'Products Needing Attention', Value: attentionProducts.length },
+        { Field: 'Currency', Value: cc },
+        { Field: 'Tax Treatment', Value: businessSettings.taxTreatment },
+        { Field: 'Default Tax Rate (%)', Value: businessSettings.defaultTaxRatePercent },
+        { Field: 'Target Margin (%)', Value: businessSettings.defaultTargetMarginPercent },
+        { Field: 'Minimum Margin (%)', Value: businessSettings.defaultMinimumMarginPercent },
+      ];
+      const wsInfo = XLSX.utils.json_to_sheet(exportInfo);
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, wsUpdated, 'Updated Prices');
+      XLSX.utils.book_append_sheet(wb, wsAttention, 'Products Needing Attention');
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+      XLSX.utils.book_append_sheet(wb, wsInfo, 'Export Information');
+
+      XLSX.writeFile(wb, `pricepilot-prices-${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+      clearInterval(progressInterval);
+      setExportProgress(100);
+      setExportComplete(true);
+      setTimeout(() => { setExportProgress(null); setExportComplete(false); }, 2000);
+    } catch (err) {
+      clearInterval(progressInterval);
+      setExportProgress(null);
+      setExportComplete(false);
+      console.error('Export failed:', err);
+    }
+  };
+
+  // OWNER MODE: Show simplified one-click export
+  if (isOwnerMode && products.length > 0) {
+    const attentionCount = products.filter(p =>
+      !p.purchaseCost || !p.currentSellingPrice ||
+      p.calculatedPricingStatus === 'loss-making' ||
+      p.calculatedPricingStatus === 'below-break-even' ||
+      p.calculatedPricingStatus === 'missing-data' ||
+      p.calculatedPricingStatus === 'needs-review'
+    ).length;
+    const approvedCount = products.filter(p => p.priceApprovalStatus === 'approved').length;
+
+    return (
+      <div className="max-w-3xl mx-auto space-y-6">
+        {/* One-click export */}
+        <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Download className="h-4 w-4 text-emerald-600" />
+              Download Updated Price List
+            </CardTitle>
+            <CardDescription>Export your pricing data as an Excel workbook with 4 sheets</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-emerald-50/50 rounded-lg p-3 text-center">
+                <p className="text-lg font-semibold">{products.length}</p>
+                <p className="text-xs text-muted-foreground">Total products</p>
+              </div>
+              <div className="bg-emerald-50/50 rounded-lg p-3 text-center">
+                <p className="text-lg font-semibold">{approvedCount}</p>
+                <p className="text-xs text-muted-foreground">Approved prices</p>
+              </div>
+              <div className="bg-amber-50/50 rounded-lg p-3 text-center">
+                <p className="text-lg font-semibold">{attentionCount}</p>
+                <p className="text-xs text-muted-foreground">Need attention</p>
+              </div>
+              <div className="bg-emerald-50/50 rounded-lg p-3 text-center">
+                <p className="text-lg font-semibold">{cc}</p>
+                <p className="text-xs text-muted-foreground">Currency</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50/50 rounded-lg p-3 text-xs text-muted-foreground">
+              <p className="font-medium text-sm mb-1">Workbook contains 4 sheets:</p>
+              <ul className="space-y-1 list-disc pl-4">
+                <li><strong>Updated Prices</strong> — Product name, SKU, purchase cost, previous price, approved price, price difference, profit, margin, GST rate, approval status, approval date, warning</li>
+                <li><strong>Products Needing Attention</strong> — Products with problems that need review</li>
+                <li><strong>Summary</strong> — Business health metrics</li>
+                <li><strong>Export Information</strong> — Metadata about this export</li>
+              </ul>
+            </div>
+
+            {/* Export Progress Indicator */}
+            {exportProgress !== null && (
+              <div className="bg-white rounded-xl shadow-lg border border-emerald-200 p-4">
+                {exportComplete ? (
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+                    <span className="text-sm font-semibold text-emerald-600">Download complete!</span>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Download className="h-4 w-4 text-emerald-500 animate-pulse" />
+                      <span className="text-sm font-medium">Preparing export...</span>
+                    </div>
+                    <Progress value={exportProgress} className="h-2 bg-emerald-100 [&>[data-slot=progress-indicator]]:bg-emerald-500" />
+                  </div>
+                )}
+              </div>
+            )}
+
+            <Button
+              onClick={handleOwnerExport}
+              disabled={products.length === 0 || exportProgress !== null}
+              className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-md shadow-emerald-500/20 rounded-lg font-semibold text-lg px-6 py-3 w-full"
+            >
+              <Download className="h-5 w-5 mr-2" /> Download Updated Price List
+            </Button>
+
+            <div className="text-center">
+              <Button variant="ghost" size="sm" className="text-emerald-600 hover:text-emerald-700" onClick={() => {
+                // Switch to advanced mode for custom export
+                const store = usePricePilotStore.getState();
+                store.updateAppSettings({ applicationMode: 'advanced' });
+                store.setCurrentView('export');
+              }}>
+                Custom Export Options (Advanced Mode) →
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (products.length === 0) {
     return (

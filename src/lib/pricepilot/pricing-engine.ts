@@ -657,8 +657,9 @@ function calculateSellingFees(
  * Used for the break-even denominator formula.
  *
  * CRITICAL: This is the sum of all percentage-based fees as a decimal
- * fraction. For tax-exclusive pricing, output tax is also a percentage
- * fee charged on the selling price.
+ * fraction. ONLY includes fees that REDUCE the seller's net revenue.
+ * Tax-exclusive output GST does NOT reduce net revenue — it is
+ * collected separately on top of the base selling price.
  */
 function calculateTotalPercentageFeesDecimal(
   product: Product,
@@ -684,23 +685,10 @@ function calculateTotalPercentageFeesDecimal(
       ? product.otherFeesPercent
       : businessSettings.defaultOtherFeesPercent;
 
-  const taxRatePercent = effectiveRule
-    ? effectiveRule.taxRatePercent
-    : (typeof product.taxRatePercent === 'number' && Number.isFinite(product.taxRatePercent) && product.taxRatePercent > 0)
-      ? product.taxRatePercent
-      : businessSettings.defaultTaxRatePercent;
-
-  const taxTreatment = effectiveRule
-    ? effectiveRule.taxTreatment
-    : product.taxTreatment ?? businessSettings.taxTreatment;
-
-  // Tax is a percentage fee ONLY if treatment is 'exclusive' or 'reverse'
-  // (inclusive means tax is already in the selling price, not an additional charge)
-  const taxAsFeePercent = (taxTreatment === 'exclusive' || taxTreatment === 'reverse')
-    ? taxRatePercent : 0;
-
+  // ONLY actual selling fees that reduce the seller's revenue
+  // Tax-exclusive output GST does NOT reduce net revenue
   const totalPercent = clamp(
-    safeSum([marketplaceFeePercent, paymentFeePercent, otherFeesPercent, taxAsFeePercent]),
+    safeSum([marketplaceFeePercent, paymentFeePercent, otherFeesPercent]),
     0, 100
   );
 
@@ -1207,7 +1195,8 @@ export function calculateBreakEvenPriceFromOutcome(
 
   if (denominator <= 0) {
     // Impossible state — fees exceed 100% of revenue
-    return 99999999;
+    // Return 0 to indicate impossible; structured result will capture this
+    return 0;
   }
 
   const numerator = safeAdd(totalLandedCost, fixedFees);
@@ -1229,7 +1218,7 @@ export function calculateBreakEvenPriceFromOutcome(
  *
  *   minimumSafePrice = max(priceForMargin, priceForMinProfit, breakEvenPrice)
  *
- * If impossible state, returns 99999999.
+ * If impossible state, returns 0 (structured result captures impossibility).
  */
 export function calculateMinimumSafePrice(
   product: Product,
@@ -1262,7 +1251,7 @@ export function calculateMinimumSafePrice(
 
   if (marginDenominator <= 0) {
     // Impossible state
-    return 99999999;
+    return 0;
   }
 
   const priceForMargin = roundTo2Decimals(safeDiv(safeAdd(totalLandedCost, fixedFees), marginDenominator));
@@ -1271,7 +1260,7 @@ export function calculateMinimumSafePrice(
   const breakEvenDenominator = safeSub(1, totalPercentageFeesDecimal);
   const breakEvenPrice = breakEvenDenominator > 0
     ? roundTo2Decimals(safeDiv(safeAdd(totalLandedCost, fixedFees), breakEvenDenominator))
-    : 99999999;
+    : 0;
 
   // --- Price for minimum profit per unit ---
   // We need to find the price where netProfit >= minimumProfit
@@ -1310,7 +1299,7 @@ export function calculateMinimumSafePrice(
 
     if (revenueFactor <= 0) {
       // Impossible
-      priceForMinProfit = 99999999;
+      priceForMinProfit = 0;
     } else {
       priceForMinProfit = roundTo2Decimals(
         safeDiv(safeAdd(totalLandedCost, safeAdd(fixedFees, minimumProfit)), revenueFactor)
@@ -1322,7 +1311,7 @@ export function calculateMinimumSafePrice(
     const exclDenominator = safeSub(1, totalPercentageFeesDecimal);
 
     if (exclDenominator <= 0) {
-      priceForMinProfit = 99999999;
+      priceForMinProfit = 0;
     } else {
       priceForMinProfit = roundTo2Decimals(
         safeDiv(safeAdd(totalLandedCost, safeAdd(fixedFees, minimumProfit)), exclDenominator)
@@ -1333,7 +1322,7 @@ export function calculateMinimumSafePrice(
     const exemptDenominator = safeSub(1, totalPercentageFeesDecimal);
 
     if (exemptDenominator <= 0) {
-      priceForMinProfit = 99999999;
+      priceForMinProfit = 0;
     } else {
       priceForMinProfit = roundTo2Decimals(
         safeDiv(safeAdd(totalLandedCost, safeAdd(fixedFees, minimumProfit)), exemptDenominator)
@@ -1634,7 +1623,7 @@ function calculatePriceForMargin(
     );
 
     if (revenueFactor <= 0) {
-      return 99999999; // Impossible state
+      return 0; // Impossible state
     }
 
     return roundTo2Decimals(safeDiv(safeAdd(totalLandedCost, fixedFees), revenueFactor));
@@ -1644,7 +1633,7 @@ function calculatePriceForMargin(
     const denominator = safeSub(1, safeAdd(totalPercentageFeesDecimal, marginDecimal));
 
     if (denominator <= 0) {
-      return 99999999; // Impossible state
+      return 0; // Impossible state
     }
 
     return roundTo2Decimals(safeDiv(safeAdd(totalLandedCost, fixedFees), denominator));

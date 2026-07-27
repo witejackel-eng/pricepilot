@@ -309,4 +309,35 @@ Stage Summary:
 - Dashboard has redundant "Dashboard" title (top bar + page heading), inconsistent number formatting (34% vs 49.4%, ₹48.43K vs ₹24.8K), and no charts/sparklines despite being a pricing analytics tool
 - Styling polish issues: light subtitle text may fail WCAG AA contrast, faint "Reset Application" link in sidebar footer, orphan Freight (%) field in simulator grid, all dashboard KPI cards use identical green accent (no semantic color differentiation)
 - TOP 5 most impactful fixes: (1) Fix "₹ INF" currency bug globally; (2) Fix onboarding Tax Treatment clipping; (3) Fix simulator missing Selling Price field + bottom cutoff; (4) Add visible Save button on Settings; (5) Investigate why Products nav renders the Simulator page (routing bug or capture error)
+
+---
+Task ID: owner-mode-overhaul
+Agent: main
+Task: Implement PricePilot Owner Mode overhaul per the 27-section specification (Phases 1-9)
+
+Work Log:
+- Phase 1: Fixed TypeScript error in product-comparison-drawer.tsx by adding explicit ComparisonValueType union type ('currency' | 'percent' | 'number' | 'text' | 'status') and ComparisonRow interface, removing reliance on inconsistent inference
+- Phase 2: Fixed tax-exclusive recommendation bug — removed GST from percentage fee denominator in both pricing-engine.ts and recommendations.ts computeTotalPercentageFeesDecimal function. Tax-exclusive output GST does NOT reduce seller's net revenue and must not be treated as a fee.
+- Phase 2: Removed all 99999999 placeholder prices from pricing-engine.ts, recommendations.ts, and calculations.ts. Replaced with 0 to indicate impossible states, with structured recommendation results capturing impossibility properly.
+- Phase 2: Fixed totalPercentageFeesPercent display in recommendations.ts mapRecommendationsToProduct to NOT include tax-exclusive output GST
+- Phase 3: Verified existing Owner Mode infrastructure was already implemented — ApplicationMode type, owner-home component, review-prices-page component, mode-based navigation in app-shell, Settings with mode switching + Danger Zone with typed RESET, Undo history, Help Panel, Quick/Advanced Setup onboarding, Demo workspace with sample data banner, Backup download/restore
+- Phase 3: Added primary recommendation prioritization in product-detail-drawer.tsx — Owner Mode now shows "Recommended Selling Price" as a prominent primary card with plain-language explanation, confidence badge, GST badge, and price change details. Other pricing options (Lowest Safe, Competitive, Premium, Custom) are hidden behind "See other pricing options" collapsible. Advanced Mode continues showing all 4 cards.
+- Fixed onboarding-flow.tsx stepIcon casing bug (lowercase variable used as JSX component → renamed to StepIcon with PascalCase)
+- Verified app via agent-browser: Owner Home shows greeting, 4 action cards, health summary, sample data banner. Review Prices page shows 3 sections. Products page shows table with filters. No browser errors.
+
+Stage Summary:
+- Critical financial correctness bug fixed: tax-exclusive GST no longer treated as percentage fee reducing seller revenue
+- All placeholder impossible prices (99999999) removed and replaced with proper structured results
+- Owner Mode primary recommendation implemented: one prominent "Recommended Selling Price" card with plain-language explanation
+- Existing Owner Mode infrastructure verified working (Owner Home, Review Prices, mode switching, Danger Zone, Help Panel, Undo, Backup)
+- Lint passes, no runtime errors, dev server running on port 3000
+- App fully functional via browser testing
+
+Unresolved issues / next phase priorities:
+- Guided Tour component not yet implemented (5-step tour after onboarding)
+- Import improvements not yet implemented (heading-row selection, duplicate handling, import backup)
+- Owner one-click export with workbook structure not yet implemented
+- IndexedDB migration deferred — localStorage works for now, backup/restore provides data safety
+- RecommendationResult with explicit status field for missing-data/impossible cases needs further UI work (currently status derived but not always displayed clearly)
+- Onboarding channel fee confirmation with "estimate" labeling not yet refined
 - Research-only task: no files modified other than appending this worklog entry
