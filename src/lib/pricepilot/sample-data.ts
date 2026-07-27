@@ -40,6 +40,7 @@ const ENGINE_DEFAULTS = {
   expectedMonthlyUnits: 0,
   recommendedOutcomes: undefined as any,
   lifecycleStatus: 'active' as const,
+  calculatedHealthScore: 0,
 };
 
 /** Apply the new engine fields to a partial product definition */
