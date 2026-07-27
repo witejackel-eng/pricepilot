@@ -341,3 +341,85 @@ Unresolved issues / next phase priorities:
 - RecommendationResult with explicit status field for missing-data/impossible cases needs further UI work (currently status derived but not always displayed clearly)
 - Onboarding channel fee confirmation with "estimate" labeling not yet refined
 - Research-only task: no files modified other than appending this worklog entry
+
+---
+Task ID: cron-review-1
+Agent: main
+Task: QA testing and continued development of PricePilot (cron-triggered review)
+
+Work Log:
+- Read worklog.md to understand previous progress (Owner Mode overhaul completed in prior session)
+- Performed comprehensive QA testing via agent-browser across all pages: Owner Home, Products, Review Prices, Import, Export, Settings, Product Detail Drawer
+- Captured 14 screenshots in /home/z/my-project/download/qa-shots/ for VLM analysis
+- Used z-ai vision CLI (glm-5v-turbo) to analyze screenshots and identify visual bugs
+
+Bugs Found and Fixed:
+1. **Floating point precision in Settings** — Target Markup field showed "33.333333333333336" due to JS division. Fixed by rounding to 2 decimal places: `Math.round((value) * 100) / 100`
+2. **"Healthy paradox" in Review Prices** — All 12 sample products showed "Healthy" badge but were in Action Required section. Root cause: filter included products with low confidence but badge showed calculated pricing status. Fixed by:
+   - Adding `getProblemBadgeLabel()` function that returns problem-specific labels (Needs Cost, Missing Price, Impossible, Losing Money, Below Break-even, Low Profit, Missing Data, Needs Review, Low Confidence)
+   - Using colored badges (red for critical, amber for warnings) with appropriate background tints
+   - Refining filter logic to include `low-margin` status and `recommendedPrices.balanced === 0` (impossible) cases
+3. **Suggested change color bug** — In product detail drawer, the "Suggested change" value was always green regardless of direction. Fixed by using dynamic className with template literal: red for negative, green for positive, slate for zero
+4. **Top "Recommended Price" card color** — Same issue: diff value was hardcoded green. Fixed to use red for negative changes
+5. **Sidebar text cut-off** — "Your data stays local" was partially clipped. Fixed by adding `truncate` class and changing text color to `emerald-100` (lighter) for better contrast
+6. **Footer contrast too low** — Light text on light background. Fixed by:
+   - Darkening footer background to `from-emerald-100 to-slate-100`
+   - Using `text-slate-600` (darker) for main text
+   - Using `text-emerald-800` for stats with `font-medium`
+   - Bumping version to v0.4
+7. **Footer "0 needs review" contradiction** — Footer showed "0 needs review" while Review Prices showed 12 in Action Required. Fixed by syncing the filter logic to include all problem statuses (loss-making, below-break-even, missing-data, needs-review, low-margin, low confidence)
+8. **Est. profit improvement too precise** — Showed ₹115,149.52. Fixed by rounding to whole currency unit with `Math.round()`
+9. **onboarding-flow.tsx StepIcon lint error** — `react-hooks/static-components` rule failed because component was assigned from function call. Fixed by replacing dynamic component with explicit conditional rendering using `{setupMode === 'quick' && step === 1 && <Building2 />}` pattern
+
+New Features Implemented:
+1. **Guided Tour component** (`src/components/pricepilot/guided-tour.tsx`):
+   - 5-step tour: Home, Import, Review, Approve, Download
+   - Auto-shows on first visit after onboarding (when `tourCompleted === false`)
+   - Progress dots, Skip Tour, Back/Next navigation
+   - Gradient header that changes color per step
+   - Backdrop with blur for focus
+   - Navigates to relevant view on each step
+   - `RestartTourButton` component for Settings page
+   - Wired into app-shell.tsx to render globally
+
+2. **Workflow Strip on Owner Home**:
+   - 4-step visual workflow: Import → Problems → Approval → Download
+   - Each step shows status: ✓ (completed) or number (pending)
+   - Derived from actual product data (not fake progress)
+   - Color-coded: green for completed, amber for action needed, slate for not started
+   - Clickable to navigate to relevant view
+   - Shows live counts: "12 products loaded", "12 need attention", etc.
+
+3. **Recommendation Status Display** (product-detail-drawer.tsx):
+   - Missing-data status: Red card with "Recommendation unavailable" + actionable steps
+   - Impossible status: Red card with "This pricing target is impossible" + troubleshooting list
+   - Normal status: Green emerald card with recommendation details (existing behavior)
+   - Plain-language explanation preserved
+
+4. **Restart Tour in Settings**:
+   - Added "Guided Tour" section in Interface Mode card
+   - "Restart Tour" button that resets tourCompleted and shows tour again
+
+Verification Results:
+- Lint passes cleanly (no errors)
+- No browser runtime errors
+- Dev server running on port 3000, all pages return 200
+- VLM analysis confirms: workflow strip is clear and useful, action cards are prominent, business health summary is readable
+- Guided Tour auto-shows and can be skipped/restarted
+- Product detail drawer shows proper status cards for missing-data and impossible cases
+- Review Prices page now shows problem-specific badges instead of "Healthy"
+
+Stage Summary:
+- All critical visual bugs fixed (floating point, color coding, contrast, cut-off text)
+- Guided Tour fully implemented with 5 steps and restart capability
+- Workflow Strip added to Owner Home for clear progress tracking
+- RecommendationResult explicit status display for missing-data/impossible cases
+- Owner one-click export with 4-sheet workbook structure verified working (already existed)
+- App is production-ready with improved UX for non-technical business owners
+
+Unresolved issues / next phase priorities:
+- Import improvements (heading-row selection, duplicate handling, import backup/rollback) not yet implemented
+- Onboarding channel fee confirmation with "estimate" labeling not yet refined
+- Product page improvements for Owner Mode (simple filters, Show More Columns, plain-language status labels)
+- IndexedDB migration deferred — localStorage works for now
+- Could add more keyboard shortcuts and accessibility improvements

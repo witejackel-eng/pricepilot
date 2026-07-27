@@ -43,6 +43,7 @@ import { SettingsPage } from './settings-page';
 import { AddProductDialog } from './add-product-dialog';
 import { KeyboardShortcuts } from './keyboard-shortcuts';
 import { HelpPanel } from './help-panel';
+import { GuidedTour } from './guided-tour';
 import { toast } from 'sonner';
 
 // Owner mode navigation items
@@ -198,9 +199,9 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
       <Separator className="my-2 mx-3 bg-emerald-700/50" />
 
       <div className="p-4 space-y-3">
-        <div className="rounded bg-emerald-700/40 p-2 flex items-center gap-2 text-xs text-emerald-200">
+        <div className="rounded bg-emerald-700/40 p-2 flex items-center gap-2 text-xs text-emerald-100">
           <ShieldCheck className="h-4 w-4 text-emerald-300 shrink-0" />
-          <span>Your data stays local</span>
+          <span className="truncate">Your data stays local</span>
         </div>
         {/* Reset Application only shown in advanced mode sidebar */}
         {applicationMode === 'advanced' && (
@@ -334,6 +335,9 @@ export function AppShell() {
       {/* Help Panel */}
       <HelpPanel open={helpPanelOpen} onOpenChange={setHelpPanelOpen} />
 
+      {/* Guided Tour (auto-shows on first visit after onboarding) */}
+      <GuidedTour />
+
       {/* Desktop layout */}
       <div className="flex flex-1">
         {/* Desktop sidebar */}
@@ -426,28 +430,28 @@ export function AppShell() {
           </main>
 
           {/* Footer */}
-          <footer className="bg-gradient-to-r from-emerald-50 to-slate-50 px-4 py-2 mt-auto border-t-2 border-emerald-200/50 dark:bg-gradient-to-r dark:from-slate-900 dark:to-slate-800 dark:border-slate-700">
+          <footer className="bg-gradient-to-r from-emerald-100 to-slate-100 px-4 py-2 mt-auto border-t-2 border-emerald-300/60 dark:bg-gradient-to-r dark:from-slate-900 dark:to-slate-800 dark:border-slate-700">
             {products.length > 0 && (
-              <div className="bg-emerald-100/30 dark:bg-emerald-900/20 rounded-md px-3 py-1.5 mb-2">
-                <div className="flex items-center justify-center gap-4 text-xs text-emerald-700/80 pb-1 border-b border-emerald-200/40 dark:border-emerald-700/30">
+              <div className="bg-emerald-200/40 dark:bg-emerald-900/30 rounded-md px-3 py-1.5 mb-2">
+                <div className="flex items-center justify-center gap-4 text-xs text-emerald-800 dark:text-emerald-200 pb-1 border-b border-emerald-300/50 dark:border-emerald-700/40">
                   <span className="font-medium">{products.length} products</span>
-                  <span className="text-emerald-300 dark:text-emerald-600">•</span>
+                  <span className="text-emerald-400 dark:text-emerald-600">•</span>
                   <span>{(products.reduce((sum, p) => sum + p.calculatedMarginPercent, 0) / products.length).toFixed(1)}% avg margin</span>
-                  <span className="text-emerald-300 dark:text-emerald-600">•</span>
-                  <span className="text-amber-600 dark:text-amber-400">{products.filter(p => p.lifecycleStatus === 'needs-review').length} needs review</span>
+                  <span className="text-emerald-400 dark:text-emerald-600">•</span>
+                  <span className="text-amber-700 dark:text-amber-400 font-medium">{products.filter(p => p.calculatedPricingStatus === 'loss-making' || p.calculatedPricingStatus === 'below-break-even' || p.calculatedPricingStatus === 'missing-data' || p.calculatedPricingStatus === 'needs-review' || p.calculatedPricingStatus === 'low-margin' || p.recommendedPrices.confidence === 'low').length} need attention</span>
                 </div>
               </div>
             )}
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-500 animate-pulse" />
-                <span>All data stored locally in your browser. Nothing is sent to any server.</span>
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                <span className="font-medium">All data stored locally in your browser. Nothing is sent to any server.</span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-emerald-600/70">
+                <span className="text-emerald-700 dark:text-emerald-300 font-medium">
                   {lastSaved ? `Last saved: ${new Date(lastSaved).toLocaleTimeString()}` : 'Not saved yet'}
                 </span>
-                <span className="text-emerald-600/40 font-mono border border-emerald-200/30 dark:border-emerald-700/30 rounded px-1.5 py-0.5">v0.3</span>
+                <span className="text-emerald-700 dark:text-emerald-300 font-mono border border-emerald-300/50 dark:border-emerald-700/50 rounded px-1.5 py-0.5">v0.4</span>
               </div>
             </div>
           </footer>

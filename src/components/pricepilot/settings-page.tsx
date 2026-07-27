@@ -15,6 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { SUPPORTED_CURRENCIES, RoundingRule, TaxTreatment, ApplicationMode } from '@/lib/pricepilot/types';
 import { AutoBackup } from '@/store/pricepilot-store';
 import { HelpSection } from './help-section';
+import { RestartTourButton } from './guided-tour';
 import { Building2, Coins, Palette, Database, Download, Upload, Trash2, RefreshCw, Shield, ChevronDown, ChevronRight, AlertTriangle, FileDown, Eye, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -136,6 +137,15 @@ export function SettingsPage() {
               </div>
             </div>
           </RadioGroup>
+          <div className="pt-3 border-t border-slate-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-700">Guided Tour</p>
+                <p className="text-xs text-muted-foreground">Replay the 5-step introduction to PricePilot</p>
+              </div>
+              <RestartTourButton />
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -227,7 +237,7 @@ export function SettingsPage() {
             </div>
             <div>
               <Label htmlFor="targetMarkup" className={labelClass}>Target Markup (%)</Label>
-              <Input id="targetMarkup" type="number" value={businessSettings.defaultTargetMarginPercent * 100 / (100 - businessSettings.defaultTargetMarginPercent)} readOnly className="bg-slate-50 shadow-sm border-slate-200" />
+              <Input id="targetMarkup" type="number" value={Math.round((businessSettings.defaultTargetMarginPercent * 100 / (100 - businessSettings.defaultTargetMarginPercent)) * 100) / 100} readOnly className="bg-slate-50 shadow-sm border-slate-200" />
               <p className="text-xs text-muted-foreground mt-1">Auto-calculated from target margin</p>
             </div>
           </div>

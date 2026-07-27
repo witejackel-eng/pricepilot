@@ -43,12 +43,28 @@ function getStatusLabel(status: PricingStatus): string {
 function getProblemDescription(product: Product): string {
   if (!product.purchaseCost) return 'Missing purchase cost — cannot calculate pricing';
   if (!product.currentSellingPrice) return 'Missing selling price';
-  if (product.calculatedPricingStatus === 'loss-making') return `Selling at a loss — profit is ${formatCurrency(product.calculatedProfitPerUnit, product.taxRatePercent ? 'INR' : 'INR')}`;
+  if (product.recommendedPrices.balanced === 0) return 'Recommendation unavailable — pricing target is impossible under current costs and fees';
+  if (product.calculatedPricingStatus === 'loss-making') return `Selling at a loss — profit is ${formatCurrency(product.calculatedProfitPerUnit, 'INR')}`;
   if (product.calculatedPricingStatus === 'below-break-even') return 'Below break-even — not covering costs + minimum margin';
+  if (product.calculatedPricingStatus === 'low-margin') return `Low margin (${formatPercentage(product.calculatedMarginPercent)}) — below your minimum threshold`;
   if (product.calculatedPricingStatus === 'missing-data') return 'Critical data missing for pricing calculation';
   if (product.calculatedPricingStatus === 'needs-review') return 'Flagged for manual review';
-  if (product.recommendedPrices.confidence === 'low') return 'Low confidence recommendation — verify data';
+  if (product.recommendedPrices.confidence === 'low') return 'Low confidence recommendation — verify product data';
   return 'Needs your attention';
+}
+
+// Map pricing status to a problem-specific badge label (not the raw calculated status)
+function getProblemBadgeLabel(product: Product): { label: string; color: string } {
+  if (!product.purchaseCost) return { label: 'Needs Cost', color: 'text-red-600 border-red-200 bg-red-50' };
+  if (!product.currentSellingPrice) return { label: 'Missing Price', color: 'text-red-600 border-red-200 bg-red-50' };
+  if (product.recommendedPrices.balanced === 0) return { label: 'Impossible', color: 'text-red-600 border-red-200 bg-red-50' };
+  if (product.calculatedPricingStatus === 'loss-making') return { label: 'Losing Money', color: 'text-red-600 border-red-200 bg-red-50' };
+  if (product.calculatedPricingStatus === 'below-break-even') return { label: 'Below Break-even', color: 'text-amber-600 border-amber-200 bg-amber-50' };
+  if (product.calculatedPricingStatus === 'low-margin') return { label: 'Low Profit', color: 'text-amber-600 border-amber-200 bg-amber-50' };
+  if (product.calculatedPricingStatus === 'missing-data') return { label: 'Missing Data', color: 'text-slate-500 border-slate-200 bg-slate-50' };
+  if (product.calculatedPricingStatus === 'needs-review') return { label: 'Needs Review', color: 'text-amber-600 border-amber-200 bg-amber-50' };
+  if (product.recommendedPrices.confidence === 'low') return { label: 'Low Confidence', color: 'text-amber-600 border-amber-200 bg-amber-50' };
+  return { label: 'Needs Attention', color: 'text-amber-600 border-amber-200 bg-amber-50' };
 }
 
 export function ReviewPricesPage() {
@@ -68,6 +84,7 @@ export function ReviewPricesPage() {
   const isOwnerMode = appSettings.applicationMode === 'owner';
 
   // Categorize products into three sections
+  // Action Required: products with REAL problems (not just low confidence)
   const actionRequired = useMemo(() =>
     products.filter(p =>
       !p.purchaseCost ||
@@ -76,18 +93,23 @@ export function ReviewPricesPage() {
       p.calculatedPricingStatus === 'below-break-even' ||
       p.calculatedPricingStatus === 'missing-data' ||
       p.calculatedPricingStatus === 'needs-review' ||
+      p.calculatedPricingStatus === 'low-margin' ||
+      p.recommendedPrices.balanced === 0 ||
       p.recommendedPrices.confidence === 'low'
     ), [products]);
 
+  // Ready to Approve: products with complete data, valid recommendation, medium/high confidence
   const readyToApprove = useMemo(() =>
     products.filter(p =>
       p.purchaseCost > 0 &&
       p.currentSellingPrice > 0 &&
+      p.recommendedPrices.balanced > 0 &&
       p.priceApprovalStatus === 'none' &&
       p.recommendedPrices.confidence !== 'low' &&
       p.calculatedPricingStatus !== 'loss-making' &&
       p.calculatedPricingStatus !== 'missing-data' &&
-      p.calculatedPricingStatus !== 'needs-review'
+      p.calculatedPricingStatus !== 'needs-review' &&
+      p.calculatedPricingStatus !== 'below-break-even'
     ), [products]);
 
   const approvedProducts = useMemo(() =>
@@ -140,21 +162,19 @@ export function ReviewPricesPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3 max-h-96 overflow-y-auto">
-              {actionRequired.map(product => (
+              {actionRequired.map(product => {
+                const problemBadge = getProblemBadgeLabel(product);
+                return (
                 <div
                   key={product.id}
                   className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-100 dark:border-slate-700 p-3 flex items-start gap-3"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="font-medium text-sm">{product.name || 'Unnamed product'}</span>
                       {product.sku && <span className="text-xs text-muted-foreground">{product.sku}</span>}
-                      <Badge variant="outline" className={`text-xs ${
-                        product.calculatedPricingStatus === 'loss-making' ? 'text-red-600 border-red-200' :
-                        product.calculatedPricingStatus === 'missing-data' ? 'text-slate-500 border-slate-200' :
-                        'text-amber-600 border-amber-200'
-                      }`}>
-                        {getStatusLabel(product.calculatedPricingStatus)}
+                      <Badge variant="outline" className={`text-xs ${problemBadge.color}`}>
+                        {problemBadge.label}
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">{getProblemDescription(product)}</p>
@@ -171,7 +191,8 @@ export function ReviewPricesPage() {
                     <Eye className="h-4 w-4 mr-1" /> Review
                   </Button>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>

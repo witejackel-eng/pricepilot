@@ -451,26 +451,6 @@ export function OnboardingFlow() {
     return '';
   };
 
-  const getStepIcon = () => {
-    if (setupMode === 'quick') {
-      switch (step) {
-        case 1: return Building2;
-        case 2: return Coins;
-        case 3: return Coins;
-        case 4: return Store;
-      }
-    } else {
-      switch (step) {
-        case 1: return Building2;
-        case 2: return Store;
-        case 3: return Coins;
-      }
-    }
-    return Building2;
-  };
-
-  const StepIcon = getStepIcon();
-
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-emerald-100 via-emerald-50/30 to-slate-50 p-4">
       <div className="w-full max-w-xl">
@@ -511,7 +491,15 @@ export function OnboardingFlow() {
         <Card className="shadow-lg shadow-emerald-500/10 border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/5 transition-all duration-300 hover:shadow-xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-3">
-              <span className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-200 to-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm"><StepIcon className="h-4 w-4" /></span>
+              <span className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-200 to-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm">
+                {setupMode === 'quick' && step === 1 && <Building2 className="h-4 w-4" />}
+                {setupMode === 'quick' && step === 2 && <Coins className="h-4 w-4" />}
+                {setupMode === 'quick' && step === 3 && <Coins className="h-4 w-4" />}
+                {setupMode === 'quick' && step === 4 && <Store className="h-4 w-4" />}
+                {setupMode === 'advanced' && step === 1 && <Building2 className="h-4 w-4" />}
+                {setupMode === 'advanced' && step === 2 && <Store className="h-4 w-4" />}
+                {setupMode === 'advanced' && step === 3 && <Coins className="h-4 w-4" />}
+              </span>
               {getStepTitle()}
             </CardTitle>
             <CardDescription>

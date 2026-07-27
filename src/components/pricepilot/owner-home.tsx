@@ -52,8 +52,11 @@ export function OwnerHome() {
       p.calculatedPricingStatus === 'below-break-even' ||
       p.calculatedPricingStatus === 'missing-data' ||
       p.calculatedPricingStatus === 'needs-review' ||
+      p.calculatedPricingStatus === 'low-margin' ||
       !p.purchaseCost ||
-      !p.currentSellingPrice
+      !p.currentSellingPrice ||
+      p.recommendedPrices.balanced === 0 ||
+      p.recommendedPrices.confidence === 'low'
     ).length, [products]);
 
   const productsReadyForApproval = useMemo(() =>
@@ -89,11 +92,13 @@ export function OwnerHome() {
       const priceDiff = recommendedPrice - p.currentSellingPrice;
       return sum + Math.max(0, priceDiff * (1 - p.calculatedTotalPercentageFees / 100));
     }, 0);
-    return Math.max(0, potentialProfit);
+    // Round to whole currency unit for cleaner display
+    return Math.round(Math.max(0, potentialProfit));
   }, [products]);
 
   const hasUndo = undoHistory.length > 0;
   const isSampleData = appSettings.sampleDataLoaded;
+  const approvedCount = useMemo(() => products.filter(p => p.priceApprovalStatus === 'approved').length, [products]);
 
   const handleUndo = () => {
     if (undoHistory.length > 0) {
@@ -254,6 +259,90 @@ export function OwnerHome() {
         </h1>
         <p className="text-sm text-muted-foreground mt-1">What would you like to do today?</p>
       </div>
+
+      {/* Workflow strip - 4 step process state derived from data */}
+      <Card className="mb-6 shadow-sm border-0 rounded-xl bg-gradient-to-r from-emerald-50 via-white to-teal-50/50 dark:from-emerald-900/20 dark:via-slate-800 dark:to-teal-900/20">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Your Pricing Workflow</h3>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {/* Step 1: Import */}
+            <button
+              onClick={() => setCurrentView('import')}
+              className="text-left p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 hover:shadow-sm transition-all"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold ${totalProducts > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                  {totalProducts > 0 ? '✓' : '1'}
+                </div>
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-200">Import</span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {totalProducts > 0 ? `${totalProducts} products loaded` : 'Not started'}
+              </p>
+            </button>
+
+            {/* Step 2: Check Problems */}
+            <button
+              onClick={() => setCurrentView('review-prices')}
+              className="text-left p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 hover:shadow-sm transition-all"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                  productsNeedingAttention === 0 && totalProducts > 0 ? 'bg-emerald-100 text-emerald-700' :
+                  productsNeedingAttention > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'
+                }`}>
+                  {productsNeedingAttention === 0 && totalProducts > 0 ? '✓' : '2'}
+                </div>
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-200">Problems</span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {totalProducts === 0 ? 'Not started' :
+                  productsNeedingAttention === 0 ? 'All resolved' :
+                  `${productsNeedingAttention} need attention`}
+              </p>
+            </button>
+
+            {/* Step 3: Approve */}
+            <button
+              onClick={() => setCurrentView('review-prices')}
+              className="text-left p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 hover:shadow-sm transition-all"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                  productsReadyForApproval === 0 && approvedCount > 0 ? 'bg-emerald-100 text-emerald-700' :
+                  productsReadyForApproval > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'
+                }`}>
+                  {productsReadyForApproval === 0 && approvedCount > 0 ? '✓' : '3'}
+                </div>
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-200">Approval</span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {totalProducts === 0 ? 'Not started' :
+                  productsReadyForApproval > 0 ? `${productsReadyForApproval} ready` :
+                  approvedCount > 0 ? `${approvedCount} approved` : 'None ready'}
+              </p>
+            </button>
+
+            {/* Step 4: Download */}
+            <button
+              onClick={() => setCurrentView('export')}
+              className="text-left p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 hover:shadow-sm transition-all"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold ${approvedCount > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                  {approvedCount > 0 ? '✓' : '4'}
+                </div>
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-200">Download</span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {approvedCount > 0 ? `${approvedCount} ready to export` : 'Nothing to export'}
+              </p>
+            </button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Undo button */}
       {hasUndo && (

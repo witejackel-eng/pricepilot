@@ -194,7 +194,7 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
 
   return (
     <Sheet open={!!productId} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <SheetContent className="sm:max-w-2xl bg-gradient-to-b from-white to-slate-50/30 overflow-y-auto">
+      <SheetContent className="sm:max-w-2xl bg-gradient-to-b from-white to-slate-50/30 overflow-y-auto max-h-screen">
         <SheetHeader>
           <SheetTitle className="text-xl font-bold text-slate-800 flex items-center gap-2">
             {product.name}
@@ -245,8 +245,8 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                 <CardContent className="p-3">
                   <div className="text-xs text-muted-foreground">Recommended Price</div>
                   <div className="text-2xl font-bold text-emerald-700">{formatCurrency(product.recommendedPrices.balanced, cc)}</div>
-                  <div className="text-sm font-medium text-emerald-600">
-                    {diffFromExisting(product.recommendedPrices.balanced) > 0 ? <ArrowUpRight className="h-4 w-4 inline" /> : <ArrowDownRight className="h-4 w-4 inline" />}
+                  <div className={`text-sm font-medium ${diffFromExisting(product.recommendedPrices.balanced) > 0 ? 'text-emerald-600' : diffFromExisting(product.recommendedPrices.balanced) < 0 ? 'text-red-600' : 'text-slate-500'}`}>
+                    {diffFromExisting(product.recommendedPrices.balanced) > 0 ? <ArrowUpRight className="h-4 w-4 inline" /> : diffFromExisting(product.recommendedPrices.balanced) < 0 ? <ArrowDownRight className="h-4 w-4 inline" /> : null}
                     {diffFromExisting(product.recommendedPrices.balanced) > 0 ? '+' : ''}{formatCurrency(diffFromExisting(product.recommendedPrices.balanced), cc)}
                   </div>
                 </CardContent>
@@ -333,55 +333,105 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
               <h3 className="text-sm font-semibold mb-2">{isOwnerMode ? 'Recommended Selling Price' : 'Price Recommendations'}</h3>
               {isOwnerMode ? (
                 <>
-                  {/* Primary recommendation card for Owner Mode */}
-                  <Card className="cursor-pointer transition-all bg-gradient-to-br from-emerald-50 to-white shadow-md rounded-xl border border-emerald-200 ring-2 ring-emerald-500">
-                    <CardContent className="p-4">
-                      <div className="text-sm font-semibold text-emerald-700 mb-1">Recommended Selling Price</div>
-                      <div className="text-2xl font-bold text-emerald-800">{formatCurrency(product.recommendedPrices.balanced, cc)}</div>
-                      <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-                        <div>
-                          <span className="text-slate-500">Expected profit: </span>
-                          <span className="font-semibold">{formatCurrency(profitAt(product.recommendedPrices.balanced), cc)}</span>
+                  {/* Status-based recommendation display for Owner Mode */}
+                  {(!product.purchaseCost || product.purchaseCost <= 0) ? (
+                    // Missing-data status
+                    <Card className="shadow-md rounded-xl border border-red-200 bg-gradient-to-br from-red-50 to-white">
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="h-10 w-10 rounded-lg bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                            <AlertTriangle className="h-5 w-5" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-sm font-semibold text-red-700 mb-1">Recommendation unavailable</div>
+                            <p className="text-xs text-slate-600 mb-3">Purchase cost is missing. PricePilot cannot calculate a safe selling price without knowing what you paid for this product.</p>
+                            <div className="bg-white rounded-lg p-2 border border-red-100 text-xs">
+                              <p className="font-medium text-slate-700 mb-1">What to do next:</p>
+                              <ul className="list-disc list-inside text-slate-600 space-y-0.5">
+                                <li>Enter the purchase cost in the Edit tab</li>
+                                <li>Check your supplier invoice for the exact cost</li>
+                                <li>Include any per-unit charges (not bulk fees)</li>
+                              </ul>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-slate-500">Expected margin: </span>
-                          <span className="font-semibold">{formatPercentage(marginAt(product.recommendedPrices.balanced))}</span>
+                      </CardContent>
+                    </Card>
+                  ) : product.recommendedPrices.balanced === 0 ? (
+                    // Impossible status
+                    <Card className="shadow-md rounded-xl border border-red-200 bg-gradient-to-br from-red-50 to-white">
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="h-10 w-10 rounded-lg bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                            <AlertTriangle className="h-5 w-5" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-sm font-semibold text-red-700 mb-1">This pricing target is impossible</div>
+                            <p className="text-xs text-slate-600 mb-3">Under the current costs, fees, and margin requirements, no profitable price exists. The percentage fees plus your minimum margin exceed 100% of revenue.</p>
+                            <div className="bg-white rounded-lg p-2 border border-red-100 text-xs">
+                              <p className="font-medium text-slate-700 mb-1">Try one of these:</p>
+                              <ul className="list-disc list-inside text-slate-600 space-y-0.5">
+                                <li>Reduce marketplace or payment fees</li>
+                                <li>Lower the target margin in Settings</li>
+                                <li>Verify the purchase cost is correct</li>
+                                <li>Check the tax treatment setting</li>
+                              </ul>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-slate-500">Current price: </span>
-                          <span className="font-semibold">{formatCurrency(product.currentSellingPrice, cc)}</span>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    // Primary recommendation card for Owner Mode
+                    <Card className="cursor-pointer transition-all bg-gradient-to-br from-emerald-50 to-white shadow-md rounded-xl border border-emerald-200 ring-2 ring-emerald-500">
+                      <CardContent className="p-4">
+                        <div className="text-sm font-semibold text-emerald-700 mb-1">Recommended Selling Price</div>
+                        <div className="text-2xl font-bold text-emerald-800">{formatCurrency(product.recommendedPrices.balanced, cc)}</div>
+                        <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                          <div>
+                            <span className="text-slate-500">Expected profit: </span>
+                            <span className="font-semibold">{formatCurrency(profitAt(product.recommendedPrices.balanced), cc)}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Expected margin: </span>
+                            <span className="font-semibold">{formatPercentage(marginAt(product.recommendedPrices.balanced))}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Current price: </span>
+                            <span className="font-semibold">{formatCurrency(product.currentSellingPrice, cc)}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Suggested change: </span>
+                            <span className={`font-semibold ${diffFromExisting(product.recommendedPrices.balanced) > 0 ? 'text-emerald-600' : diffFromExisting(product.recommendedPrices.balanced) < 0 ? 'text-red-600' : 'text-slate-500'}`}>
+                              {diffFromExisting(product.recommendedPrices.balanced) > 0 ? '+' : ''}{formatCurrency(diffFromExisting(product.recommendedPrices.balanced), cc)}
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-slate-500">Suggested change: </span>
-                          <span className="font-semibold {diffFromExisting(product.recommendedPrices.balanced) > 0 ? 'text-emerald-600' : diffFromExisting(product.recommendedPrices.balanced) < 0 ? 'text-red-600' : 'text-slate-500'}">
-                            {diffFromExisting(product.recommendedPrices.balanced) > 0 ? '+' : ''}{formatCurrency(diffFromExisting(product.recommendedPrices.balanced), cc)}
-                          </span>
-                        </div>
-                      </div>
-                      {product.recommendedPrices.confidence && (
-                        <div className="mt-2 flex items-center gap-2">
-                          <Badge variant="outline" className={`text-xs ${product.recommendedPrices.confidence === 'high' ? 'text-emerald-600 border-emerald-200' : product.recommendedPrices.confidence === 'medium' ? 'text-amber-600 border-amber-200' : 'text-red-600 border-red-200'}`}>Confidence: {product.recommendedPrices.confidence}</Badge>
-                          {(product.taxTreatment === 'inclusive' || product.taxTreatment === 'composite') && (
-                            <Badge variant="outline" className="text-xs text-slate-500 border-slate-200">GST included</Badge>
+                        {product.recommendedPrices.confidence && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <Badge variant="outline" className={`text-xs ${product.recommendedPrices.confidence === 'high' ? 'text-emerald-600 border-emerald-200' : product.recommendedPrices.confidence === 'medium' ? 'text-amber-600 border-amber-200' : 'text-red-600 border-red-200'}`}>Confidence: {product.recommendedPrices.confidence}</Badge>
+                            {(product.taxTreatment === 'inclusive' || product.taxTreatment === 'composite') && (
+                              <Badge variant="outline" className="text-xs text-slate-500 border-slate-200">GST included</Badge>
+                            )}
+                          </div>
+                        )}
+                        {/* Plain-language explanation */}
+                        <div className="mt-3 text-xs text-slate-600 bg-emerald-50/50 rounded-lg p-2 border border-emerald-100">
+                          {product.purchaseCost > 0 && product.recommendedPrices.balanced > 0 ? (
+                            <>
+                              Your total cost is {formatCurrency(product.calculatedTotalLandedCost, cc)} per unit.
+                              {product.currentSellingPrice > 0 && (
+                                <> At the current price of {formatCurrency(product.currentSellingPrice, cc)}, expected profit is {formatCurrency(product.calculatedProfitPerUnit, cc)}.</>
+                              )}
+                              <> At the recommended price of {formatCurrency(product.recommendedPrices.balanced, cc)}, expected profit becomes {formatCurrency(profitAt(product.recommendedPrices.balanced), cc)}.</>
+                            </>
+                          ) : (
+                            <>Recommendation unavailable — purchase cost or other critical data is missing.</>
                           )}
                         </div>
-                      )}
-                      {/* Plain-language explanation */}
-                      <div className="mt-3 text-xs text-slate-600 bg-emerald-50/50 rounded-lg p-2 border border-emerald-100">
-                        {product.purchaseCost > 0 && product.recommendedPrices.balanced > 0 ? (
-                          <>
-                            Your total cost is {formatCurrency(product.calculatedTotalLandedCost, cc)} per unit.
-                            {product.currentSellingPrice > 0 && (
-                              <> At the current price of {formatCurrency(product.currentSellingPrice, cc)}, expected profit is {formatCurrency(product.calculatedProfitPerUnit, cc)}.</>
-                            )}
-                            <> At the recommended price of {formatCurrency(product.recommendedPrices.balanced, cc)}, expected profit becomes {formatCurrency(profitAt(product.recommendedPrices.balanced), cc)}.</>
-                          </>
-                        ) : (
-                          <>Recommendation unavailable — purchase cost or other critical data is missing.</>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
+                      </CardContent>
+                    </Card>
+                  )}
 
                   {/* Other pricing options collapsible */}
                   <Collapsible open={showOtherPricingOptions} onOpenChange={setShowOtherPricingOptions} className="mt-3">
