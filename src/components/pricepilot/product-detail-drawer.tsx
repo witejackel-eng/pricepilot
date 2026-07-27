@@ -462,6 +462,30 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                 </AlertDialogContent>
               </AlertDialog>
             </div>
+
+            {/* Tags & Notes display */}
+            <div className="mt-4 space-y-3">
+              {(product.tags || []).length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 mb-1.5">Tags</h4>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {(product.tags || []).map(tag => (
+                      <Badge key={tag} variant="secondary" className="rounded-md text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {product.notes && (
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 mb-1.5">Notes</h4>
+                  <div className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3 border border-slate-100 whitespace-pre-wrap">
+                    {product.notes}
+                  </div>
+                </div>
+              )}
+            </div>
           </TabsContent>
 
           {/* ===== EDIT TAB ===== */}
@@ -809,6 +833,61 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                 <div>
                   <Label className="text-sm font-medium text-slate-600">Notes</Label>
                   <Textarea value={editForm.notes || ''} onChange={e => updateEditField('notes', e.target.value)} className="bg-white shadow-sm border-slate-200 rounded-lg min-h-[60px]" />
+                </div>
+
+                {/* Tags editing */}
+                <Separator className="my-2" />
+                <div>
+                  <Label className="text-sm font-medium text-slate-600">Tags</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Input
+                      placeholder="Add a tag..."
+                      className="bg-white shadow-sm border-slate-200 rounded-lg"
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                          const newTag = e.currentTarget.value.trim().toLowerCase();
+                          const currentTags = editForm.tags || [];
+                          if (!currentTags.includes(newTag)) {
+                            updateEditField('tags', [...currentTags, newTag]);
+                          }
+                          e.currentTarget.value = '';
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const input = document.querySelector('input[placeholder="Add a tag..."]') as HTMLInputElement;
+                        if (input && input.value.trim()) {
+                          const newTag = input.value.trim().toLowerCase();
+                          const currentTags = editForm.tags || [];
+                          if (!currentTags.includes(newTag)) {
+                            updateEditField('tags', [...currentTags, newTag]);
+                          }
+                          input.value = '';
+                        }
+                      }}
+                      className="text-emerald-600 border-emerald-200 hover:bg-emerald-50 rounded-lg"
+                    >
+                      <Plus className="h-3 w-3 mr-1" /> Add
+                    </Button>
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap mt-2">
+                    {(editForm.tags || []).map(tag => (
+                      <Badge
+                        key={tag}
+                        variant="secondary"
+                        className="rounded-md text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 cursor-pointer hover:bg-red-50 hover:text-red-700 hover:border-red-200 transition-colors duration-150"
+                        onClick={() => updateEditField('tags', (editForm.tags || []).filter(t => t !== tag))}
+                      >
+                        {tag} <X className="h-2.5 w-2.5 ml-0.5 inline" />
+                      </Badge>
+                    ))}
+                    {(editForm.tags || []).length === 0 && (
+                      <span className="text-xs text-slate-400">No tags added</span>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

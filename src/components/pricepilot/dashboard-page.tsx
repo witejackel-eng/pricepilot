@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { StatusBadge } from './status-badge';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
-import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target } from 'lucide-react';
+import { toast } from 'sonner';
+import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target, RefreshCw, CheckCircle2 } from 'lucide-react';
 import {
   PieChart as RechartsPie,
   Pie,
@@ -23,7 +24,7 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts';
-import { PriceOutcome } from '@/lib/pricepilot/types';
+import { PriceOutcome, PricingStatus } from '@/lib/pricepilot/types';
 
 const COLORS = {
   lossMaking: '#ef4444',
@@ -113,7 +114,7 @@ function getOutcome(p: { calculatedPriceOutcome?: PriceOutcome; calculatedMargin
 }
 
 export function DashboardPage() {
-  const { products, businessSettings, setCurrentView, loadSampleData, recentlyViewedIds } = usePricePilotStore();
+  const { products, businessSettings, setCurrentView, loadSampleData, recentlyViewedIds, recalculateProducts, bulkApprovePrices, setInitialFilterTab } = usePricePilotStore();
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterBrand, setFilterBrand] = useState('all');
 
@@ -128,15 +129,26 @@ export function DashboardPage() {
 
   if (products.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <Package className="h-16 w-16 text-muted-foreground mb-4" />
-        <h2 className="text-xl font-semibold mb-2">No products yet</h2>
-        <p className="text-muted-foreground mb-6">Import your product spreadsheet or try sample data to see the dashboard.</p>
-        <div className="flex gap-3">
-          <Button onClick={() => setCurrentView('import')}>
+      <div className="flex flex-col items-center justify-center py-20 px-4 relative overflow-hidden rounded-xl bg-gradient-to-br from-emerald-50 via-white to-slate-50 min-h-[400px]">
+        {/* Decorative background pattern */}
+        <div className="absolute inset-0 opacity-[0.03]" style={{
+          backgroundImage: 'radial-gradient(circle, #10b981 1px, transparent 1px)',
+          backgroundSize: '24px 24px',
+        }} />
+        {/* Animated icon */}
+        <div className="relative mb-6">
+          <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center shadow-md animate-[pulse_3s_ease-in-out_infinite]">
+            <Package className="h-10 w-10 text-emerald-600" />
+          </div>
+          <div className="absolute -inset-2 rounded-3xl bg-emerald-200/20 animate-[ping_4s_ease-in-out_infinite]" />
+        </div>
+        <h2 className="text-xl font-semibold text-slate-800 mb-2 relative">No products yet</h2>
+        <p className="text-muted-foreground mb-6 text-center max-w-md relative">Import your product spreadsheet or try sample data to see the dashboard in action.</p>
+        <div className="flex gap-3 relative">
+          <Button onClick={() => setCurrentView('import')} className="bg-gradient-to-r from-emerald-600 to-emerald-500 shadow-md shadow-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/30 transition-all duration-200">
             <FileUp className="h-4 w-4 mr-2" /> Import Products
           </Button>
-          <Button variant="outline" onClick={() => loadSampleData()}>
+          <Button variant="outline" onClick={() => loadSampleData()} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 transition-all duration-200">
             <Plus className="h-4 w-4 mr-2" /> Try Sample Data
           </Button>
         </div>
@@ -298,6 +310,36 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {/* Quick Actions Toolbar */}
+      {products.length > 0 && (
+        <div className="flex gap-3 flex-wrap">
+          <Button
+            onClick={() => setCurrentView('import')}
+            className="rounded-lg shadow-md hover:shadow-lg bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white transition-all duration-200"
+          >
+            <Plus className="h-4 w-4 mr-2" /> Add Product
+          </Button>
+          <Button
+            onClick={() => setCurrentView('import')}
+            className="rounded-lg shadow-md hover:shadow-lg bg-gradient-to-r from-slate-600 to-slate-500 hover:from-slate-700 hover:to-slate-600 text-white transition-all duration-200"
+          >
+            <FileUp className="h-4 w-4 mr-2" /> Import Data
+          </Button>
+          <Button
+            onClick={() => { recalculateProducts(); toast.success('Recalculated', { description: 'All products have been recalculated with current settings' }); }}
+            className="rounded-lg shadow-md hover:shadow-lg bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-600 hover:to-amber-500 text-white transition-all duration-200"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" /> Recalculate All
+          </Button>
+          <Button
+            onClick={() => { bulkApprovePrices(products.map(p => p.id)); toast.success('All recommendations approved', { description: `${products.length} product prices have been approved` }); }}
+            className="rounded-lg shadow-md hover:shadow-lg bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white transition-all duration-200"
+          >
+            <CheckCircle2 className="h-4 w-4 mr-2" /> Approve All Recommendations
+          </Button>
+        </div>
+      )}
+
       {/* Recently Viewed Products */}
       {recentlyViewedIds.length > 0 && (
         <div>
@@ -368,6 +410,28 @@ export function DashboardPage() {
                     animationDuration={800}
                     label={({ name, value }) => `${name}: ${value}`}
                     labelLine={{ stroke: '#94a3b8', strokeWidth: 1 }}
+                    onClick={(_, index) => {
+                      const statusKeyMap: Record<string, PricingStatus> = {
+                        'Loss-making': 'loss-making',
+                        'Below break-even': 'below-break-even',
+                        'Low margin': 'low-margin',
+                        'Healthy': 'healthy',
+                        'High margin': 'high-margin',
+                        'Above market': 'above-market',
+                        'Missing data': 'missing-data',
+                        'Needs review': 'needs-review',
+                        'Approved': 'approved',
+                      };
+                      const clickedEntry = pieData[index];
+                      if (clickedEntry) {
+                        const statusKey = statusKeyMap[clickedEntry.name];
+                        if (statusKey) {
+                          setInitialFilterTab(statusKey);
+                          setCurrentView('products');
+                        }
+                      }
+                    }}
+                    style={{ cursor: 'pointer' }}
                   >
                     {pieData.map((entry, index) => <Cell key={index} fill={entry.color} strokeWidth={1} stroke="#fff" />)}
                   </Pie>

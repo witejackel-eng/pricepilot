@@ -11,19 +11,46 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { StatusBadge } from './status-badge';
 import { ProductDetailDrawer } from './product-detail-drawer';
+import { ProductComparisonDrawer } from './product-comparison-drawer';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
-import { Package, FileUp, Plus, Search, Trash2, CheckCircle, Eye, MoreHorizontal, Pencil } from 'lucide-react';
+import { Package, FileUp, Plus, Search, Trash2, CheckCircle, Eye, MoreHorizontal, Pencil, ArrowLeftRight } from 'lucide-react';
 import { toast } from 'sonner';
 
 type FilterTab = 'all' | 'profitable' | 'low-margin' | 'loss-making' | 'missing-cost' | 'needs-review';
 
 export function ProductsPage() {
-  const { products, businessSettings, setCurrentView, loadSampleData, selectedProducts, setSelectedProducts, deleteSelectedProducts, approveSelectedProducts, markSelectedForReview, updateProduct } = usePricePilotStore();
+  const { products, businessSettings, setCurrentView, loadSampleData, selectedProducts, setSelectedProducts, deleteSelectedProducts, approveSelectedProducts, markSelectedForReview, updateProduct, initialFilterTab, setInitialFilterTab } = usePricePilotStore();
+
+  // Map pricing status to FilterTab for chart click-through
+  const statusToTab: Record<string, FilterTab> = {
+    'healthy': 'profitable',
+    'high-margin': 'profitable',
+    'approved': 'profitable',
+    'low-margin': 'low-margin',
+    'loss-making': 'loss-making',
+    'below-break-even': 'loss-making',
+    'missing-data': 'missing-cost',
+    'needs-review': 'needs-review',
+  };
+
   const [search, setSearch] = useState('');
-  const [filterTab, setFilterTab] = useState<FilterTab>('all');
+  const [filterTab, setFilterTab] = useState<FilterTab>(() => {
+    // Use initialFilterTab from store to initialize the filter if available
+    if (initialFilterTab) {
+      return statusToTab[initialFilterTab] || 'all';
+    }
+    return 'all';
+  });
+  // Clear the initialFilterTab after it's been consumed (effect only clears store, no local setState)
+  useEffect(() => {
+    if (initialFilterTab) {
+      setInitialFilterTab(null);
+    }
+  }, [initialFilterTab, setInitialFilterTab]);
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterBrand, setFilterBrand] = useState('all');
   const [filterChannel, setFilterChannel] = useState('all');
+  const [filterTag, setFilterTag] = useState('all');
   const [sortBy, setSortBy] = useState<string>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(0);
@@ -31,11 +58,13 @@ export function ProductsPage() {
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [editingPriceValue, setEditingPriceValue] = useState<string>('');
+  const [compareIds, setCompareIds] = useState<[string, string] | null>(null);
   const priceInputRef = useRef<HTMLInputElement>(null);
 
   const categories = [...new Set(products.map(p => p.category))];
   const brands = [...new Set(products.map(p => p.brand))];
   const channels = [...new Set(products.map(p => p.salesChannel))];
+  const allTags = [...new Set(products.flatMap(p => p.tags || []))].sort();
 
   const filtered = useMemo(() => {
     let result = [...products];
@@ -60,6 +89,9 @@ export function ProductsPage() {
     if (filterBrand !== 'all') result = result.filter(p => p.brand === filterBrand);
     if (filterChannel !== 'all') result = result.filter(p => p.salesChannel === filterChannel);
 
+    // Tag filter
+    if (filterTag !== 'all') result = result.filter(p => (p.tags || []).includes(filterTag));
+
     // Sort
     result.sort((a, b) => {
       let aVal: number | string = 0;
@@ -83,7 +115,7 @@ export function ProductsPage() {
     });
 
     return result;
-  }, [products, search, filterTab, filterCategory, filterBrand, filterChannel, sortBy, sortDir]);
+  }, [products, search, filterTab, filterCategory, filterBrand, filterChannel, filterTag, sortBy, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const pageData = filtered.slice(page * pageSize, (page + 1) * pageSize);
@@ -171,6 +203,20 @@ export function ProductsPage() {
             <Button size="sm" variant="outline" onClick={() => setSelectedProducts([])} className="rounded-lg border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-colors duration-150">
               Clear selection
             </Button>
+            {/* Compare Products button - enabled when exactly 2 selected */}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={selectedProducts.length !== 2}
+              onClick={() => setCompareIds([selectedProducts[0], selectedProducts[1]])}
+              className={`rounded-lg transition-colors duration-150 ${
+                selectedProducts.length === 2
+                  ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-300 text-emerald-700'
+                  : 'border-slate-200 text-slate-400 opacity-50'
+              }`}
+            >
+              <ArrowLeftRight className="h-3 w-3 mr-1" /> Compare Products
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -214,6 +260,17 @@ export function ProductsPage() {
               {channels.map(ch => <SelectItem key={ch} value={ch}>{ch}</SelectItem>)}
             </SelectContent>
           </Select>
+          {allTags.length > 0 && (
+            <Select value={filterTag} onValueChange={setFilterTag}>
+              <SelectTrigger className="w-[140px] bg-white shadow-sm border-slate-200 hover:border-slate-300 transition-colors duration-150">
+                <SelectValue placeholder="Tag" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Tags</SelectItem>
+                {allTags.map(tag => <SelectItem key={tag} value={tag}>{tag}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         {/* Filter tabs */}
@@ -253,6 +310,7 @@ export function ProductsPage() {
                   <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('name')}>Product {sortIcon('name', sortBy, sortDir)}</TableHead>
                   <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('sku')}>SKU {sortIcon('sku', sortBy, sortDir)}</TableHead>
                   <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('category')}>Category {sortIcon('category', sortBy, sortDir)}</TableHead>
+                  <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Tags</TableHead>
                   <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('purchaseCost')}>Cost {sortIcon('purchaseCost', sortBy, sortDir)}</TableHead>
                   <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('existingPrice')}>Existing Price {sortIcon('existingPrice', sortBy, sortDir)}</TableHead>
                   <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('recommendedPrice')}>Recommended {sortIcon('recommendedPrice', sortBy, sortDir)}</TableHead>
@@ -264,7 +322,7 @@ export function ProductsPage() {
               </TableHeader>
               <TableBody>
                 {pageData.length === 0 ? (
-                  <TableRow><TableCell colSpan={11} className="text-center py-8 text-slate-400">No products match your filters</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={12} className="text-center py-8 text-slate-400">No products match your filters</TableCell></TableRow>
                 ) : (
                   pageData.map(p => (
                     <TableRow
@@ -282,6 +340,20 @@ export function ProductsPage() {
                       <TableCell className="font-semibold text-slate-800 max-w-[200px] truncate">{p.name}</TableCell>
                       <TableCell className="text-xs text-slate-500">{p.sku}</TableCell>
                       <TableCell className="text-xs text-slate-600">{p.category}</TableCell>
+                      <TableCell className="max-w-[120px]">
+                        <div className="flex gap-1 flex-wrap">
+                          {(p.tags || []).slice(0, 3).map(tag => (
+                            <Badge key={tag} variant="secondary" className="rounded-md text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0">
+                              {tag}
+                            </Badge>
+                          ))}
+                          {(p.tags || []).length > 3 && (
+                            <Badge variant="secondary" className="rounded-md text-xs bg-slate-50 text-slate-500 border border-slate-200 px-1.5 py-0">
+                              +{p.tags.length - 3}
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right text-slate-600">{formatCurrency(p.purchaseCost, businessSettings.currencyCode)}</TableCell>
                       <TableCell
                         className="text-right group relative"
@@ -388,6 +460,9 @@ export function ProductsPage() {
 
       {/* Product Detail Drawer */}
       <ProductDetailDrawer productId={selectedProduct} onClose={() => setSelectedProduct(null)} />
+
+      {/* Product Comparison Drawer */}
+      <ProductComparisonDrawer productIds={compareIds} onClose={() => setCompareIds(null)} />
     </div>
   );
 }

@@ -84,6 +84,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
             <Button
               key={item.view}
               variant="ghost"
+              title={item.label}
               className={`w-full justify-start gap-3 rounded-lg transition-all duration-200 ${
                 isActive
                   ? 'bg-emerald-600/40 text-white font-medium shadow-lg shadow-emerald-900/30 border-l-3 border-emerald-300'
@@ -211,8 +212,8 @@ export function AppShell() {
                     <Menu className="h-5 w-5" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="left" className="w-72 p-0">
-                  <SheetTitle className="px-4 pt-4 pb-2 text-sm font-semibold text-slate-700">Navigation</SheetTitle>
+                <SheetContent side="left" className="w-72 p-0 bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700">
+                  <SheetTitle className="px-4 pt-4 pb-2 text-sm font-semibold text-emerald-200">Navigation</SheetTitle>
                   <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} onNavClick={() => setMobileOpen(false)} />
                 </SheetContent>
               </Sheet>
@@ -244,11 +245,22 @@ export function AppShell() {
 
           {/* Content */}
           <main className="flex-1 p-6 lg:p-8 overflow-auto bg-slate-50/30">
-            {renderView()}
+            <div key={currentView} className="animate-fade-in">
+              {renderView()}
+            </div>
           </main>
 
           {/* Footer */}
-          <footer className="bg-gradient-to-r from-slate-50 to-emerald-50/10 px-4 py-2 mt-auto border-t-2 border-emerald-100/50">
+          <footer className="bg-gradient-to-r from-emerald-50 to-slate-50 px-4 py-2 mt-auto border-t-2 border-emerald-200/50">
+            {products.length > 0 && (
+              <div className="flex items-center justify-center gap-4 text-xs text-emerald-700/80 pb-1 border-b border-emerald-100/50 mb-1">
+                <span className="font-medium">{products.length} products</span>
+                <span className="text-emerald-300">•</span>
+                <span>{(products.reduce((sum, p) => sum + p.calculatedMarginPercent, 0) / products.length).toFixed(1)}% avg margin</span>
+                <span className="text-emerald-300">•</span>
+                <span className="text-amber-600">{products.filter(p => p.lifecycleStatus === 'needs-review').length} needs review</span>
+              </div>
+            )}
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-3.5 w-3.5 text-emerald-500 animate-pulse" />

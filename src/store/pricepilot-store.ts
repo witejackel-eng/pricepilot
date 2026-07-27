@@ -79,6 +79,7 @@ interface PricePilotState {
   currentView: AppView;
   selectedProductId: string | null;
   selectedProducts: string[];
+  initialFilterTab: string | null;
 
   // Import state
   importState: ImportState;
@@ -95,6 +96,7 @@ interface PricePilotState {
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSelectedProductId: (id: string | null) => void;
   setSelectedProducts: (ids: string[]) => void;
+  setInitialFilterTab: (tab: string | null) => void;
 
   // Business settings
   updateBusinessSettings: (settings: Partial<BusinessSettings>) => void;
@@ -160,6 +162,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   currentView: 'dashboard',
   selectedProductId: null,
   selectedProducts: [],
+  initialFilterTab: null,
   importState: createDefaultImportState(),
   lastSaved: null,
   isCalculating: false,
@@ -190,6 +193,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   setSelectedProductId: (id) => set({ selectedProductId: id }),
   setSelectedProducts: (ids) => set({ selectedProducts: ids }),
+  setInitialFilterTab: (tab) => set({ initialFilterTab: tab }),
 
   // Business settings
   updateBusinessSettings: (updates) => {

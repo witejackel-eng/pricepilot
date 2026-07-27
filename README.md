@@ -69,6 +69,18 @@
 - **Enhanced Dashboard Insights**: Top 5 Most/Least Profitable products and Price Changes Summary
 - **CSV Template Download**: Download a pre-formatted import template from the Import page
 
+### 🆕 New Features (v0.3)
+- **Product Comparison Drawer**: Select 2 products and compare them side-by-side with highlighted differences
+- **Dashboard Quick Actions Toolbar**: Add Product, Import Data, Recalculate All, Approve All Recommendations
+- **Product Tags/Notes System**: Add custom tags to products for filtering, plus notes for organization
+- **Dashboard Chart Click-through**: Click pie chart segments to navigate to filtered products page
+- **Custom Scrollbar**: Polished scrollbar styling for Chrome/Safari/Firefox with dark mode
+- **Mobile Dark Sidebar**: Mobile navigation now matches dark emerald desktop theme
+- **Page Transitions**: Smooth fade-in animations when switching between views
+- **Footer Stats Bar**: Shows product count, average margin, and needs-review count
+- **Print-friendly Styles**: Clean professional print output (hides navigation elements)
+- **Enhanced Dashboard Empty State**: Animated icons, gradient backgrounds, decorative patterns
+
 ## Pricing Calculation Engine
 
 ### Break-Even Formula
@@ -173,6 +185,7 @@ src/
 │   │   ├── status-badge.tsx        # Pricing status indicator
 │   │   ├── keyboard-shortcuts.tsx   # Keyboard shortcuts overlay
 │   │   ├── add-product-dialog.tsx  # Add/edit product dialog
+│   │   ├── product-comparison-drawer.tsx # Compare 2 products side-by-side
 │   │   └── help-section.tsx        # Help & documentation
 │   └── ui/                         # shadcn/ui components
 ├── lib/
