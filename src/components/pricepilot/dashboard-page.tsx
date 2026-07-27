@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { usePricePilotStore } from '@/store/pricepilot-store';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { StatusBadge } from './status-badge';
@@ -112,7 +113,7 @@ function getOutcome(p: { calculatedPriceOutcome?: PriceOutcome; calculatedMargin
 }
 
 export function DashboardPage() {
-  const { products, businessSettings, setCurrentView, loadSampleData } = usePricePilotStore();
+  const { products, businessSettings, setCurrentView, loadSampleData, recentlyViewedIds } = usePricePilotStore();
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterBrand, setFilterBrand] = useState('all');
 
@@ -255,6 +256,22 @@ export function DashboardPage() {
     .sort((a, b) => getOutcome(a).effectiveMarginPercent - getOutcome(b).effectiveMarginPercent)
     .slice(0, 5);
 
+  // Top 5 Most Profitable Products
+  const mostProfitableProducts = [...filtered]
+    .sort((a, b) => getOutcome(b).effectiveMarginPercent - getOutcome(a).effectiveMarginPercent)
+    .slice(0, 5);
+
+  // Top 5 Least Profitable Products (excluding loss-making, which is in riskProducts)
+  const leastProfitableProducts = [...filtered]
+    .filter(p => p.calculatedPricingStatus !== 'loss-making' && p.calculatedPricingStatus !== 'below-break-even')
+    .sort((a, b) => getOutcome(a).effectiveMarginPercent - getOutcome(b).effectiveMarginPercent)
+    .slice(0, 5);
+
+  // Price Changes Summary
+  const priceNeedsIncrease = filtered.filter(p => p.recommendedPrices.balanced > p.currentSellingPrice).length;
+  const priceNeedsDecrease = filtered.filter(p => p.recommendedPrices.balanced < p.currentSellingPrice).length;
+  const priceNoChange = filtered.filter(p => Math.abs(p.recommendedPrices.balanced - p.currentSellingPrice) < 1).length;
+
   return (
     <div className="space-y-8 bg-gradient-to-b from-slate-50/50 to-white min-h-screen p-1">
       {/* Page Header */}
@@ -281,6 +298,35 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {/* Recently Viewed Products */}
+      {recentlyViewedIds.length > 0 && (
+        <div>
+          <div className="mb-3">
+            <h2 className="text-lg font-semibold text-slate-800">Recently Viewed</h2>
+            <p className="text-sm text-slate-500">Products you've recently inspected</p>
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            {recentlyViewedIds.map(id => {
+              const p = products.find(prod => prod.id === id);
+              if (!p) return null;
+              return (
+                <Button
+                  key={id}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentView('products')}
+                  className="rounded-lg shadow-sm border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/50 transition-all duration-200 h-auto py-2 px-3"
+                >
+                  <Package className="h-3.5 w-3.5 mr-1.5 text-emerald-500" />
+                  <span className="font-medium text-slate-700 text-sm">{p.name}</span>
+                  <Badge variant="secondary" className="text-xs ml-1.5">{p.sku}</Badge>
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* KPI Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <SummaryCard title="Total Products" value={String(totalProducts)} icon={Package} color="slate" />
@@ -301,7 +347,7 @@ export function DashboardPage() {
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Profitability distribution pie */}
-          <Card className="shadow-md border-0 overflow-hidden">
+          <Card className="shadow-md border-0 overflow-hidden hover:shadow-lg transition-shadow duration-200 bg-gradient-to-b from-white to-slate-50/20">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Profitability Distribution</CardTitle>
               <CardDescription className="text-xs text-slate-400">Product count by pricing status</CardDescription>
@@ -333,7 +379,7 @@ export function DashboardPage() {
           </Card>
 
           {/* Margin comparison by category */}
-          <Card className="shadow-md border-0 overflow-hidden">
+          <Card className="shadow-md border-0 overflow-hidden hover:shadow-lg transition-shadow duration-200 bg-gradient-to-b from-white to-emerald-50/20">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Existing vs Recommended Margin</CardTitle>
               <CardDescription className="text-xs text-slate-400">Average margin comparison by category</CardDescription>
@@ -354,7 +400,7 @@ export function DashboardPage() {
           </Card>
 
           {/* Price recommendation distribution */}
-          <Card className="shadow-md border-0 overflow-hidden">
+          <Card className="shadow-md border-0 overflow-hidden hover:shadow-lg transition-shadow duration-200 bg-gradient-to-b from-white to-slate-50/20">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Price Recommendation Distribution</CardTitle>
               <CardDescription className="text-xs text-slate-400">How many products need price adjustments</CardDescription>
@@ -383,11 +429,11 @@ export function DashboardPage() {
             <h2 className="text-lg font-semibold text-slate-800">Highest Improvement Opportunities</h2>
             <p className="text-sm text-slate-500">Top products with the largest profit improvement potential (per unit)</p>
           </div>
-          <Card className="shadow-md border-0 overflow-hidden">
+          <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-emerald-50/10">
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-slate-50 hover:bg-slate-50">
+                  <TableRow className="bg-gradient-to-r from-slate-50 to-emerald-50/20 hover:bg-slate-50">
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Product</TableHead>
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">SKU</TableHead>
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Current Profit/Unit</TableHead>
@@ -403,7 +449,7 @@ export function DashboardPage() {
                       <TableCell className="text-right text-slate-700">{formatCurrency(item.currentProfit, businessSettings.currencyCode)}</TableCell>
                       <TableCell className="text-right text-slate-700">{formatCurrency(item.recommendedProfit, businessSettings.currencyCode)}</TableCell>
                       <TableCell className="text-right font-semibold text-emerald-600">
-                        <span className="inline-flex items-center gap-1">
+                        <span className="inline-flex items-center gap-1 animate-pulse">
                           <ArrowUpRight className="h-3.5 w-3.5" />
                           {formatCurrency(item.improvement, businessSettings.currencyCode)}
                         </span>
@@ -424,11 +470,11 @@ export function DashboardPage() {
             <h2 className="text-lg font-semibold text-slate-800">Highest-risk Products</h2>
             <p className="text-sm text-slate-500">Products with negative profit, low margins, or high fees</p>
           </div>
-          <Card className="shadow-md border-0 overflow-hidden">
+          <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-red-50/10">
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-slate-50 hover:bg-slate-50">
+                  <TableRow className="bg-gradient-to-r from-slate-50 to-red-50/20 hover:bg-slate-50">
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Product</TableHead>
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">SKU</TableHead>
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Margin</TableHead>
@@ -468,6 +514,136 @@ export function DashboardPage() {
           </Card>
         </div>
       )}
+
+      {/* Top Products Insights */}
+      <div>
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-slate-800">Top Products Insights</h2>
+          <p className="text-sm text-slate-500">Profitability leaders and pricing change overview</p>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Top 5 Most Profitable */}
+          {mostProfitableProducts.length > 0 && (
+            <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-emerald-50/10">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold text-emerald-700 flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-emerald-500" />
+                  Top 5 Most Profitable
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-400">Products with highest margins</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-emerald-50/30 hover:bg-emerald-50/30">
+                      <TableHead className="text-xs font-semibold text-slate-500">Product</TableHead>
+                      <TableHead className="text-xs font-semibold text-right text-slate-500">Margin</TableHead>
+                      <TableHead className="text-xs font-semibold text-right text-slate-500">Profit</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {mostProfitableProducts.map(p => {
+                      const outcome = getOutcome(p);
+                      return (
+                        <TableRow key={p.id} className="hover:bg-emerald-50/30 transition-colors">
+                          <TableCell className="font-medium text-slate-800 text-sm">{p.name}</TableCell>
+                          <TableCell className="text-right font-semibold text-emerald-600">{formatPercentage(outcome.effectiveMarginPercent)}</TableCell>
+                          <TableCell className="text-right text-emerald-700">{formatCurrency(outcome.netProfit, businessSettings.currencyCode)}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Top 5 Least Profitable */}
+          {leastProfitableProducts.length > 0 && (
+            <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-amber-50/10">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold text-amber-700 flex items-center gap-2">
+                  <TrendingDown className="h-4 w-4 text-amber-500" />
+                  Top 5 Least Profitable
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-400">Products with lowest margins (excluding loss-making)</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-amber-50/30 hover:bg-amber-50/30">
+                      <TableHead className="text-xs font-semibold text-slate-500">Product</TableHead>
+                      <TableHead className="text-xs font-semibold text-right text-slate-500">Margin</TableHead>
+                      <TableHead className="text-xs font-semibold text-right text-slate-500">Profit</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {leastProfitableProducts.map(p => {
+                      const outcome = getOutcome(p);
+                      return (
+                        <TableRow key={p.id} className="hover:bg-amber-50/30 transition-colors">
+                          <TableCell className="font-medium text-slate-800 text-sm">{p.name}</TableCell>
+                          <TableCell className="text-right font-semibold text-amber-600">{formatPercentage(outcome.effectiveMarginPercent)}</TableCell>
+                          <TableCell className="text-right text-amber-700">{formatCurrency(outcome.netProfit, businessSettings.currencyCode)}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Price Changes Summary */}
+          <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-slate-50/30">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                <ArrowUpRight className="h-4 w-4 text-emerald-500" />
+                Price Changes Summary
+              </CardTitle>
+              <CardDescription className="text-xs text-slate-400">How many products need price adjustments vs recommended</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-emerald-50/60 rounded-lg p-4 border border-emerald-100">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                    <ArrowUpRight className="h-5 w-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <div className="text-xs text-emerald-600 font-medium">Need Price Increase</div>
+                    <div className="text-2xl font-bold text-emerald-700">{priceNeedsIncrease}</div>
+                  </div>
+                </div>
+                <div className="text-xs text-emerald-500 mt-1">Products where recommended price is higher than current</div>
+              </div>
+              <div className="bg-red-50/60 rounded-lg p-4 border border-red-100">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
+                    <ArrowDownRight className="h-5 w-5 text-red-600" />
+                  </div>
+                  <div>
+                    <div className="text-xs text-red-600 font-medium">Need Price Decrease</div>
+                    <div className="text-2xl font-bold text-red-700">{priceNeedsDecrease}</div>
+                  </div>
+                </div>
+                <div className="text-xs text-red-500 mt-1">Products where recommended price is lower than current</div>
+              </div>
+              <div className="bg-slate-50/60 rounded-lg p-4 border border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center">
+                    <Target className="h-5 w-5 text-slate-500" />
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500 font-medium">No Significant Change</div>
+                    <div className="text-2xl font-bold text-slate-700">{priceNoChange}</div>
+                  </div>
+                </div>
+                <div className="text-xs text-slate-400 mt-1">Products within ±1 of recommended price</div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
@@ -482,50 +658,55 @@ function SummaryCard({ title, value, icon, color }: { title: string; value: stri
     accent: string;
     valueColor: string;
     gradient: string;
+    borderAccent: string;
   }> = {
     emerald: {
-      bg: 'bg-gradient-to-b from-emerald-50 to-white',
-      iconBg: 'bg-emerald-100',
+      bg: 'bg-gradient-to-br from-emerald-50/80 via-emerald-25/30 to-white',
+      iconBg: 'bg-gradient-to-br from-emerald-200 to-emerald-100',
       iconColor: 'text-emerald-600',
-      accent: 'bg-gradient-to-r from-emerald-500 to-emerald-400',
+      accent: 'bg-gradient-to-r from-emerald-600 to-emerald-400',
       valueColor: 'text-emerald-700',
       gradient: 'from-emerald-50 to-white',
+      borderAccent: 'border-l-emerald-500',
     },
     red: {
-      bg: 'bg-gradient-to-b from-red-50 to-white',
-      iconBg: 'bg-red-100',
+      bg: 'bg-gradient-to-br from-red-50/80 via-red-25/30 to-white',
+      iconBg: 'bg-gradient-to-br from-red-200 to-red-100',
       iconColor: 'text-red-600',
-      accent: 'bg-gradient-to-r from-red-500 to-red-400',
+      accent: 'bg-gradient-to-r from-red-600 to-red-400',
       valueColor: 'text-red-600',
       gradient: 'from-red-50 to-white',
+      borderAccent: 'border-l-red-500',
     },
     amber: {
-      bg: 'bg-gradient-to-b from-amber-50 to-white',
-      iconBg: 'bg-amber-100',
+      bg: 'bg-gradient-to-br from-amber-50/80 via-amber-25/30 to-white',
+      iconBg: 'bg-gradient-to-br from-amber-200 to-amber-100',
       iconColor: 'text-amber-600',
-      accent: 'bg-gradient-to-r from-amber-500 to-amber-400',
+      accent: 'bg-gradient-to-r from-amber-600 to-amber-400',
       valueColor: 'text-amber-700',
       gradient: 'from-amber-50 to-white',
+      borderAccent: 'border-l-amber-500',
     },
     slate: {
-      bg: 'bg-gradient-to-b from-slate-50 to-white',
-      iconBg: 'bg-slate-100',
+      bg: 'bg-gradient-to-br from-slate-50/80 via-slate-25/30 to-white',
+      iconBg: 'bg-gradient-to-br from-slate-200 to-slate-100',
       iconColor: 'text-slate-600',
-      accent: 'bg-gradient-to-r from-slate-400 to-slate-300',
+      accent: 'bg-gradient-to-r from-slate-500 to-slate-400',
       valueColor: 'text-slate-800',
       gradient: 'from-slate-50 to-white',
+      borderAccent: 'border-l-slate-400',
     },
   };
 
   const theme = themeConfig[color] || themeConfig.slate;
 
   return (
-    <Card className={`shadow-md border-0 overflow-hidden transition-all hover:shadow-xl hover:-translate-y-0.5 ${theme.bg}`}>
+    <Card className={`shadow-md border-0 overflow-hidden transition-all duration-200 hover:shadow-xl hover:scale-[1.02] hover:-translate-y-0.5 border-l-4 ${theme.borderAccent} ${theme.bg}`}>
       {/* Accent strip */}
       <div className={`h-1 ${theme.accent}`} />
       <CardContent className="p-4 pt-3">
         <div className="flex items-center gap-3 mb-2">
-          <div className={`h-10 w-10 rounded-full ${theme.iconBg} flex items-center justify-center`}>
+          <div className={`h-10 w-10 rounded-full ${theme.iconBg} flex items-center justify-center shadow-sm`}>
             <Icon className={`h-5 w-5 ${theme.iconColor}`} />
           </div>
           <span className="text-sm font-medium text-slate-500">{title}</span>

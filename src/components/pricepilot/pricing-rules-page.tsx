@@ -95,9 +95,9 @@ export function PricingRulesPage() {
 
       {/* Conflicts */}
       {conflicts.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50">
+        <Card className="border-amber-200 bg-gradient-to-r from-amber-50 to-amber-25/10 shadow-md">
           <CardContent className="p-3 flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-amber-600" />
+            <AlertTriangle className="h-5 w-5 text-amber-600 animate-pulse" />
             <div>
               <p className="text-sm font-medium text-amber-700">Rule conflicts detected</p>
               <p className="text-xs text-amber-600">{conflicts.length} rules may conflict with each other. Review priority levels.</p>
@@ -108,17 +108,17 @@ export function PricingRulesPage() {
 
       {/* Rules Table */}
       {pricingRules.length === 0 ? (
-        <Card>
+        <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-slate-50/20">
           <CardContent className="py-10 text-center text-muted-foreground">
             <p>No pricing rules yet. Click &quot;Add Rule&quot; to create one, or rules will use business settings defaults.</p>
           </CardContent>
         </Card>
       ) : (
-        <Card>
+        <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-slate-50/20">
           <CardContent className="p-0">
             <Table>
               <TableHeader>
-                <TableRow>
+                <TableRow className="bg-gradient-to-r from-slate-50 to-emerald-50/10">
                   <TableHead>Name</TableHead>
                   <TableHead>Level</TableHead>
                   <TableHead>Target</TableHead>
@@ -132,7 +132,7 @@ export function PricingRulesPage() {
               </TableHeader>
               <TableBody>
                 {pricingRules.map(rule => (
-                  <TableRow key={rule.id}>
+                  <TableRow key={rule.id} className="transition-all duration-200 hover:bg-emerald-50/20 border-l-3 border-l-transparent hover:border-l-emerald-300">
                     <TableCell className="font-medium">{rule.name}</TableCell>
                     <TableCell><Badge variant="outline">{rule.level}</Badge></TableCell>
                     <TableCell className="text-sm">
@@ -175,7 +175,7 @@ export function PricingRulesPage() {
       )}
 
       {/* Rounding Rules Preview */}
-      <Card>
+      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Rounding Rules Preview</CardTitle>
           <CardDescription>See how each rounding rule transforms a price of {formatCurrency(examplePrice, businessSettings.currencyCode)}</CardDescription>
@@ -183,7 +183,7 @@ export function PricingRulesPage() {
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
             {roundingPreviews.map(item => (
-              <div key={item.rule} className="p-2 rounded border text-center">
+              <div key={item.rule} className="p-2 rounded-lg border border-slate-100 bg-gradient-to-b from-white to-slate-50/20 text-center shadow-sm transition-all duration-200 hover:shadow-md hover:border-emerald-200 hover:bg-emerald-50/20">
                 <div className="text-xs text-muted-foreground">{item.rule}</div>
                 <div className="text-sm font-semibold">{item.result}</div>
               </div>
@@ -205,19 +205,19 @@ export function PricingRulesPage() {
       </Card>
 
       {/* Rule Priority Explanation */}
-      <Card>
+      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">How Rule Priority Works</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2 text-sm text-muted-foreground">
+          <div className="space-y-3 text-sm text-muted-foreground">
             <p>When multiple rules could apply to a product, PricePilot selects the rule with the highest specificity:</p>
-            <ol className="list-decimal pl-4 space-y-1">
-              <li><strong>Product-level</strong> rules (most specific — applies to a single SKU)</li>
-              <li><strong>Channel-level</strong> rules (applies to products sold on a specific channel)</li>
-              <li><strong>Brand-level</strong> rules (applies to all products of a brand)</li>
-              <li><strong>Category-level</strong> rules (applies to all products in a category)</li>
-              <li><strong>Global</strong> rules (least specific — fallback for everything)</li>
+            <ol className="list-decimal pl-4 space-y-2">
+              <li className="p-1.5 rounded bg-gradient-to-r from-emerald-50 to-transparent border-l-3 border-emerald-400"><strong>Product-level</strong> rules (most specific — applies to a single SKU)</li>
+              <li className="p-1.5 rounded bg-gradient-to-r from-emerald-25 to-transparent border-l-3 border-emerald-300"><strong>Channel-level</strong> rules (applies to products sold on a specific channel)</li>
+              <li className="p-1.5 rounded bg-gradient-to-r from-amber-25 to-transparent border-l-3 border-amber-300"><strong>Brand-level</strong> rules (applies to all products of a brand)</li>
+              <li className="p-1.5 rounded bg-gradient-to-r from-amber-50/50 to-transparent border-l-3 border-amber-200"><strong>Category-level</strong> rules (applies to all products in a category)</li>
+              <li className="p-1.5 rounded bg-gradient-to-r from-slate-25 to-transparent border-l-3 border-slate-300"><strong>Global</strong> rules (least specific — fallback for everything)</li>
             </ol>
             <p>If two rules have the same level, the one with the higher <strong>priority</strong> number wins.</p>
           </div>

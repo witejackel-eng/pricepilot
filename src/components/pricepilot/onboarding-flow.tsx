@@ -116,17 +116,17 @@ export function OnboardingFlow() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-emerald-50/30 via-white to-slate-50 p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-emerald-100 via-emerald-50/30 to-slate-50 p-4">
       <div className="w-full max-w-xl">
         <div className="mb-8 text-center">
           <div className="flex items-center justify-center gap-3 mb-3">
-            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-lg flex items-center justify-center text-white font-bold text-xl">P</div>
+            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-700 shadow-lg shadow-emerald-500/30 flex items-center justify-center text-white font-bold text-xl animate-pulse">P</div>
             <h1 className="text-3xl font-bold text-slate-900">PricePilot</h1>
           </div>
           <p className="text-slate-500 text-base">Product Pricing & Profit Optimiser</p>
         </div>
 
-        <Progress value={progress} className="h-2 rounded-full mb-4" />
+        <Progress value={progress} className="h-2.5 rounded-full mb-4 animate-pulse bg-emerald-100" />
         <div className="flex items-center justify-between text-sm font-medium text-slate-600 mb-6">
           <span>Step {step} of {totalSteps}</span>
           <span>
@@ -136,12 +136,12 @@ export function OnboardingFlow() {
           </span>
         </div>
 
-        <Card className="shadow-lg border-0 rounded-xl">
+        <Card className="shadow-lg shadow-emerald-500/10 border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/5 transition-all duration-300 hover:shadow-xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-3">
-              {step === 1 && <span className="h-8 w-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center"><Building2 className="h-4 w-4" /></span>}
-              {step === 2 && <span className="h-8 w-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center"><Store className="h-4 w-4" /></span>}
-              {step === 3 && <span className="h-8 w-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center"><Coins className="h-4 w-4" /></span>}
+              {step === 1 && <span className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-200 to-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm"><Building2 className="h-4 w-4" /></span>}
+              {step === 2 && <span className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-200 to-purple-100 text-purple-600 flex items-center justify-center shadow-sm"><Store className="h-4 w-4" /></span>}
+              {step === 3 && <span className="h-8 w-8 rounded-full bg-gradient-to-br from-amber-200 to-amber-100 text-amber-600 flex items-center justify-center shadow-sm"><Coins className="h-4 w-4" /></span>}
               {step === 1 && 'Business Details'}
               {step === 2 && 'Where do you sell?'}
               {step === 3 && 'Default Costs & Fees'}
@@ -301,7 +301,7 @@ export function OnboardingFlow() {
 
             <div className="flex items-center justify-between">
               {step > 1 ? (
-                <Button variant="outline" onClick={() => setStep(step - 1)} className="bg-white border-slate-200 shadow-sm rounded-lg hover:bg-slate-50">
+                <Button variant="outline" onClick={() => setStep(step - 1)} className="bg-white border-slate-200 shadow-sm rounded-lg hover:bg-slate-50 transition-all duration-200 hover:shadow-md">
                   <ArrowLeft className="h-4 w-4 mr-1" /> Back
                 </Button>
               ) : (
@@ -309,7 +309,7 @@ export function OnboardingFlow() {
                   <SkipForward className="h-4 w-4 mr-1" /> Skip setup
                 </Button>
               )}
-              <Button onClick={handleNext} className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-lg">
+              <Button onClick={handleNext} className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-md shadow-emerald-500/20 rounded-lg transition-all duration-200 hover:shadow-lg">
                 {step === totalSteps ? 'Complete Setup' : 'Continue'}
                 {step < totalSteps && <ArrowRight className="h-4 w-4 ml-1" />}
               </Button>

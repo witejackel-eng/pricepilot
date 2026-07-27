@@ -31,6 +31,9 @@ import { PriceSimulator } from './price-simulator';
 import { ScenariosPage } from './scenarios-page';
 import { ExportPage } from './export-page';
 import { SettingsPage } from './settings-page';
+import { AddProductDialog } from './add-product-dialog';
+import { KeyboardShortcuts } from './keyboard-shortcuts';
+import { toast } from 'sonner';
 
 const NAV_ITEMS: { view: AppView; label: string; icon: React.ElementType }[] = [
   { view: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -64,14 +67,14 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white font-bold text-xl shadow-sm">P</div>
+        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-300 to-emerald-500 flex items-center justify-center text-emerald-900 font-bold text-xl shadow-md">P</div>
         <div>
-          <h2 className="font-semibold text-sm leading-tight">PricePilot</h2>
-          <p className="text-xs text-muted-foreground truncate max-w-[140px]">{businessSettings.businessName || 'My Workspace'}</p>
+          <h2 className="font-semibold text-sm leading-tight text-white">PricePilot</h2>
+          <p className="text-xs text-emerald-200 truncate max-w-[140px]">{businessSettings.businessName || 'My Workspace'}</p>
         </div>
       </div>
 
-      <Separator className="my-2 mx-3" />
+      <Separator className="my-2 mx-3 bg-emerald-700/50" />
 
       <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
         {NAV_ITEMS.map(item => {
@@ -83,14 +86,14 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
               variant="ghost"
               className={`w-full justify-start gap-3 rounded-lg transition-all duration-200 ${
                 isActive
-                  ? 'bg-emerald-50 text-emerald-700 font-medium border-l-3 border-emerald-500'
-                  : 'hover:bg-slate-50 hover:text-slate-700'
+                  ? 'bg-emerald-600/40 text-white font-medium shadow-lg shadow-emerald-900/30 border-l-3 border-emerald-300'
+                  : 'text-emerald-100 hover:bg-emerald-700/50 hover:text-white'
               }`}
               onClick={() => { setCurrentView(item.view); if (onNavClick) onNavClick(); }}
             >
               {isActive ? (
-                <span className="flex items-center justify-center h-8 w-8 rounded-lg bg-emerald-100">
-                  <Icon className="h-4 w-4" />
+                <span className="flex items-center justify-center h-8 w-8 rounded-lg bg-emerald-500/50 shadow-sm">
+                  <Icon className="h-4 w-4 text-emerald-200" />
                 </span>
               ) : (
                 <Icon className="h-4 w-4" />
@@ -101,17 +104,17 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
         })}
       </nav>
 
-      <Separator className="my-2 mx-3" />
+      <Separator className="my-2 mx-3 bg-emerald-700/50" />
 
       <div className="p-4 space-y-3">
-        <div className="rounded bg-emerald-50/50 p-2 flex items-center gap-2 text-xs text-muted-foreground">
-          <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+        <div className="rounded bg-emerald-700/40 p-2 flex items-center gap-2 text-xs text-emerald-200 animate-pulse">
+          <ShieldCheck className="h-4 w-4 text-emerald-300 shrink-0" />
           <span>Your data stays local</span>
         </div>
 
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-destructive/70 hover:text-destructive transition-colors duration-200">
+            <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-emerald-300/70 hover:text-red-400 transition-colors duration-200">
               <LogOut className="h-3 w-3" />
               Reset Application
             </Button>
@@ -137,8 +140,9 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
 }
 
 export function AppShell() {
-  const { currentView, setCurrentView, businessSettings, updateBusinessSettings, products, resetApplication, lastSaved } = usePricePilotStore();
+  const { currentView, setCurrentView, businessSettings, updateBusinessSettings, products, resetApplication, lastSaved, recalculateProducts, addScenario } = usePricePilotStore();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [addProductOpen, setAddProductOpen] = useState(false);
 
   const renderView = () => {
     switch (currentView) {
@@ -154,19 +158,51 @@ export function AppShell() {
     }
   };
 
+  const handleSaveScenario = () => {
+    addScenario({
+      id: `scenario-${Date.now()}`,
+      name: `Quick Save ${new Date().toLocaleDateString()}`,
+      description: 'Saved via keyboard shortcut',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      scenarioType: 'catalogue',
+      snapshotProducts: [...products],
+      snapshotPricingRules: [...usePricePilotStore.getState().pricingRules],
+      snapshotBusinessSettings: { ...businessSettings },
+      isBaseline: false,
+    });
+    toast.success('Scenario saved', { description: 'Current state has been saved as a scenario' });
+  };
+
+  const handleRecalculate = () => {
+    recalculateProducts();
+    toast.success('Recalculated', { description: 'All product prices have been recalculated' });
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
+      {/* Add Product Dialog */}
+      <AddProductDialog open={addProductOpen} onOpenChange={setAddProductOpen} />
+
+      {/* Keyboard Shortcuts */}
+      <KeyboardShortcuts
+        onNavigate={(view) => setCurrentView(view as AppView)}
+        onAddProduct={() => setAddProductOpen(true)}
+        onSaveScenario={handleSaveScenario}
+        onRecalculate={handleRecalculate}
+      />
+
       {/* Desktop layout */}
       <div className="flex flex-1">
         {/* Desktop sidebar */}
-        <aside className="hidden lg:block w-64 border-r bg-gradient-to-b from-white to-slate-50/30 h-screen sticky top-0 shadow-sm">
+        <aside className="hidden lg:block w-64 border-r bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700 h-screen sticky top-0 shadow-lg">
           <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} />
         </aside>
 
         {/* Main area */}
         <div className="flex-1 flex flex-col min-h-screen">
           {/* Header */}
-          <header className="sticky top-0 z-30 bg-white shadow-sm px-4 py-2 flex items-center justify-between gap-4">
+          <header className="sticky top-0 z-30 bg-gradient-to-r from-white to-emerald-50/10 shadow-sm px-4 py-2 flex items-center justify-between gap-4 border-b border-emerald-100/50">
             <div className="flex items-center gap-3">
               {/* Mobile menu */}
               <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -212,13 +248,13 @@ export function AppShell() {
           </main>
 
           {/* Footer */}
-          <footer className="border-t border-slate-200 bg-slate-50/50 px-4 py-2 mt-auto">
+          <footer className="bg-gradient-to-r from-slate-50 to-emerald-50/10 px-4 py-2 mt-auto border-t-2 border-emerald-100/50">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="h-3 w-3 text-emerald-500" />
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-500 animate-pulse" />
                 <span>All data stored locally in your browser. Nothing is sent to any server.</span>
               </div>
-              <div>
+              <div className="text-emerald-600/70">
                 {lastSaved ? `Last saved: ${new Date(lastSaved).toLocaleTimeString()}` : 'Not saved yet'}
               </div>
             </div>

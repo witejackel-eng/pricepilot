@@ -27,6 +27,7 @@ import {
 import { calculateOutcomeAtPrice } from '@/lib/pricepilot/pricing-engine';
 import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
 import { Plus, ChevronDown, ChevronUp, Copy, Save, X, Calculator, ArrowUpRight, ArrowDownRight, AlertTriangle } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface AddProductDialogProps {
   open: boolean;
@@ -155,6 +156,7 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
       competitorPrices: competitors,
     };
     addProduct(product);
+    toast.success('Product added', { description: `${product.name} has been added to your product list` });
     if (!keepOpen) {
       onOpenChange(false);
     }

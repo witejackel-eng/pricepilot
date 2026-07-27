@@ -13,6 +13,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Separator } from '@/components/ui/separator';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { Bookmark, Plus, Copy, Edit, Trash2, RotateCcw, Download, ArrowLeftRight } from 'lucide-react';
+import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PriceOutcome } from '@/lib/pricepilot/types';
 
@@ -38,6 +39,7 @@ export function ScenariosPage() {
       snapshotBusinessSettings: { ...businessSettings },
       isBaseline: false,
     });
+    toast.success('Scenario saved', { description: `${newName || `Scenario ${scenarios.length + 1}`} has been created` });
     setNewDialogOpen(false);
     setNewName('');
     setNewDescription('');
@@ -58,6 +60,7 @@ export function ScenariosPage() {
 
   const handleRestore = (id: string) => {
     restoreScenario(id);
+    toast.success('Scenario restored', { description: 'All data has been restored from the scenario snapshot' });
   };
 
   const handleExport = (id: string) => {
@@ -208,7 +211,7 @@ export function ScenariosPage() {
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => deleteScenario(s.id)}>Delete</AlertDialogAction>
+                            <AlertDialogAction onClick={() => { deleteScenario(s.id); toast.success('Scenario deleted', { description: `${s.name} has been removed` }); }}>Delete</AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>

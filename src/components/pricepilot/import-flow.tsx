@@ -25,7 +25,29 @@ import {
   createDefaultProduct,
   createDefaultCleaningOptions,
 } from '@/lib/pricepilot/types';
-import { ArrowLeft, ArrowRight, Upload, FileSpreadsheet, Eye, Columns3, Brush, CheckCircle, X, AlertCircle, Info } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Upload, FileSpreadsheet, Eye, Columns3, Brush, CheckCircle, X, AlertCircle, Info, Download } from 'lucide-react';
+import { toast } from 'sonner';
+
+const CSV_TEMPLATE_HEADERS = [
+  'Product Name',
+  'SKU',
+  'Category',
+  'Brand',
+  'Purchase Cost',
+  'Shipping Cost',
+  'Packaging Cost',
+  'Handling Cost',
+  'Other Costs',
+  'Current Selling Price',
+  'Return Rate (%)',
+  'Damage Rate (%)',
+  'Marketplace Fee (%)',
+  'Payment Fee (%)',
+  'Tax Rate (%)',
+  'Description',
+  'Quantity',
+  'Monthly Units Sold',
+];
 
 const STEPS: ImportStep[] = ['upload', 'preview', 'mapping', 'cleaning', 'confirmation'];
 const STEP_LABELS = ['Upload', 'Preview', 'Mapping', 'Cleaning', 'Confirm'];
@@ -216,9 +238,45 @@ export function ImportFlow() {
     })) as Product[];
 
     importProducts(newProducts);
+    toast.success('Products imported', { description: `${newProducts.length} products have been successfully imported` });
   };
 
   const stats = cleaningResult?.statistics;
+
+  const downloadTemplate = () => {
+    const headerLine = CSV_TEMPLATE_HEADERS.join(',');
+    const sampleRow = [
+      'Example Product',
+      'SKU-001',
+      'Electronics',
+      'Brand A',
+      '100.00',
+      '5.00',
+      '2.00',
+      '1.00',
+      '0.50',
+      '150.00',
+      '2',
+      '1',
+      '5',
+      '2.5',
+      '18',
+      'A sample product description',
+      '50',
+      '100',
+    ].join(',');
+    const csvContent = `${headerLine}\n${sampleRow}`;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'pricepilot-import-template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Template downloaded', { description: 'A CSV template with sample data has been downloaded' });
+  };
 
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
@@ -258,6 +316,11 @@ export function ImportFlow() {
                 Supports .xlsx, .xls, .csv, .tsv — Max {MAX_FILE_SIZE_MB} MB
               </p>
               <input id="file-upload" type="file" accept=".xlsx,.xls,.csv,.tsv" className="hidden" onChange={handleFileInput} />
+            </div>
+            <div className="mt-4 flex justify-center">
+              <Button variant="outline" size="sm" onClick={downloadTemplate} className="rounded-lg shadow-sm hover:shadow-md transition-all duration-200 border-slate-200 hover:border-emerald-300">
+                <Download className="h-4 w-4 mr-1.5" /> Download Import Template
+              </Button>
             </div>
           </CardContent>
         </Card>

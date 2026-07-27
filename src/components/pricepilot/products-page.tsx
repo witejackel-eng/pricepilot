@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { usePricePilotStore } from '@/store/pricepilot-store';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { StatusBadge } from './status-badge';
 import { ProductDetailDrawer } from './product-detail-drawer';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
-import { Package, FileUp, Plus, Search, Trash2, CheckCircle, Eye, MoreHorizontal } from 'lucide-react';
+import { Package, FileUp, Plus, Search, Trash2, CheckCircle, Eye, MoreHorizontal, Pencil } from 'lucide-react';
+import { toast } from 'sonner';
 
 type FilterTab = 'all' | 'profitable' | 'low-margin' | 'loss-making' | 'missing-cost' | 'needs-review';
 
@@ -28,6 +29,9 @@ export function ProductsPage() {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
+  const [editingPriceValue, setEditingPriceValue] = useState<string>('');
+  const priceInputRef = useRef<HTMLInputElement>(null);
 
   const categories = [...new Set(products.map(p => p.category))];
   const brands = [...new Set(products.map(p => p.brand))];
@@ -114,7 +118,7 @@ export function ProductsPage() {
   if (products.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
-        <div className="bg-slate-100 rounded-full p-6 mb-6">
+        <div className="bg-gradient-to-br from-emerald-100 to-slate-100 rounded-full p-6 mb-6 animate-pulse">
           <Package className="h-20 w-20 text-slate-400" />
         </div>
         <h2 className="text-2xl font-bold text-slate-800 mb-2">No products yet</h2>
@@ -122,7 +126,7 @@ export function ProductsPage() {
         <div className="flex gap-3">
           <Button
             onClick={() => setCurrentView('import')}
-            className="rounded-lg shadow-sm hover:shadow-md bg-emerald-600 hover:bg-emerald-700 transition-all duration-200"
+            className="rounded-lg shadow-sm hover:shadow-md bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 transition-all duration-200"
           >
             <FileUp className="h-4 w-4 mr-2" /> Import Products
           </Button>
@@ -155,13 +159,13 @@ export function ProductsPage() {
             <Badge className="bg-emerald-600 text-white rounded-lg px-2.5 py-0.5 text-sm font-semibold">
               {selectedProducts.length} selected
             </Badge>
-            <Button size="sm" variant="outline" onClick={() => approveSelectedProducts()} className="rounded-lg border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-colors duration-150">
+            <Button size="sm" variant="outline" onClick={() => { approveSelectedProducts(); toast.success('Prices approved', { description: `${selectedProducts.length} product prices have been approved` }); }} className="rounded-lg border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-colors duration-150">
               <CheckCircle className="h-3 w-3 mr-1" /> Approve Prices
             </Button>
             <Button size="sm" variant="outline" onClick={() => markSelectedForReview()} className="rounded-lg border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-colors duration-150">
               <Eye className="h-3 w-3 mr-1" /> Mark for Review
             </Button>
-            <Button size="sm" variant="outline" className="text-destructive rounded-lg border-emerald-200 hover:bg-red-50 hover:border-red-200 transition-colors duration-150" onClick={() => deleteSelectedProducts()}>
+            <Button size="sm" variant="outline" className="text-destructive rounded-lg border-emerald-200 hover:bg-red-50 hover:border-red-200 transition-colors duration-150" onClick={() => { deleteSelectedProducts(); toast.success('Products deleted', { description: `${selectedProducts.length} products have been removed` }); }}>
               <Trash2 className="h-3 w-3 mr-1" /> Delete
             </Button>
             <Button size="sm" variant="outline" onClick={() => setSelectedProducts([])} className="rounded-lg border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-colors duration-150">
@@ -221,8 +225,8 @@ export function ProductsPage() {
               onClick={() => setFilterTab(tab)}
               className={`rounded-lg transition-all duration-200 gap-1 ${
                 filterTab === tab
-                  ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm'
-                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+                  ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 text-white hover:from-emerald-700 hover:to-emerald-600 shadow-md shadow-emerald-500/20'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm'
               }`}
             >
               {tab === 'all' ? 'All' : tab === 'profitable' ? 'Profitable' : tab === 'low-margin' ? 'Low Margin' : tab === 'loss-making' ? 'Loss-making' : tab === 'missing-cost' ? 'Missing Cost' : 'Needs Review'}
@@ -237,12 +241,12 @@ export function ProductsPage() {
       </div>
 
       {/* Data Table */}
-      <Card className="shadow-md border-0 overflow-hidden">
+      <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-slate-50/20">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-50 hover:bg-slate-50">
+                <TableRow className="bg-gradient-to-r from-slate-50 to-emerald-50/10 hover:bg-slate-50">
                   <TableHead className="w-[40px] sticky top-0 bg-slate-50">
                     <Checkbox checked={selectedProducts.length === pageData.length && pageData.length > 0} onCheckedChange={toggleSelectAll} />
                   </TableHead>
@@ -265,10 +269,10 @@ export function ProductsPage() {
                   pageData.map(p => (
                     <TableRow
                       key={p.id}
-                      className={`cursor-pointer transition-colors duration-150 ${
+                      className={`cursor-pointer transition-all duration-200 ${
                         selectedProducts.includes(p.id)
-                          ? 'bg-emerald-50/50 border-l-2 border-l-emerald-500'
-                          : 'hover:bg-emerald-50/20 border-l-2 border-l-transparent'
+                          ? 'bg-emerald-50/50 border-l-3 border-l-emerald-500 hover:bg-emerald-50/70'
+                          : 'hover:bg-gradient-to-r hover:from-emerald-50/10 hover:to-transparent border-l-3 border-l-transparent hover:border-l-emerald-300'
                       }`}
                       onClick={() => setSelectedProduct(p.id)}
                     >
@@ -279,7 +283,54 @@ export function ProductsPage() {
                       <TableCell className="text-xs text-slate-500">{p.sku}</TableCell>
                       <TableCell className="text-xs text-slate-600">{p.category}</TableCell>
                       <TableCell className="text-right text-slate-600">{formatCurrency(p.purchaseCost, businessSettings.currencyCode)}</TableCell>
-                      <TableCell className="text-right text-slate-600">{formatCurrency(p.currentSellingPrice, businessSettings.currencyCode)}</TableCell>
+                      <TableCell
+                        className="text-right group relative"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {editingPriceId === p.id ? (
+                          <div className="flex items-center gap-1 justify-end">
+                            <Input
+                              ref={priceInputRef}
+                              type="number"
+                              value={editingPriceValue}
+                              onChange={(e) => setEditingPriceValue(e.target.value)}
+                              onBlur={() => {
+                                const newPrice = parseFloat(editingPriceValue);
+                                if (!isNaN(newPrice) && newPrice >= 0) {
+                                  updateProduct(p.id, { currentSellingPrice: newPrice });
+                                  toast.success('Price updated', { description: `${p.name} price updated to ${formatCurrency(newPrice, businessSettings.currencyCode)}` });
+                                }
+                                setEditingPriceId(null);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  const newPrice = parseFloat(editingPriceValue);
+                                  if (!isNaN(newPrice) && newPrice >= 0) {
+                                    updateProduct(p.id, { currentSellingPrice: newPrice });
+                                    toast.success('Price updated', { description: `${p.name} price updated to ${formatCurrency(newPrice, businessSettings.currencyCode)}` });
+                                  }
+                                  setEditingPriceId(null);
+                                } else if (e.key === 'Escape') {
+                                  setEditingPriceId(null);
+                                }
+                              }}
+                              className="w-[100px] h-7 text-right text-sm border-emerald-300 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20"
+                              autoFocus
+                            />
+                          </div>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 cursor-pointer hover:text-emerald-700 transition-colors duration-150"
+                            onClick={() => {
+                              setEditingPriceId(p.id);
+                              setEditingPriceValue(String(p.currentSellingPrice));
+                            }}
+                          >
+                            {formatCurrency(p.currentSellingPrice, businessSettings.currencyCode)}
+                            <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-60 text-emerald-500 transition-opacity duration-150" />
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right font-bold text-emerald-700">{formatCurrency(p.recommendedPrices.balanced, businessSettings.currencyCode)}</TableCell>
                       <TableCell className={`text-right font-semibold ${p.calculatedProfitPerUnit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                         {formatCurrency(p.calculatedProfitPerUnit, businessSettings.currencyCode)}

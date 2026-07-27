@@ -87,6 +87,7 @@ interface PricePilotState {
   lastSaved: string | null;
   isCalculating: boolean;
   sidebarCollapsed: boolean;
+  recentlyViewedIds: string[];
 
   // Actions
   initialize: () => void;
@@ -139,6 +140,9 @@ interface PricePilotState {
   // Settings
   updateAppSettings: (settings: Partial<AppSettings>) => void;
 
+  // Recently viewed
+  addRecentlyViewed: (productId: string) => void;
+
   // Data management
   exportData: () => string;
   importData: (data: string) => boolean;
@@ -160,6 +164,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   lastSaved: null,
   isCalculating: false,
   sidebarCollapsed: false,
+  recentlyViewedIds: [],
 
   // Initialize from localStorage
   initialize: () => {
@@ -488,6 +493,14 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const newSettings = { ...get().appSettings, ...updates, updatedAt: new Date().toISOString() };
     saveAppSettings(newSettings);
     set({ appSettings: newSettings, lastSaved: getLastSavedTimestamp() });
+  },
+
+  // Recently viewed
+  addRecentlyViewed: (productId) => {
+    const { recentlyViewedIds } = get();
+    // Remove if already in list, then add at front (most recent)
+    const updated = [productId, ...recentlyViewedIds.filter(id => id !== productId)].slice(0, 5);
+    set({ recentlyViewedIds: updated });
   },
 
   // Data management

@@ -33,9 +33,10 @@ import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Calculator,
   Edit3, CheckCircle, Undo2, Copy, ChevronDown, ChevronUp, Plus, X, ShieldCheck, FileCheck
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export function ProductDetailDrawer({ productId, onClose }: { productId: string | null; onClose: () => void }) {
-  const { products, businessSettings, pricingRules, updateProduct, approveProductPrice, applyApprovedPrice, duplicateProduct, deleteProduct } = usePricePilotStore();
+  const { products, businessSettings, pricingRules, updateProduct, approveProductPrice, applyApprovedPrice, duplicateProduct, deleteProduct, addRecentlyViewed } = usePricePilotStore();
   const [selectedMode, setSelectedMode] = useState<RecommendationMode>('balanced');
   const [customPrice, setCustomPrice] = useState<string>('');
   const [activeTab, setActiveTab] = useState<string>('recommendations');
@@ -58,6 +59,8 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
     setEditHistory([]);
     setIsEditing(false);
     setSelectedMode(product.selectedRecommendationMode || 'balanced');
+    // Track recently viewed product
+    addRecentlyViewed(product.id);
   }
 
   // Edit form handlers (must be declared before any early return)
@@ -78,6 +81,7 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
     if (!product) return;
     const updates: Partial<Product> = { ...editForm, competitorPrices: editCompetitors } as Partial<Product>;
     updateProduct(product.id, updates);
+    toast.success('Product updated', { description: `${product.name} has been updated` });
     setIsEditing(false);
     setEditHistory([]);
   }, [product, editForm, editCompetitors, updateProduct]);
@@ -260,7 +264,7 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                   {product.currentSellingPrice !== product.finalApprovedPrice && (
                     <Button
                       size="sm"
-                      onClick={() => applyApprovedPrice(product.id)}
+                      onClick={() => { applyApprovedPrice(product.id); toast.success('Price applied', { description: `Approved price has been set as the current selling price for ${product.name}` }); }}
                       className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm"
                     >
                       <FileCheck className="h-4 w-4 mr-1" /> Apply Approved Price as Current Selling Price
@@ -378,7 +382,7 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                 {product.priceApprovalStatus !== 'approved' && (
                   <Button
                     size="sm"
-                    onClick={() => approveProductPrice(product.id, selectedMode === 'custom' ? 'balanced' : selectedMode)}
+                    onClick={() => { approveProductPrice(product.id, selectedMode === 'custom' ? 'balanced' : selectedMode); toast.success('Price approved', { description: `${product.name} price has been approved` }); }}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm"
                   >
                     <ShieldCheck className="h-4 w-4 mr-1" /> Approve Price
@@ -389,7 +393,7 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                 {product.priceApprovalStatus === 'approved' && product.finalApprovedPrice > 0 && product.currentSellingPrice !== product.finalApprovedPrice && (
                   <Button
                     size="sm"
-                    onClick={() => applyApprovedPrice(product.id)}
+                    onClick={() => { applyApprovedPrice(product.id); toast.success('Price applied', { description: `Approved price has been set as the current selling price for ${product.name}` }); }}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-md font-semibold"
                   >
                     <FileCheck className="h-4 w-4 mr-1" /> Apply as Selling Price
@@ -451,7 +455,7 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                   </AlertDialogDescription>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => { deleteProduct(product.id); onClose(); }} className="bg-red-600 hover:bg-red-700">
+                    <AlertDialogAction onClick={() => { deleteProduct(product.id); toast.success('Product deleted', { description: `${product.name} has been removed` }); onClose(); }} className="bg-red-600 hover:bg-red-700">
                       Delete
                     </AlertDialogAction>
                   </AlertDialogFooter>

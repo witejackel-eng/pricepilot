@@ -61,6 +61,14 @@
 - Data management: Reset all data, clear products, export/import full application data
 - All data stored locally in your browser — nothing is sent to any server
 
+### 🆕 New Features (v0.2)
+- **Toast Notifications**: Real-time feedback on all key actions (add, approve, delete, import, save)
+- **Keyboard Shortcuts**: Press `?` or `Ctrl+/` to view 14 keyboard shortcuts (Ctrl+N, Ctrl+I, Ctrl+E, Ctrl+S, Ctrl+R, 1-8 for view navigation)
+- **Quick Price Override**: Click any product's existing price in the table to edit it inline
+- **Recently Viewed Products**: Dashboard tracks your last 5 viewed products for quick access
+- **Enhanced Dashboard Insights**: Top 5 Most/Least Profitable products and Price Changes Summary
+- **CSV Template Download**: Download a pre-formatted import template from the Import page
+
 ## Pricing Calculation Engine
 
 ### Break-Even Formula
@@ -163,12 +171,17 @@ src/
 │   │   ├── export-page.tsx         # Data export
 │   │   ├── settings-page.tsx       # Business & pricing settings
 │   │   ├── status-badge.tsx        # Pricing status indicator
+│   │   ├── keyboard-shortcuts.tsx   # Keyboard shortcuts overlay
+│   │   ├── add-product-dialog.tsx  # Add/edit product dialog
 │   │   └── help-section.tsx        # Help & documentation
 │   └── ui/                         # shadcn/ui components
 ├── lib/
 │   └── pricepilot/
 │       ├── types.ts                # TypeScript types & factory functions
 │       ├── calculations.ts         # Pricing calculation engine
+│       ├── pricing-engine.ts       # Advanced price outcome calculator
+│       ├── recommendations.ts      # Multi-mode recommendation engine
+│       ├── resolve-rule.ts         # Pricing rule priority resolver
 │       ├── storage.ts              # Versioned localStorage system
 │       ├── formatting.ts           # Currency & number formatting
 │       ├── sample-data.ts          # 12 sample products & rules

@@ -291,10 +291,10 @@ export function PriceSimulator() {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Input Panel */}
       <div className="space-y-4">
-        <Card className="shadow-md border-0 rounded-xl">
+        <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/20">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-white">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-emerald-600 to-emerald-500 text-white shadow-md shadow-emerald-500/20">
                 <Calculator className="h-4 w-4" />
               </span>
               Price Simulator
@@ -467,7 +467,7 @@ export function PriceSimulator() {
       <div className="space-y-4">
         {/* Full PriceOutcome from canonical engine */}
         {proposedOutcome ? (
-          <Card className="shadow-md border-0 rounded-xl">
+          <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Live Results (from Canonical Engine)</CardTitle>
               <CardDescription className="text-xs">All values computed by pricing-engine.ts</CardDescription>
@@ -530,7 +530,7 @@ export function PriceSimulator() {
               {/* Recommended Prices */}
               <Separator className="my-4 bg-slate-100" />
 
-              <div className="bg-emerald-50/30 rounded-lg p-4">
+              <div className="bg-gradient-to-r from-emerald-50/50 to-emerald-25/20 rounded-lg p-4 border border-emerald-200/50 shadow-sm">
                 <Label className="text-sm font-medium text-slate-700">Recommended Prices (from Engine)</Label>
                 <div className="grid grid-cols-2 gap-3 mt-2">
                   <ResultItem label="Break-even" value={formatCurrency(recommendations.breakEven, cc)} />
@@ -543,7 +543,7 @@ export function PriceSimulator() {
             </CardContent>
           </Card>
         ) : (
-          <Card className="shadow-md border-0 rounded-xl">
+          <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-slate-50/20">
             <CardHeader className="pb-3"><CardTitle className="text-base">Live Results</CardTitle></CardHeader>
             <CardContent>
               <div className="text-center text-slate-400 py-8">Enter a proposed selling price above to see the full outcome</div>
@@ -552,7 +552,7 @@ export function PriceSimulator() {
         )}
 
         {/* Profitability Meter */}
-        <Card className="shadow-md border-0 rounded-xl">
+        <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10">
           <CardHeader className="pb-3"><CardTitle className="text-base">Profitability Meter</CardTitle></CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
@@ -561,7 +561,7 @@ export function PriceSimulator() {
                   key={level}
                   className={`h-10 flex-1 rounded-lg transition-all duration-300 ${
                     meterLevel === level
-                      ? `${meterColor(level)} shadow-md text-sm font-semibold text-white`
+                      ? `${meterColor(level)} shadow-md shadow-emerald-500/10 text-sm font-semibold text-white scale-105`
                       : 'bg-slate-100 text-xs font-medium text-slate-400'
                   } flex items-center justify-center`}
                 >
@@ -574,10 +574,10 @@ export function PriceSimulator() {
 
         {/* Actions */}
         <div className="flex gap-3">
-          <Button onClick={handleSaveScenario} className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm rounded-lg">
+          <Button onClick={handleSaveScenario} className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-md shadow-emerald-500/20 rounded-lg transition-all duration-200 hover:shadow-lg">
             <Bookmark className="h-4 w-4 mr-2" /> Save as Scenario
           </Button>
-          <Button variant="outline" onClick={handleCreateProduct} className="bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50 shadow-sm rounded-lg">
+          <Button variant="outline" onClick={handleCreateProduct} className="bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 shadow-sm rounded-lg transition-all duration-200 hover:shadow-md">
             <Package className="h-4 w-4 mr-2" /> Create Product
           </Button>
         </div>
@@ -589,7 +589,7 @@ export function PriceSimulator() {
 function ResultItem({ label, value, highlight }: { label: string; value: string; highlight?: 'positive' | 'negative' }) {
   const colorClass = highlight === 'positive' ? 'text-emerald-600' : highlight === 'negative' ? 'text-red-600' : '';
   return (
-    <div className="rounded-lg p-3 bg-white shadow-sm border border-slate-100 bg-gradient-to-b from-white to-slate-50/30">
+    <div className="rounded-lg p-3 bg-gradient-to-b from-white to-slate-50/30 shadow-sm border border-slate-100 transition-all duration-200 hover:shadow-md hover:border-slate-200">
       <div className="text-sm font-medium text-slate-500">{label}</div>
       <div className={`text-lg font-bold ${colorClass}`}>{value}</div>
     </div>

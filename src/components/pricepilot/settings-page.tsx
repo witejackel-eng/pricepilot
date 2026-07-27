@@ -71,10 +71,10 @@ export function SettingsPage() {
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
       {/* Business Settings */}
-      <Card className="shadow-md border-0 rounded-xl">
+      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-3">
-            <span className="h-8 w-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center"><Building2 className="h-4 w-4" /></span>
+            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-200 to-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm"><Building2 className="h-4 w-4" /></span>
             Business Settings
           </CardTitle>
           <CardDescription>Core business information that affects all pricing calculations</CardDescription>
@@ -132,10 +132,10 @@ export function SettingsPage() {
       </Card>
 
       {/* Pricing Defaults */}
-      <Card className="shadow-md border-0 rounded-xl">
+      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-amber-50/10 hover:shadow-lg transition-shadow duration-200">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-3">
-            <span className="h-8 w-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center"><Coins className="h-4 w-4" /></span>
+            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-amber-200 to-amber-100 text-amber-600 flex items-center justify-center shadow-sm"><Coins className="h-4 w-4" /></span>
             Pricing Defaults
           </CardTitle>
           <CardDescription>Default margin targets, costs, and fees applied to all products</CardDescription>
@@ -197,10 +197,10 @@ export function SettingsPage() {
       </Card>
 
       {/* Display Settings */}
-      <Card className="shadow-md border-0 rounded-xl">
+      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-purple-50/10 hover:shadow-lg transition-shadow duration-200">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-3">
-            <span className="h-8 w-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center"><Palette className="h-4 w-4" /></span>
+            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-200 to-purple-100 text-purple-600 flex items-center justify-center shadow-sm"><Palette className="h-4 w-4" /></span>
             Display Settings
           </CardTitle>
           <CardDescription>How the application looks and behaves</CardDescription>
@@ -209,15 +209,15 @@ export function SettingsPage() {
           <div>
             <Label className={labelClass}>Theme</Label>
             <RadioGroup value={appSettings.theme} onValueChange={v => updateAppSettings({ theme: v as 'light' | 'dark' | 'system' })} className="flex gap-4 mt-2">
-              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer">
+              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-200 hover:bg-emerald-50 hover:border-emerald-200 transition-all duration-200 cursor-pointer shadow-sm">
                 <RadioGroupItem value="light" id="light" />
                 <Label htmlFor="light" className="cursor-pointer">Light</Label>
               </div>
-              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer">
+              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-200 hover:bg-emerald-50 hover:border-emerald-200 transition-all duration-200 cursor-pointer shadow-sm">
                 <RadioGroupItem value="dark" id="dark" />
                 <Label htmlFor="dark" className="cursor-pointer">Dark</Label>
               </div>
-              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer">
+              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-200 hover:bg-emerald-50 hover:border-emerald-200 transition-all duration-200 cursor-pointer shadow-sm">
                 <RadioGroupItem value="system" id="system" />
                 <Label htmlFor="system" className="cursor-pointer">System</Label>
               </div>
@@ -248,17 +248,17 @@ export function SettingsPage() {
       </Card>
 
       {/* Data Settings */}
-      <Card className="shadow-md border-0 rounded-xl">
+      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-slate-50/20 hover:shadow-lg transition-shadow duration-200">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-3">
-            <span className="h-8 w-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center"><Database className="h-4 w-4" /></span>
+            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-slate-200 to-slate-100 text-slate-600 flex items-center justify-center shadow-sm"><Database className="h-4 w-4" /></span>
             Data Management
           </CardTitle>
           <CardDescription>Backup, restore, or clear your application data</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="bg-emerald-50/50 rounded-lg p-3 border border-emerald-200 flex items-center gap-2">
-            <Shield className="h-4 w-4 text-emerald-600" />
+          <div className="bg-gradient-to-r from-emerald-50 to-emerald-25/20 rounded-lg p-3 border border-emerald-200/50 flex items-center gap-2 shadow-sm">
+            <Shield className="h-4 w-4 text-emerald-600 animate-pulse" />
             <span className="text-sm text-emerald-700">Your data is stored locally in your browser and is never sent to any server.</span>
           </div>
 
