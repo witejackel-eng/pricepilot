@@ -10,9 +10,11 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { usePricePilotStore } from '@/store/pricepilot-store';
 import { SUPPORTED_CURRENCIES, RoundingRule, TaxTreatment } from '@/lib/pricepilot/types';
-import { ArrowLeft, ArrowRight, SkipForward, Building2, Store, Coins, Settings, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, SkipForward, Building2, Store, Coins, Settings, Sparkles, Info } from 'lucide-react';
 
 const COUNTRIES = [
   { code: 'IN', name: 'India' },
@@ -57,6 +59,57 @@ const CHANNELS = [
 const inputClass = 'bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500';
 const labelClass = 'text-sm font-medium text-slate-600';
 
+/** Amber "Estimate" pill with tooltip explaining the value is a pre-filled estimate. */
+function EstimateBadge({ channel }: { channel: string }) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge
+            variant="outline"
+            className="text-amber-700 border-amber-300 bg-amber-50 text-[10px] font-medium uppercase tracking-wide flex items-center gap-1 cursor-help"
+          >
+            <Info className="h-3 w-3" />
+            Estimate
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-[220px] leading-relaxed">
+          Typical {channel} fee. Actual fees vary by category and tier. Verify on the official {channel} seller portal.
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+/** Compact editable fee input (percentage) with an Estimate badge beside it. */
+function ChannelFeeInput({
+  label,
+  value,
+  onChange,
+  channel,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  channel: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 shrink-0">
+      <div className="flex items-center gap-1">
+        <Input
+          type="number"
+          value={value}
+          onChange={e => onChange(parseFloat(e.target.value) || 0)}
+          className="h-7 w-14 text-xs px-2 bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+        />
+        <span className="text-xs text-muted-foreground">%</span>
+        <EstimateBadge channel={channel} />
+      </div>
+      <span className="text-[10px] text-muted-foreground uppercase tracking-wide pl-1">{label}</span>
+    </div>
+  );
+}
+
 export function OnboardingFlow() {
   const { businessSettings, completeOnboarding, appSettings, updateAppSettings } = usePricePilotStore();
   const [setupMode, setSetupMode] = useState<'quick' | 'advanced'>('quick');
@@ -70,6 +123,10 @@ export function OnboardingFlow() {
     targetMargin: 25,
     minimumMargin: 10,
     channels: [] as string[],
+    // Per-channel fee overrides (pre-filled with typical estimates, editable by user)
+    channelFees: Object.fromEntries(
+      CHANNELS.map(c => [c.id, { marketplace: c.fees.marketplace, payment: c.fees.payment }])
+    ) as Record<string, { marketplace: number; payment: number }>,
     // Advanced fields
     taxTreatment: businessSettings.taxTreatment || 'inclusive',
     taxRate: businessSettings.defaultTaxRatePercent || 18,
@@ -103,8 +160,12 @@ export function OnboardingFlow() {
         const taxTreatment: TaxTreatment = form.taxAnswer === 'yes-inclusive' ? 'inclusive' : form.taxAnswer === 'no-exclusive' ? 'exclusive' : form.taxAnswer === 'exempt' ? 'exempt' : 'composite';
         // Calculate fees from selected channels (use highest marketplace fee)
         const selectedChannels = CHANNELS.filter(c => form.channels.includes(c.id));
-        const maxMarketplaceFee = selectedChannels.length > 0 ? Math.max(...selectedChannels.map(c => c.fees.marketplace)) : 5;
-        const maxPaymentFee = selectedChannels.length > 0 ? Math.max(...selectedChannels.map(c => c.fees.payment)) : 2;
+        const maxMarketplaceFee = selectedChannels.length > 0
+          ? Math.max(...selectedChannels.map(c => form.channelFees[c.id]?.marketplace ?? c.fees.marketplace))
+          : 5;
+        const maxPaymentFee = selectedChannels.length > 0
+          ? Math.max(...selectedChannels.map(c => form.channelFees[c.id]?.payment ?? c.fees.payment))
+          : 2;
 
         completeOnboarding({
           businessName: form.businessName,
@@ -232,6 +293,14 @@ export function OnboardingFlow() {
       case 4:
         return (
           <div className="space-y-3">
+            {/* Estimate info banner */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+              <Info className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+              <div className="text-xs text-amber-800">
+                <span className="font-semibold">Channel fee estimates.</span> We&apos;ve pre-filled typical fee percentages for each channel. These are estimates — actual fees vary by product category and seller tier. Please verify with each marketplace&apos;s official documentation.
+              </div>
+            </div>
+
             <p className="text-sm text-muted-foreground">Where do you normally sell?</p>
             <div className="space-y-2">
               {CHANNELS.map(channel => (
@@ -249,24 +318,53 @@ export function OnboardingFlow() {
                       }
                     }}
                   />
-                  <div className="space-y-0.5 flex-1">
+                  <div className="space-y-0.5 flex-1 min-w-0">
                     <Label htmlFor={channel.id} className="font-medium">{channel.label}</Label>
                     <p className="text-xs text-muted-foreground">{channel.desc}</p>
                   </div>
                   {form.channels.includes(channel.id) && (
-                    <div className="text-xs text-emerald-600 shrink-0">
-                      <p>Marketplace: {channel.fees.marketplace}% (estimate)</p>
-                      <p>Payment: {channel.fees.payment}% (estimate)</p>
+                    <div className="flex flex-col gap-2 shrink-0">
+                      <ChannelFeeInput
+                        label="Marketplace"
+                        value={form.channelFees[channel.id]?.marketplace ?? channel.fees.marketplace}
+                        onChange={(v) => updateForm('channelFees', {
+                          ...form.channelFees,
+                          [channel.id]: {
+                            marketplace: v,
+                            payment: form.channelFees[channel.id]?.payment ?? channel.fees.payment,
+                          },
+                        })}
+                        channel={channel.label}
+                      />
+                      <ChannelFeeInput
+                        label="Payment"
+                        value={form.channelFees[channel.id]?.payment ?? channel.fees.payment}
+                        onChange={(v) => updateForm('channelFees', {
+                          ...form.channelFees,
+                          [channel.id]: {
+                            marketplace: form.channelFees[channel.id]?.marketplace ?? channel.fees.marketplace,
+                            payment: v,
+                          },
+                        })}
+                        channel={channel.label}
+                      />
                     </div>
                   )}
                 </div>
               ))}
             </div>
             {form.channels.length > 0 && (
-              <div className="bg-emerald-50/50 border border-emerald-200/50 rounded-lg p-2 text-xs text-emerald-600">
-                <p className="font-medium">Estimated fees based on your channels</p>
-                <p>Marketplace commission: ~{Math.max(...CHANNELS.filter(c => form.channels.includes(c.id)).map(c => c.fees.marketplace))}% • Payment gateway: ~{Math.max(...CHANNELS.filter(c => form.channels.includes(c.id)).map(c => c.fees.payment))}%</p>
-                <p className="text-muted-foreground mt-0.5">These are estimates — you can adjust exact values later in Settings</p>
+              <div className="bg-amber-50/60 border border-amber-200/70 rounded-lg p-3 mt-3">
+                <div className="flex items-start gap-2">
+                  <Info className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div className="text-xs text-amber-800 space-y-1">
+                    <p className="font-semibold">Channel fees: showing estimates — verify after first sale</p>
+                    <p>
+                      Highest marketplace commission selected: ~{Math.max(...CHANNELS.filter(c => form.channels.includes(c.id)).map(c => form.channelFees[c.id]?.marketplace ?? c.fees.marketplace))}% • Highest payment gateway fee: ~{Math.max(...CHANNELS.filter(c => form.channels.includes(c.id)).map(c => form.channelFees[c.id]?.payment ?? c.fees.payment))}%
+                    </p>
+                    <p className="text-amber-700/80">You can fine-tune exact values later in Settings.</p>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -393,17 +491,26 @@ export function OnboardingFlow() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="paymentFee" className={labelClass}>Payment Gateway Fee (%)</Label>
+                <div className="flex items-center gap-1 mb-1">
+                  <Label htmlFor="paymentFee" className={labelClass}>Payment Gateway Fee (%)</Label>
+                  <EstimateBadge channel="payment gateway" />
+                </div>
                 <Input id="paymentFee" type="number" value={form.paymentFeePercent} onChange={e => updateForm('paymentFeePercent', parseFloat(e.target.value) || 0)} className={inputClass} />
               </div>
               <div>
-                <Label htmlFor="marketplaceFee" className={labelClass}>Marketplace Commission (%)</Label>
+                <div className="flex items-center gap-1 mb-1">
+                  <Label htmlFor="marketplaceFee" className={labelClass}>Marketplace Commission (%)</Label>
+                  <EstimateBadge channel="marketplace" />
+                </div>
                 <Input id="marketplaceFee" type="number" value={form.marketplaceFeePercent} onChange={e => updateForm('marketplaceFeePercent', parseFloat(e.target.value) || 0)} className={inputClass} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="returnRate" className={labelClass}>Expected Return Rate (%)</Label>
+                <div className="flex items-center gap-1 mb-1">
+                  <Label htmlFor="returnRate" className={labelClass}>Expected Return Rate (%)</Label>
+                  <EstimateBadge channel="return rate" />
+                </div>
                 <Input id="returnRate" type="number" value={form.returnRate} onChange={e => updateForm('returnRate', parseFloat(e.target.value) || 0)} className={inputClass} />
               </div>
               <div>

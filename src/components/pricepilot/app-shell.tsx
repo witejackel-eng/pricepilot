@@ -106,7 +106,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-300 to-emerald-500 flex items-center justify-center text-emerald-900 font-bold text-xl shadow-md">P</div>
+        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white font-bold text-xl shadow-emerald-sm">P</div>
         <div>
           <h2 className="font-semibold text-sm leading-tight text-white">PricePilot</h2>
           <p className="text-xs text-emerald-200 truncate max-w-[140px]">{businessSettings.businessName || 'My Workspace'}</p>
@@ -139,8 +139,8 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
               title={item.label}
               className={`w-full justify-start gap-3 rounded-lg transition-all duration-200 ${
                 isActive
-                  ? 'bg-emerald-600/40 text-white font-medium shadow-lg shadow-emerald-900/30 border-l-3 border-emerald-300'
-                  : 'text-emerald-100 hover:bg-emerald-700/50 hover:text-white'
+                  ? 'bg-emerald-600/40 text-white font-medium shadow-lg shadow-emerald-900/30 border-l-2 border-emerald-500'
+                  : 'text-emerald-100 hover:bg-emerald-700/50 hover:text-white hover:-translate-y-0.5'
               }`}
               onClick={() => { setCurrentView(item.view); if (onNavClick) onNavClick(); }}
             >
@@ -153,7 +153,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
                   <Icon className="h-4 w-4" />
                 )}
                 {badgeCount > 0 && (
-                  <span className={`absolute -top-1 -right-1 h-4 w-4 rounded-full ${badgeColor} text-white text-[10px] font-bold flex items-center justify-center animate-pulse`}>{badgeCount > 9 ? '9+' : badgeCount}</span>
+                  <span className={`absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full ${badgeColor} text-white text-[10px] font-bold flex items-center justify-center animate-pulse badge-pulse-glow`}>{badgeCount > 9 ? '9+' : badgeCount}</span>
                 )}
               </span>
               {item.label}
@@ -345,10 +345,20 @@ export function AppShell() {
           <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} applicationMode={applicationMode} />
         </aside>
 
+        {/* Floating Help button — bottom-right, always visible */}
+        <button
+          onClick={() => setHelpPanelOpen(true)}
+          aria-label="Open help panel"
+          title="Help (? to open)"
+          className="floating-help-button lg:hidden h-12 w-12 rounded-full bg-gradient-to-br from-emerald-600 to-emerald-500 text-white shadow-lg shadow-emerald-500/30 flex items-center justify-center hover:from-emerald-700 hover:to-emerald-600"
+        >
+          <HelpCircle className="h-5 w-5" />
+        </button>
+
         {/* Main area */}
         <div className="flex-1 flex flex-col min-h-screen">
           {/* Header */}
-          <header className="sticky top-0 z-30 bg-gradient-to-r from-white to-emerald-50/10 shadow-sm px-4 py-2 flex items-center justify-between gap-4 border-b border-emerald-100/50 dark:bg-gradient-to-r dark:from-slate-900 dark:to-slate-800 dark:border-slate-700">
+          <header className="sticky top-0 z-30 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 shadow-sm px-4 py-2 flex items-center justify-between gap-4 border-b border-slate-200/60 dark:border-slate-800/60">
             <div className="flex items-center gap-3">
               {/* Mobile menu */}
               <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -362,7 +372,7 @@ export function AppShell() {
                   <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} onNavClick={() => setMobileOpen(false)} applicationMode={applicationMode} />
                 </SheetContent>
               </Sheet>
-              <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">{VIEW_LABELS[currentView]}</h1>
+              <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100 text-balance tracking-tight">{VIEW_LABELS[currentView]}</h1>
               {products.length > 0 && (
                 <Badge className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-700">{products.length} products</Badge>
               )}
@@ -398,7 +408,7 @@ export function AppShell() {
                 </>
               )}
               <Select value={businessSettings.currencyCode} onValueChange={v => updateBusinessSettings({ currencyCode: v })}>
-                <SelectTrigger className="w-[80px] h-8 text-xs">
+                <SelectTrigger className="w-[80px] h-8 text-xs shadow-sm rounded-lg">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

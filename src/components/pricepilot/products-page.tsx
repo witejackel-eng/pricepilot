@@ -12,9 +12,26 @@ import { Badge } from '@/components/ui/badge';
 import { StatusBadge } from './status-badge';
 import { ProductDetailDrawer } from './product-detail-drawer';
 import { ProductComparisonDrawer } from './product-comparison-drawer';
+import { BulkAdjustDialog } from './bulk-adjust-dialog';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
-import { Package, FileUp, Plus, Search, Trash2, CheckCircle, Eye, MoreHorizontal, Pencil, ArrowLeftRight } from 'lucide-react';
+import { Product, SalesChannel } from '@/lib/pricepilot/types';
+import { Package, FileUp, Plus, Search, Trash2, CheckCircle, Eye, MoreHorizontal, Pencil, ArrowLeftRight, SlidersHorizontal, Columns3 } from 'lucide-react';
 import { toast } from 'sonner';
+
+// Display labels for the SalesChannel union type
+const CHANNEL_LABELS: Record<SalesChannel, string> = {
+  'online-marketplace': 'Online Marketplace',
+  'own-website': 'Own Website',
+  'retail-store': 'Retail Store',
+  'wholesale': 'Wholesale',
+  'distributor': 'Distributor',
+  'offline': 'Offline',
+  'other': 'Other',
+};
+
+function channelLabel(ch: SalesChannel): string {
+  return CHANNEL_LABELS[ch] || String(ch);
+}
 
 type FilterTab = 'all' | 'profitable' | 'low-margin' | 'loss-making' | 'missing-cost' | 'needs-review';
 
@@ -60,6 +77,14 @@ export function ProductsPage() {
   const [editingPriceValue, setEditingPriceValue] = useState<string>('');
   const [compareIds, setCompareIds] = useState<[string, string] | null>(null);
   const priceInputRef = useRef<HTMLInputElement>(null);
+
+  // Bulk adjust dialog state — when open, `bulkAdjustProducts` holds the resolved list to adjust
+  const [bulkAdjustOpen, setBulkAdjustOpen] = useState(false);
+  const [bulkAdjustProducts, setBulkAdjustProducts] = useState<Product[]>([]);
+  const [bulkAdjustScopeLabel, setBulkAdjustScopeLabel] = useState<string>('');
+
+  // Show more columns toggle (Brand, Sales Channel, Quantity, Monthly Units Sold, Break-even, Total Landed Cost, Last Updated)
+  const [showMoreColumns, setShowMoreColumns] = useState(false);
 
   const categories = [...new Set(products.map(p => p.category))];
   const brands = [...new Set(products.map(p => p.brand))];
@@ -146,6 +171,29 @@ export function ProductsPage() {
     }
   };
 
+  // Open the Bulk Adjust dialog targeting the currently-selected products
+  const openBulkAdjustSelected = () => {
+    const selected = products.filter(p => selectedProducts.includes(p.id));
+    if (selected.length === 0) {
+      toast.error('No products selected', { description: 'Select one or more products first, or use "Adjust All" to act on all filtered products.' });
+      return;
+    }
+    setBulkAdjustProducts(selected);
+    setBulkAdjustScopeLabel(`${selected.length} selected product${selected.length === 1 ? '' : 's'}`);
+    setBulkAdjustOpen(true);
+  };
+
+  // Open the Bulk Adjust dialog targeting ALL currently-filtered products
+  const openBulkAdjustAll = () => {
+    if (filtered.length === 0) {
+      toast.error('No products to adjust', { description: 'Adjust your filters first — there are no products matching the current view.' });
+      return;
+    }
+    setBulkAdjustProducts(filtered);
+    setBulkAdjustScopeLabel(`all ${filtered.length} filtered product${filtered.length === 1 ? '' : 's'}`);
+    setBulkAdjustOpen(true);
+  };
+
   // Empty state
   if (products.length === 0) {
     return (
@@ -217,14 +265,23 @@ export function ProductsPage() {
             >
               <ArrowLeftRight className="h-3 w-3 mr-1" /> Compare Products
             </Button>
+            {/* Bulk Adjust - applies to selected products */}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={openBulkAdjustSelected}
+              className="rounded-lg border-emerald-300 bg-emerald-100/70 text-emerald-800 hover:bg-emerald-200/70 hover:border-emerald-400 transition-colors duration-150 font-medium"
+            >
+              <SlidersHorizontal className="h-3 w-3 mr-1" /> Bulk Adjust
+            </Button>
           </CardContent>
         </Card>
       )}
 
       {/* Search + filter tabs */}
       <div className="space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 max-w-sm">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
               placeholder="Search products..."
@@ -271,29 +328,55 @@ export function ProductsPage() {
               </SelectContent>
             </Select>
           )}
+          {/* Bulk Adjust All - acts on the full filtered set */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={openBulkAdjustAll}
+            className="rounded-lg border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 transition-colors duration-150 font-medium shadow-sm whitespace-nowrap"
+            title="Mass-adjust prices for all filtered products"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5 mr-1" /> Bulk Adjust All
+          </Button>
         </div>
 
-        {/* Filter tabs */}
-        <div className="flex gap-2 flex-wrap">
-          {(['all', 'profitable', 'low-margin', 'loss-making', 'missing-cost', 'needs-review'] as FilterTab[]).map(tab => (
-            <Button
-              key={tab}
-              size="sm"
-              onClick={() => setFilterTab(tab)}
-              className={`rounded-lg transition-all duration-200 gap-1 ${
-                filterTab === tab
-                  ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 text-white hover:from-emerald-700 hover:to-emerald-600 shadow-md shadow-emerald-500/20'
-                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm'
-              }`}
-            >
-              {tab === 'all' ? 'All' : tab === 'profitable' ? 'Profitable' : tab === 'low-margin' ? 'Low Margin' : tab === 'loss-making' ? 'Loss-making' : tab === 'missing-cost' ? 'Missing Cost' : 'Needs Review'}
-              <Badge variant="secondary" className={`text-xs ml-1 ${
-                filterTab === tab
-                  ? 'bg-emerald-500/30 text-white hover:bg-emerald-500/30'
-                  : ''
-              }`}>{tabCounts[tab]}</Badge>
-            </Button>
-          ))}
+        {/* Filter tabs + More Columns toggle */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap flex-1">
+            {(['all', 'profitable', 'low-margin', 'loss-making', 'missing-cost', 'needs-review'] as FilterTab[]).map(tab => (
+              <Button
+                key={tab}
+                size="sm"
+                onClick={() => setFilterTab(tab)}
+                className={`rounded-lg transition-all duration-200 gap-1 ${
+                  filterTab === tab
+                    ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 text-white hover:from-emerald-700 hover:to-emerald-600 shadow-md shadow-emerald-500/20'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-emerald-50 hover:border-emerald-200 hover:shadow-sm'
+                }`}
+              >
+                {tab === 'all' ? 'All' : tab === 'profitable' ? 'Profitable' : tab === 'low-margin' ? 'Low Margin' : tab === 'loss-making' ? 'Loss-making' : tab === 'missing-cost' ? 'Missing Cost' : 'Needs Review'}
+                <Badge variant="secondary" className={`text-xs ml-1 ${
+                  filterTab === tab
+                    ? 'bg-emerald-500/30 text-white hover:bg-emerald-500/30'
+                    : ''
+                }`}>{tabCounts[tab]}</Badge>
+              </Button>
+            ))}
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowMoreColumns(prev => !prev)}
+            className={`rounded-lg transition-all duration-200 whitespace-nowrap shrink-0 ${
+              showMoreColumns
+                ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:border-emerald-700 shadow-sm'
+                : 'bg-white border-slate-200 text-slate-600 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700'
+            }`}
+            title={showMoreColumns ? 'Hide extra columns' : 'Show extra columns: Brand, Sales Channel, Quantity, Monthly Units Sold, Break-even, Total Landed Cost, Last Updated'}
+            aria-pressed={showMoreColumns}
+          >
+            <Columns3 className="h-3.5 w-3.5 mr-1" /> {showMoreColumns ? 'Fewer Columns' : 'More Columns'}
+          </Button>
         </div>
       </div>
 
@@ -311,6 +394,17 @@ export function ProductsPage() {
                   <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('sku')}>SKU {sortIcon('sku', sortBy, sortDir)}</TableHead>
                   <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('category')}>Category {sortIcon('category', sortBy, sortDir)}</TableHead>
                   <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Tags</TableHead>
+                  {showMoreColumns && (
+                    <>
+                      <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Brand</TableHead>
+                      <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Sales Channel</TableHead>
+                      <TableHead className="text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Quantity</TableHead>
+                      <TableHead className="text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Monthly Units</TableHead>
+                      <TableHead className="text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Break-even</TableHead>
+                      <TableHead className="text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Total Landed</TableHead>
+                      <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Last Updated</TableHead>
+                    </>
+                  )}
                   <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('purchaseCost')}>Cost {sortIcon('purchaseCost', sortBy, sortDir)}</TableHead>
                   <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('existingPrice')}>Existing Price {sortIcon('existingPrice', sortBy, sortDir)}</TableHead>
                   <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('recommendedPrice')}>Recommended {sortIcon('recommendedPrice', sortBy, sortDir)}</TableHead>
@@ -322,7 +416,7 @@ export function ProductsPage() {
               </TableHeader>
               <TableBody>
                 {pageData.length === 0 ? (
-                  <TableRow><TableCell colSpan={12} className="text-center py-8 text-slate-400">No products match your filters</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={showMoreColumns ? 19 : 12} className="text-center py-8 text-slate-400">No products match your filters</TableCell></TableRow>
                 ) : (
                   pageData.map(p => (
                     <TableRow
@@ -337,7 +431,7 @@ export function ProductsPage() {
                       <TableCell>
                         <Checkbox checked={selectedProducts.includes(p.id)} onCheckedChange={() => toggleSelect(p.id)} onClick={e => e.stopPropagation()} />
                       </TableCell>
-                      <TableCell className="font-semibold text-slate-800 max-w-[200px] truncate">{p.name}</TableCell>
+                      <TableCell className="font-semibold text-slate-800 max-w-[280px] truncate" title={p.name}>{p.name}</TableCell>
                       <TableCell className="text-xs text-slate-500">{p.sku}</TableCell>
                       <TableCell className="text-xs text-slate-600">{p.category}</TableCell>
                       <TableCell className="max-w-[120px]">
@@ -354,6 +448,17 @@ export function ProductsPage() {
                           )}
                         </div>
                       </TableCell>
+                      {showMoreColumns && (
+                        <>
+                          <TableCell className="text-xs text-slate-700">{p.brand || '—'}</TableCell>
+                          <TableCell className="text-xs text-slate-700">{channelLabel(p.salesChannel)}</TableCell>
+                          <TableCell className="text-right text-slate-700 tabular-nums">{p.quantity.toLocaleString()}</TableCell>
+                          <TableCell className="text-right text-slate-700 tabular-nums">{p.monthlyUnitsSold.toLocaleString()}</TableCell>
+                          <TableCell className="text-right text-slate-700 tabular-nums">{formatCurrency(p.calculatedBreakEvenPrice, businessSettings.currencyCode)}</TableCell>
+                          <TableCell className="text-right text-slate-700 tabular-nums">{formatCurrency(p.calculatedTotalLandedCost, businessSettings.currencyCode)}</TableCell>
+                          <TableCell className="text-xs text-slate-500 whitespace-nowrap">{new Date(p.updatedAt).toLocaleDateString()}</TableCell>
+                        </>
+                      )}
                       <TableCell className="text-right text-slate-600">{formatCurrency(p.purchaseCost, businessSettings.currencyCode)}</TableCell>
                       <TableCell
                         className="text-right group relative"
@@ -463,6 +568,15 @@ export function ProductsPage() {
 
       {/* Product Comparison Drawer */}
       <ProductComparisonDrawer productIds={compareIds} onClose={() => setCompareIds(null)} />
+
+      {/* Bulk Adjust Dialog */}
+      <BulkAdjustDialog
+        open={bulkAdjustOpen}
+        onOpenChange={setBulkAdjustOpen}
+        products={bulkAdjustProducts}
+        scopeLabel={bulkAdjustScopeLabel}
+        currencyCode={businessSettings.currencyCode}
+      />
     </div>
   );
 }

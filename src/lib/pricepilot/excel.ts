@@ -23,6 +23,7 @@ import {
   ImportRowIssue,
   ImportStatistics,
   PercentFormat,
+  DuplicateHandling,
 } from './types';
 import { parseNumericInput } from './formatting';
 
@@ -42,6 +43,7 @@ export async function parseExcelFile(fileBuffer: ArrayBuffer): Promise<{
     name: string;
     headers: string[];
     rows: Record<string, string>[];
+    rawRows: string[][]; // 2D array of cell values (all rows including header) — used for re-parsing with a different heading row
   }>;
   errors: ImportError[];
 }> {
@@ -57,32 +59,42 @@ export async function parseExcelFile(fileBuffer: ArrayBuffer): Promise<{
       name: string;
       headers: string[];
       rows: Record<string, string>[];
+      rawRows: string[][];
     }> = [];
 
     for (const sheetName of workbook.SheetNames) {
       const worksheet = workbook.Sheets[sheetName];
 
-      // Convert to JSON with headers
-      const rawData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+      // First, get the raw 2D array of all rows (header: 1)
+      const rawRowsArray = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
         defval: '',
-        raw: false,  // Get formatted strings instead of raw values
-      });
+        raw: false,
+        header: 1,
+        blankrows: false,
+      }) as unknown[][];
 
-      if (rawData.length === 0) continue;
+      // Convert to string[][]
+      const rawRows: string[][] = rawRowsArray.map(row =>
+        (row ?? []).map(cell => String(cell ?? '').trim())
+      );
 
-      // Extract headers from first row
-      const headers = Object.keys(rawData[0]);
+      if (rawRows.length === 0) continue;
 
-      // Convert all values to strings for uniform handling
-      const rows: Record<string, string>[] = rawData.map(row => {
+      // Use first row as headers (default behaviour)
+      const headers = rawRows[0];
+
+      // Build row objects keyed by header
+      const rows: Record<string, string>[] = [];
+      for (let i = 1; i < rawRows.length; i++) {
+        const rawRow = rawRows[i];
         const stringRow: Record<string, string> = {};
-        for (const key of headers) {
-          stringRow[key] = String(row[key] ?? '');
+        for (let j = 0; j < headers.length; j++) {
+          stringRow[headers[j]] = j < rawRow.length ? rawRow[j] : '';
         }
-        return stringRow;
-      });
+        rows.push(stringRow);
+      }
 
-      sheets.push({ name: sheetName, headers, rows });
+      sheets.push({ name: sheetName, headers, rows, rawRows });
     }
 
     if (sheets.length === 0) {
@@ -109,12 +121,42 @@ export async function parseExcelFile(fileBuffer: ArrayBuffer): Promise<{
 }
 
 /**
+ * Re-build a sheet's { headers, rows } from raw 2D rows using a new heading row index.
+ * Returns empty headers/rows if the index is out of range.
+ */
+export function rebuildSheetFromHeadingRow(rawRows: string[][], headingRow: number): {
+  headers: string[];
+  rows: Record<string, string>[];
+} {
+  if (headingRow < 0 || headingRow >= rawRows.length) {
+    return { headers: [], rows: [] };
+  }
+
+  const headers = rawRows[headingRow];
+  const rows: Record<string, string>[] = [];
+  for (let i = headingRow + 1; i < rawRows.length; i++) {
+    const rawRow = rawRows[i];
+    const stringRow: Record<string, string> = {};
+    for (let j = 0; j < headers.length; j++) {
+      stringRow[headers[j]] = j < rawRow.length ? rawRow[j] : '';
+    }
+    rows.push(stringRow);
+  }
+  return { headers, rows };
+}
+
+/**
  * Parse a CSV text file and return rows.
  * Handles common CSV formats including comma and tab separation.
+ *
+ * Also returns the original non-empty lines (rawRows) so the caller can
+ * re-parse with a different heading row using `rebuildCSVFromHeadingRow`.
  */
 export function parseCSVFile(text: string): {
   headers: string[];
   rows: Record<string, string>[];
+  rawRows: string[]; // original non-empty lines — used for re-parsing with a different heading row
+  delimiter: string; // detected delimiter
   errors: ImportError[];
 } {
   const errors: ImportError[] = [];
@@ -130,7 +172,7 @@ export function parseCSVFile(text: string): {
         message: 'CSV file must have at least a header row and one data row',
         severity: 'error',
       });
-      return { headers: [], rows: [], errors };
+      return { headers: [], rows: [], rawRows: lines, delimiter: ',', errors };
     }
 
     // Detect delimiter (comma, tab, semicolon, pipe)
@@ -161,7 +203,7 @@ export function parseCSVFile(text: string): {
       rows.push(row);
     }
 
-    return { headers, rows, errors };
+    return { headers, rows, rawRows: lines, delimiter: bestDelimiter, errors };
   } catch (error) {
     errors.push({
       row: 0,
@@ -170,8 +212,46 @@ export function parseCSVFile(text: string): {
       message: `Failed to parse CSV: ${error instanceof Error ? error.message : 'Unknown error'}`,
       severity: 'critical',
     });
-    return { headers: [], rows: [], errors };
+    return { headers: [], rows: [], rawRows: [], delimiter: ',', errors };
   }
+}
+
+/**
+ * Re-build a CSV { headers, rows } from the original non-empty lines using a new heading row index.
+ * Uses the same delimiter detection logic as parseCSVFile.
+ */
+export function rebuildCSVFromHeadingRow(rawRows: string[], headingRow: number): {
+  headers: string[];
+  rows: Record<string, string>[];
+} {
+  if (headingRow < 0 || headingRow >= rawRows.length) {
+    return { headers: [], rows: [] };
+  }
+
+  // Detect delimiter based on the heading row
+  const headerLine = rawRows[headingRow];
+  const delimiters = [',', '\t', ';', '|'];
+  let bestDelimiter = ',';
+  let maxColumns = 0;
+  for (const delimiter of delimiters) {
+    const columns = splitCSVLine(headerLine, delimiter).length;
+    if (columns > maxColumns) {
+      maxColumns = columns;
+      bestDelimiter = delimiter;
+    }
+  }
+
+  const headers = splitCSVLine(headerLine, bestDelimiter).map(h => h.trim());
+  const rows: Record<string, string>[] = [];
+  for (let i = headingRow + 1; i < rawRows.length; i++) {
+    const values = splitCSVLine(rawRows[i], bestDelimiter);
+    const row: Record<string, string> = {};
+    for (let j = 0; j < headers.length; j++) {
+      row[headers[j]] = j < values.length ? values[j].trim() : '';
+    }
+    rows.push(row);
+  }
+  return { headers, rows };
 }
 
 /**
@@ -449,8 +529,14 @@ export function cleanImportData(
     parsePercentages: true,
     skipBlankRequired: true,
     skipDuplicateSku: true,
+    duplicateHandling: 'skip',
     percentFormat: 'auto',
   };
+
+  // Resolve effective duplicate handling: prefer the new explicit field, but
+  // fall back to the legacy boolean for backward compatibility.
+  const duplicateHandling: DuplicateHandling =
+    opts.duplicateHandling ?? (opts.skipDuplicateSku ? 'skip' : 'overwrite');
 
   const cleanedProducts: ImportedProductDraft[] = [];
   const skippedRowIssues: ImportRowIssue[] = [];
@@ -637,18 +723,25 @@ export function cleanImportData(
     const sku = String((draft as Record<string, unknown>)['sku'] ?? '').trim();
     if (sku) {
       if (seenSkus.has(sku)) {
-        if (opts.skipDuplicateSku) {
+        if (duplicateHandling === 'skip') {
           duplicateRowIssues.push({
             originalRowNumber: i + 2,
             reason: `Duplicate SKU "${sku}" — skipped`,
             originalData: rawOriginalData,
           });
           continue; // Skip this duplicate row
-        } else {
-          // Keep the row but log a warning
+        } else if (duplicateHandling === 'overwrite') {
+          // Keep the row — it will overwrite the existing product with the same SKU on import
           duplicateRowIssues.push({
             originalRowNumber: i + 2,
-            reason: `Duplicate SKU "${sku}" — kept (will overwrite)`,
+            reason: `Duplicate SKU "${sku}" — kept (will overwrite existing product)`,
+            originalData: rawOriginalData,
+          });
+        } else {
+          // 'allow' — keep all duplicate rows as separate products
+          duplicateRowIssues.push({
+            originalRowNumber: i + 2,
+            reason: `Duplicate SKU "${sku}" — kept (duplicates allowed)`,
             originalData: rawOriginalData,
           });
         }

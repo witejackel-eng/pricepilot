@@ -79,11 +79,11 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  --background: hsl(222 47% 11%);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: hsl(222 47% 14%);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
+  --popover: hsl(222 47% 14%);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
@@ -118,6 +118,9 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   body::before {
     content: '';
@@ -158,26 +161,26 @@
   box-shadow: 0 2px 8px -2px rgba(5, 150, 105, 0.15), 0 4px 12px -4px rgba(5, 150, 105, 0.08);
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar — thin, rounded, emerald-themed thumb on hover */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
-  border-radius: 8px;
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #10b981;
 }
 .dark ::-webkit-scrollbar-thumb {
   background: #475569;
 }
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #10b981;
 }
 
 /* Scrollbar for Firefox */
@@ -204,6 +207,36 @@
   animation: fade-in 0.2s ease-out;
 }
 
+/* Fade-in-up utility — larger upward motion for cards/sections */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease-out;
+}
+
+/* Gradient utility — emerald brand gradient */
+.gradient-emerald {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+/* Text balance utility — wraps headings nicely */
+.text-balance {
+  text-wrap: balance;
+}
+
+/* Emerald-tinted shadow variants */
+.shadow-emerald-sm {
+  box-shadow: 0 2px 8px -2px rgba(16, 185, 129, 0.2);
+}
+.shadow-emerald-md {
+  box-shadow: 0 4px 16px -4px rgba(16, 185, 129, 0.25);
+}
+.shadow-emerald-lg {
+  box-shadow: 0 8px 32px -8px rgba(16, 185, 129, 0.3);
+}
+
 /* Print-friendly styles */
 @media print {
   aside, header, footer, .no-print {
@@ -215,4 +248,92 @@
   .shadow-md, .shadow-lg, .shadow-sm {
     box-shadow: none !important;
   }
+}
+
+/* Card hover-lift utility — subtle elevation + emerald glow on hover */
+.card-hover-lift {
+  transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+.card-hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px -8px rgba(16, 185, 129, 0.15);
+}
+
+/* Slide-in indicator for active sidebar nav */
+@keyframes slide-in-indicator {
+  from { transform: scaleY(0); opacity: 0; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+.nav-active-indicator {
+  animation: slide-in-indicator 0.25s ease-out;
+  transform-origin: center;
+}
+
+/* Pulse-glow for notification badges */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
+}
+.badge-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Shimmer effect for loading skeletons */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer-bg {
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.6) 50%, rgba(255,255,255,0) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Subtle gradient sheen for cards */
+.card-sheen {
+  position: relative;
+  overflow: hidden;
+}
+.card-sheen::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  transition: left 0.6s ease-out;
+  pointer-events: none;
+}
+.card-sheen:hover::before {
+  left: 150%;
+}
+
+/* Floating help button */
+.floating-help-button {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 40;
+  transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+.floating-help-button:hover {
+  transform: translateY(-2px) scale(1.05);
+}
+
+/* Smooth focus ring for keyboard navigation */
+*:focus-visible {
+  outline: 2px solid #10b981;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Hide number input spinners for cleaner look */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
 }

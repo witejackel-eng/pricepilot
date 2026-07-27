@@ -790,11 +790,22 @@ function assessConfidence(
   if (!hasPurchaseCost(product)) return 'low';
 
   // Count critical missing items
-  const criticalWarnings = warnings.filter(w => w.severity === 'error' || w.severity === 'critical');
+  // NOTE: Confidence reflects PRODUCT DATA QUALITY (cost, fees, tax, etc.),
+  // not the outcome at a particular probe price. During break-even and
+  // safe-price probes the engine intentionally calls calculateOutcomeAtPrice
+  // with sellingPrice=0, which legitimately generates 'missing-price' (no
+  // real price entered) and 'loss-making' (price 0 < cost) warnings. Those
+  // outcome-quality warnings must NOT lower confidence — otherwise every
+  // product's overall confidence becomes 'low' simply because the break-even
+  // probe is part of the recommendation set.
+  // Only data-quality warnings ('missing-cost', 'impossible-margin') lower
+  // confidence to 'low'.
+  const dataQualityWarnings = warnings.filter(
+    w => w.type === 'missing-cost' || w.type === 'impossible-margin'
+  );
 
-  // If there are critical warnings (beyond missing-cost which we already handled),
-  // confidence is low
-  if (criticalWarnings.length > 0) return 'low';
+  // If there are critical data-quality warnings, confidence is low
+  if (dataQualityWarnings.length > 0) return 'low';
 
   // Check what data is available
   const hasTaxTreatment = product.taxTreatment !== undefined && product.taxTreatment !== null;
@@ -830,8 +841,8 @@ function assessConfidence(
 
   const availableCount = componentsAvailable.filter(Boolean).length;
 
-  // High confidence: 7-8 components available, no critical/error warnings
-  if (availableCount >= 7 && criticalWarnings.length === 0) return 'high';
+  // High confidence: 7-8 components available, no data-quality warnings
+  if (availableCount >= 7 && dataQualityWarnings.length === 0) return 'high';
 
   // Medium confidence: 4-6 components available
   if (availableCount >= 4) return 'medium';

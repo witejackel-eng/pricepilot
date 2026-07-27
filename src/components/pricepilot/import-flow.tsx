@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { usePricePilotStore } from '@/store/pricepilot-store';
+import { usePricePilotStore, AutoBackup } from '@/store/pricepilot-store';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,8 +12,25 @@ import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { formatCurrency } from '@/lib/pricepilot/formatting';
-import { parseExcelFile, parseCSVFile, detectColumnMappings, cleanImportData } from '@/lib/pricepilot/excel';
+import { parseExcelFile, parseCSVFile, detectColumnMappings, cleanImportData, rebuildSheetFromHeadingRow, rebuildCSVFromHeadingRow } from '@/lib/pricepilot/excel';
 import {
   Product,
   ColumnMapping,
@@ -22,10 +39,31 @@ import {
   CleanImportResult,
   ImportedProductDraft,
   PercentFormat,
+  DuplicateHandling,
   createDefaultProduct,
   createDefaultCleaningOptions,
 } from '@/lib/pricepilot/types';
-import { ArrowLeft, ArrowRight, Upload, FileSpreadsheet, Eye, Columns3, Brush, CheckCircle, X, AlertCircle, Info, Download } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Upload,
+  FileSpreadsheet,
+  Eye,
+  Columns3,
+  Brush,
+  CheckCircle,
+  X,
+  AlertCircle,
+  Info,
+  Download,
+  History,
+  RotateCcw,
+  Save,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  HelpCircle,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 const CSV_TEMPLATE_HEADERS = [
@@ -79,11 +117,13 @@ const FIELD_OPTIONS = [
 ];
 
 export function ImportFlow() {
-  const { businessSettings, importProducts, setCurrentView } = usePricePilotStore();
+  const { businessSettings, importProducts, setCurrentView, autoBackups, restoreBackup, createAutoBackup } = usePricePilotStore();
   const [step, setStep] = useState<ImportStep>('upload');
   const [fileName, setFileName] = useState('');
   const [fileData, setFileData] = useState<{ headers: string[]; rows: Record<string, string>[] }>({ headers: [], rows: [] });
-  const [sheets, setSheets] = useState<Array<{ name: string; headers: string[]; rows: Record<string, string>[] }>>([]);
+  const [sheets, setSheets] = useState<Array<{ name: string; headers: string[]; rows: Record<string, string>[]; rawRows?: string[][] }>>([]);
+  const [csvRawRows, setCsvRawRows] = useState<string[] | null>(null); // original CSV lines — kept so we can re-parse with a different heading row
+  const [isCsvFile, setIsCsvFile] = useState(false);
   const [selectedSheet, setSelectedSheet] = useState(0);
   const [mappings, setMappings] = useState<ColumnMapping[]>([]);
   const [totalRows, setTotalRows] = useState(0);
@@ -99,11 +139,146 @@ export function ImportFlow() {
     skipped: number;
   } | null>(null);
 
+  // Backup history UI state
+  const [showAllBackups, setShowAllBackups] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState<AutoBackup | null>(null);
+
   // Cleaning options state
   const [cleaningOptions, setCleaningOptions] = useState<CleaningOptions>(createDefaultCleaningOptions());
 
   const stepIndex = STEPS.indexOf(step);
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
+
+  /**
+   * When the heading row changes, re-parse the file data using the new header row index.
+   * Works for both CSV (using stored original lines) and Excel (using stored raw 2D rows).
+   */
+  const applyHeadingRow = useCallback((newHeadingRow: number) => {
+    if (isCsvFile && csvRawRows) {
+      const rebuilt = rebuildCSVFromHeadingRow(csvRawRows, newHeadingRow);
+      if (rebuilt.headers.length === 0) {
+        setError(`Row ${newHeadingRow} could not be parsed as headers. Pick a row between 0 and ${Math.max(0, csvRawRows.length - 1)}.`);
+        return;
+      }
+      setFileData(rebuilt);
+      setTotalRows(rebuilt.rows.length);
+      setMappings(detectColumnMappings(rebuilt.headers));
+      setError('');
+    } else if (sheets.length > 0) {
+      const sheet = sheets[selectedSheet];
+      if (!sheet?.rawRows) return;
+      const rebuilt = rebuildSheetFromHeadingRow(sheet.rawRows, newHeadingRow);
+      if (rebuilt.headers.length === 0) {
+        setError(`Row ${newHeadingRow} could not be parsed as headers. Pick a row between 0 and ${Math.max(0, sheet.rawRows.length - 1)}.`);
+        return;
+      }
+      const updatedSheets = sheets.map((s, idx) =>
+        idx === selectedSheet ? { ...s, headers: rebuilt.headers, rows: rebuilt.rows } : s
+      );
+      setSheets(updatedSheets);
+      setFileData({ headers: rebuilt.headers, rows: rebuilt.rows });
+      setTotalRows(rebuilt.rows.length);
+      setMappings(detectColumnMappings(rebuilt.headers));
+      setError('');
+    }
+  }, [isCsvFile, csvRawRows, sheets, selectedSheet]);
+
+  /**
+   * Format an ISO timestamp as "Oct 27, 2024 at 3:45 PM".
+   */
+  const formatBackupTimestamp = (iso: string): string => {
+    try {
+      const d = new Date(iso);
+      const datePart = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const timePart = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      return `${datePart} at ${timePart}`;
+    } catch {
+      return iso;
+    }
+  };
+
+  /**
+   * Resolve a Lucide icon component for a given backup trigger.
+   */
+  const getBackupTriggerIcon = (trigger: AutoBackup['trigger']) => {
+    switch (trigger) {
+      case 'import': return Upload;
+      case 'reset': return RotateCcw;
+      case 'bulk-action': return Layers;
+      case 'manual': return Save;
+      default: return Save;
+    }
+  };
+
+  /**
+   * Triggered when the user clicks "Restore" on a backup entry — opens the confirm dialog.
+   */
+  const handleRestoreClick = (backup: AutoBackup) => {
+    setRestoreTarget(backup);
+  };
+
+  /**
+   * Actually perform the restore after the user confirms in the AlertDialog.
+   * Creates a fresh safety backup first, then restores from the selected snapshot.
+   */
+  const confirmRestore = () => {
+    if (!restoreTarget) return;
+    // Create a safety backup of the CURRENT state so the user can undo the restore
+    createAutoBackup('manual', `Safety snapshot before restoring "${restoreTarget.description}"`);
+    const success = restoreBackup(restoreTarget.dataString);
+    if (success) {
+      toast.success('Backup restored', {
+        description: `Restored snapshot from ${formatBackupTimestamp(restoreTarget.timestamp)}`,
+      });
+      setRestoreTarget(null);
+      // Reset import flow state since the underlying data has changed
+      setStep('upload');
+      setFileName('');
+      setFileData({ headers: [], rows: [] });
+      setSheets([]);
+      setCsvRawRows(null);
+      setMappings([]);
+      setCleaningResult(null);
+      setPreviewProducts([]);
+      setError('');
+      setImportComplete(false);
+      setImportSummary(null);
+      setHeadingRow(0);
+      setCurrentView('products');
+    } else {
+      toast.error('Restore failed', {
+        description: 'The backup data could not be parsed. The snapshot may be corrupted.',
+      });
+      setRestoreTarget(null);
+    }
+  };
+
+  /**
+   * Download a single backup entry as a JSON file.
+   */
+  const downloadBackupEntry = (backup: AutoBackup) => {
+    try {
+      const blob = new Blob([backup.dataString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const safeTimestamp = backup.timestamp.slice(0, 19).replace(/[:T]/g, '-');
+      link.download = `pricepilot-backup-${safeTimestamp}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('Backup downloaded', {
+        description: `Snapshot from ${formatBackupTimestamp(backup.timestamp)}`,
+      });
+    } catch {
+      toast.error('Download failed', { description: 'Could not generate the backup file.' });
+    }
+  };
+
+  // Note: `skipDuplicateSku` is the legacy boolean that the cleaning-options
+  // checkbox toggles directly. `duplicateHandling` is never modified by the UI
+  // (only by import defaults), so no sync effect is required here.
 
   /**
    * Validate a file before parsing.
@@ -143,6 +318,8 @@ export function ImportFlow() {
     setFileName(file.name);
 
     try {
+      // Reset heading row to 0 for every new file
+      setHeadingRow(0);
       if (file.name.endsWith('.csv') || file.name.endsWith('.tsv')) {
         const text = await file.text();
         if (text.trim() === '') {
@@ -155,6 +332,8 @@ export function ImportFlow() {
           return;
         }
         const parsedHeaders = result.headers;
+        setIsCsvFile(true);
+        setCsvRawRows(result.rawRows);
         setSheets([{ name: 'Sheet1', headers: parsedHeaders, rows: result.rows }]);
         setFileData({ headers: parsedHeaders, rows: result.rows });
         setTotalRows(result.rows.length);
@@ -168,6 +347,8 @@ export function ImportFlow() {
           setError('No data found in the Excel file. The file may be empty or all sheets are blank.');
           return;
         }
+        setIsCsvFile(false);
+        setCsvRawRows(null);
         setSheets(result.sheets);
         const firstSheet = result.sheets[0];
         const parsedHeaders = firstSheet.headers;
@@ -199,6 +380,8 @@ export function ImportFlow() {
     setFileData({ headers: sheet.headers, rows: sheet.rows });
     setTotalRows(sheet.rows.length);
     setMappings(detectColumnMappings(sheet.headers));
+    // Reset heading row to 0 for the new sheet
+    setHeadingRow(0);
   };
 
   const updateMapping = (sourceColumn: string, targetField: string) => {
@@ -323,7 +506,11 @@ export function ImportFlow() {
               </div>
               <div className="bg-slate-50 rounded-lg p-3 text-center border border-slate-200">
                 <p className="text-lg font-semibold text-slate-700">{importSummary.duplicates}</p>
-                <p className="text-xs text-slate-600">Duplicates skipped</p>
+                <p className="text-xs text-slate-600">
+                  {cleaningOptions.duplicateHandling === 'skip' && 'Duplicates skipped'}
+                  {cleaningOptions.duplicateHandling === 'overwrite' && 'Duplicates overwritten'}
+                  {cleaningOptions.duplicateHandling === 'allow' && 'Duplicates allowed'}
+                </p>
               </div>
               <div className="bg-slate-50 rounded-lg p-3 text-center border border-slate-200">
                 <p className="text-lg font-semibold text-slate-700">{importSummary.skipped}</p>
@@ -344,10 +531,16 @@ export function ImportFlow() {
                 setStep('upload');
                 setFileName('');
                 setFileData({ headers: [], rows: [] });
+                setSheets([]);
+                setCsvRawRows(null);
+                setIsCsvFile(false);
                 setMappings([]);
                 setCleaningResult(null);
                 setPreviewProducts([]);
                 setError('');
+                setHeadingRow(0);
+                setShowAllBackups(false);
+                setCleaningOptions(createDefaultCleaningOptions());
               }} className="rounded-lg shadow-sm">
                 Import Another File
               </Button>
@@ -358,6 +551,94 @@ export function ImportFlow() {
 
       {!importComplete && (
       <>
+      {/* Backup History panel — shown only on the upload step so it doesn't clutter later steps */}
+      {step === 'upload' && (
+        <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-emerald-800">
+              <History className="h-5 w-5" /> Backup History
+            </CardTitle>
+            <CardDescription className="text-slate-600">
+              We automatically save a snapshot before every import. You can restore any snapshot below if something goes wrong.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {autoBackups.length === 0 ? (
+              <div className="text-center py-8 px-4 rounded-lg bg-slate-50 border border-dashed border-slate-200">
+                <Save className="h-8 w-8 text-slate-400 mx-auto mb-2" />
+                <p className="text-sm text-slate-700 font-medium">No backups yet.</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  We&apos;ll create one automatically before your first import.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="max-h-72 overflow-y-auto pr-1 -mr-1 space-y-2">
+                  {(showAllBackups ? autoBackups : autoBackups.slice(0, 5)).map(backup => {
+                    const TriggerIcon = getBackupTriggerIcon(backup.trigger);
+                    return (
+                      <div
+                        key={backup.id}
+                        className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors"
+                      >
+                        <div className="flex-shrink-0 h-9 w-9 rounded-full bg-emerald-100 flex items-center justify-center">
+                          <TriggerIcon className="h-4 w-4 text-emerald-700" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">
+                            {backup.description || `Backup (${backup.trigger})`}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {formatBackupTimestamp(backup.timestamp)}
+                            <span className="ml-2 inline-flex items-center gap-1">
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 capitalize">{backup.trigger}</Badge>
+                            </span>
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleRestoreClick(backup)}
+                            className="h-7 text-xs rounded-md"
+                          >
+                            <RotateCcw className="h-3 w-3 mr-1" /> Restore
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => downloadBackupEntry(backup)}
+                            className="h-7 text-xs rounded-md"
+                            aria-label={`Download backup from ${formatBackupTimestamp(backup.timestamp)}`}
+                          >
+                            <Download className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {autoBackups.length > 5 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowAllBackups(prev => !prev)}
+                    className="w-full text-xs text-slate-600 hover:text-emerald-700 rounded-md"
+                  >
+                    {showAllBackups ? (
+                      <>Show fewer backups <ChevronUp className="h-3 w-3 ml-1" /></>
+                    ) : (
+                      <>Show all {autoBackups.length} backups <ChevronDown className="h-3 w-3 ml-1" /></>
+                    )}
+                  </Button>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Progress value={progress} className="h-2 rounded-full mb-2" />
       <div className="flex items-center justify-between text-sm font-medium text-slate-600 mb-4">
         <span>Step {stepIndex + 1} of {STEPS.length}: {STEP_LABELS[stepIndex]}</span>
@@ -426,6 +707,91 @@ export function ImportFlow() {
                   </SelectContent>
                 </Select>
               )}
+            </div>
+
+            {/* Header row selector with tooltip + live raw text preview */}
+            <div className="bg-emerald-50/40 border border-emerald-200 rounded-lg p-3 space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <Label htmlFor="heading-row" className="text-sm font-medium text-slate-700">
+                  Header row:
+                </Label>
+                <Input
+                  id="heading-row"
+                  type="number"
+                  min={0}
+                  max={Math.min(10, Math.max(0, (isCsvFile
+                    ? (csvRawRows?.length ?? 1) - 1
+                    : (sheets[selectedSheet]?.rawRows?.length ?? 1) - 1)))}
+                  value={headingRow}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (Number.isFinite(v) && v >= 0) {
+                      setHeadingRow(v);
+                      applyHeadingRow(v);
+                    }
+                  }}
+                  className="w-20 h-8 text-sm rounded-md"
+                />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center h-7 w-7 rounded-full text-slate-500 hover:text-emerald-700 hover:bg-emerald-100 transition-colors"
+                      aria-label="Header row help"
+                    >
+                      <HelpCircle className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-xs text-left leading-relaxed">
+                    If your file has title rows above the headers, set this to skip them. Row 0 = first row is headers.
+                  </TooltipContent>
+                </Tooltip>
+                <span className="text-xs text-slate-600">
+                  Currently using row <span className="font-semibold text-emerald-700">#{headingRow}</span> as headers.
+                </span>
+              </div>
+
+              {/* Live preview of the first 3 raw rows so the user can see what's at each row index */}
+              <div className="bg-white border border-slate-200 rounded-md p-2">
+                <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5 font-medium">
+                  First 3 rows (raw)
+                </p>
+                <div className="space-y-1 font-mono text-[11px] text-slate-700">
+                  {(() => {
+                    const rawRowsToPreview: string[][] = isCsvFile && csvRawRows
+                      ? csvRawRows.slice(0, 3).map(line => {
+                          // Try to split using common delimiters for nicer display
+                          const delimiters = [',', '\t', ';', '|'];
+                          let best = delimiters[0];
+                          let bestCount = 0;
+                          for (const d of delimiters) {
+                            const c = line.split(d).length;
+                            if (c > bestCount) { bestCount = c; best = d; }
+                          }
+                          return line.split(best);
+                        })
+                      : (sheets[selectedSheet]?.rawRows ?? []).slice(0, 3);
+                    if (rawRowsToPreview.length === 0) {
+                      return <div className="text-slate-400 italic">No raw rows available</div>;
+                    }
+                    return rawRowsToPreview.map((row, idx) => (
+                      <div key={idx} className="flex items-start gap-2">
+                        <span className={`inline-flex items-center justify-center min-w-[1.5rem] h-5 px-1 rounded text-[10px] font-semibold ${idx === headingRow ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                          {idx}
+                        </span>
+                        <span className="break-all leading-5">
+                          {row.map((cell, ci) => (
+                            <span key={ci}>
+                              <span className={idx === headingRow ? 'text-emerald-700 font-semibold' : 'text-slate-700'}>{cell || <span className="text-slate-400 italic">empty</span>}</span>
+                              {ci < row.length - 1 && <span className="text-slate-400"> | </span>}
+                            </span>
+                          ))}
+                        </span>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
             </div>
 
             <Card className="shadow-md border-0 rounded-xl overflow-hidden">
@@ -536,14 +902,59 @@ export function ImportFlow() {
                 />
                 <Label htmlFor="skipBlanks" className="text-sm">Skip rows with blank required fields (name, SKU, cost)</Label>
               </div>
-              <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
-                <Checkbox
-                  id="skipDuplicates"
-                  checked={cleaningOptions.skipDuplicateSku}
-                  onCheckedChange={(checked) => setCleaningOptions(prev => ({ ...prev, skipDuplicateSku: checked === true }))}
-                />
-                <Label htmlFor="skipDuplicates" className="text-sm">Skip duplicate SKU rows (instead of overwriting)</Label>
+            </div>
+
+            {/* Duplicate handling radio group */}
+            <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Layers className="h-4 w-4 text-emerald-600" />
+                <Label className="text-sm font-medium text-slate-800">Duplicate SKU Handling</Label>
               </div>
+              <p className="text-xs text-slate-600 mb-3">
+                What should we do when a row&apos;s SKU already exists in this import batch or in your catalog?
+              </p>
+              <RadioGroup
+                value={cleaningOptions.duplicateHandling}
+                onValueChange={(value: DuplicateHandling) => setCleaningOptions(prev => ({ ...prev, duplicateHandling: value }))}
+                className="gap-2"
+              >
+                <label htmlFor="dup-skip" className="flex items-start gap-3 p-2.5 rounded-md border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors cursor-pointer">
+                  <RadioGroupItem value="skip" id="dup-skip" className="mt-0.5" />
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium text-slate-800">Skip duplicates <span className="text-[10px] uppercase tracking-wide bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded ml-1">Default</span></div>
+                    <div className="text-xs text-slate-600">Products with a matching SKU are skipped and counted in the import summary.</div>
+                  </div>
+                </label>
+                <label htmlFor="dup-overwrite" className="flex items-start gap-3 p-2.5 rounded-md border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors cursor-pointer">
+                  <RadioGroupItem value="overwrite" id="dup-overwrite" className="mt-0.5" />
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium text-slate-800">Overwrite existing</div>
+                    <div className="text-xs text-slate-600">Replace the existing product with the same SKU using the new row&apos;s values.</div>
+                  </div>
+                </label>
+                <label htmlFor="dup-allow" className="flex items-start gap-3 p-2.5 rounded-md border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors cursor-pointer">
+                  <RadioGroupItem value="allow" id="dup-allow" className="mt-0.5" />
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium text-slate-800">Allow duplicates</div>
+                    <div className="text-xs text-slate-600">Import every row, even if the SKU matches — useful for restocks or variant imports.</div>
+                  </div>
+                </label>
+              </RadioGroup>
+              <Alert className="mt-3 border-emerald-200 bg-emerald-50/50">
+                <Info className="h-4 w-4 text-emerald-600" />
+                <AlertTitle className="text-emerald-800 text-xs font-medium">How this works</AlertTitle>
+                <AlertDescription className="text-xs text-slate-700">
+                  {cleaningOptions.duplicateHandling === 'skip' && (
+                    <>Duplicate rows are removed from the import. You&apos;ll see the count under &ldquo;Duplicate SKUs&rdquo; in the confirmation summary.</>
+                  )}
+                  {cleaningOptions.duplicateHandling === 'overwrite' && (
+                    <>Each duplicate row replaces the earlier row with the same SKU in this batch. Existing catalog products with matching SKU will also be replaced on import.</>
+                  )}
+                  {cleaningOptions.duplicateHandling === 'allow' && (
+                    <>All rows are imported as separate products. You may end up with multiple products sharing the same SKU — make sure that&apos;s what you want.</>
+                  )}
+                </AlertDescription>
+              </Alert>
             </div>
 
             {/* Percentage format selector */}
@@ -697,6 +1108,47 @@ export function ImportFlow() {
       )}
       </>
       )}
+
+      {/* Restore confirmation dialog */}
+      <AlertDialog open={restoreTarget !== null} onOpenChange={(open) => { if (!open) setRestoreTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-amber-600" />
+              Restore this backup?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-slate-700">
+                <p>
+                  You are about to restore the snapshot from{' '}
+                  <span className="font-medium text-slate-900">
+                    {restoreTarget ? formatBackupTimestamp(restoreTarget.timestamp) : ''}
+                  </span>
+                  .
+                </p>
+                {restoreTarget?.description && (
+                  <p className="text-slate-600">
+                    &ldquo;{restoreTarget.description}&rdquo;
+                  </p>
+                )}
+                <p className="text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2">
+                  Your current state (products, pricing rules, scenarios, settings) will be replaced.
+                  Don&apos;t worry — we&apos;ll create a fresh safety snapshot first so you can undo this restore.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-lg">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmRestore}
+              className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <RotateCcw className="h-4 w-4 mr-1.5" /> Restore backup
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

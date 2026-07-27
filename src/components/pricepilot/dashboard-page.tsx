@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { usePricePilotStore } from '@/store/pricepilot-store';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from './status-badge';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { toast } from 'sonner';
-import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target, RefreshCw, CheckCircle2, HeartPulse } from 'lucide-react';
+import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target, RefreshCw, CheckCircle2, HeartPulse, Lightbulb } from 'lucide-react';
 import {
   PieChart as RechartsPie,
   Pie,
@@ -77,6 +77,22 @@ function CustomLegend({ payload }: { payload?: Array<{ value: string; color: str
   );
 }
 
+// Custom tooltip for the margin distribution histogram (shows bucket range + count)
+function MarginBucketTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; color: string; payload: { label: string; range: string; count: number } }>; label?: string }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const entry = payload[0];
+  return (
+    <div className="bg-white shadow-lg rounded-lg border border-slate-100 px-4 py-3">
+      <p className="text-xs font-semibold text-slate-500 mb-1.5">{entry.payload.range ?? label}</p>
+      <div className="flex items-center gap-2 text-sm">
+        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+        <span className="text-slate-600">Products:</span>
+        <span className="font-semibold text-slate-800">{entry.value}</span>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Helper: Get the PriceOutcome for a product from stored data.
  * Falls back to stored calculated fields if PriceOutcome is not stored.
@@ -130,11 +146,75 @@ export function DashboardPage() {
   const categories = [...new Set(products.map(p => p.category))];
   const brands = [...new Set(products.map(p => p.brand))];
 
-  const filtered = products.filter(p => {
+  const filtered = useMemo(() => products.filter(p => {
     if (filterCategory !== 'all' && p.category !== filterCategory) return false;
     if (filterBrand !== 'all' && p.brand !== filterBrand) return false;
     return true;
-  });
+  }), [products, filterCategory, filterBrand]);
+
+  // ============================================================
+  // Pricing Health Trends - chart data (memoized)
+  // Computed BEFORE early returns so hook order is stable.
+  // ============================================================
+  const marginBuckets = useMemo(() => {
+    const buckets = [
+      { label: '< 0%', range: 'Loss-making (< 0%)', count: 0, color: '#ef4444' },
+      { label: '0-10%', range: 'Very low (0-10%)', count: 0, color: '#f59e0b' },
+      { label: '10-20%', range: 'Low (10-20%)', count: 0, color: '#f59e0b' },
+      { label: '20-30%', range: 'Target (20-30%)', count: 0, color: '#10b981' },
+      { label: '30-50%', range: 'Healthy (30-50%)', count: 0, color: '#10b981' },
+      { label: '> 50%', range: 'Premium (> 50%)', count: 0, color: '#3b82f6' },
+    ];
+    filtered.forEach(p => {
+      const margin = getOutcome(p).effectiveMarginPercent;
+      if (margin < 0) buckets[0].count++;
+      else if (margin < 10) buckets[1].count++;
+      else if (margin < 20) buckets[2].count++;
+      else if (margin < 30) buckets[3].count++;
+      else if (margin < 50) buckets[4].count++;
+      else buckets[5].count++;
+    });
+    return buckets;
+  }, [filtered]);
+
+  const statusBreakdown = useMemo(() => {
+    const statusMeta: Record<string, { label: string; color: string; dot: string }> = {
+      'healthy': { label: 'Healthy', color: '#10b981', dot: 'bg-emerald-500' },
+      'high-margin': { label: 'High Margin', color: '#047857', dot: 'bg-emerald-700' },
+      'low-margin': { label: 'Low Margin', color: '#f59e0b', dot: 'bg-amber-500' },
+      'below-break-even': { label: 'Below Break-even', color: '#f97316', dot: 'bg-orange-500' },
+      'loss-making': { label: 'Loss-making', color: '#ef4444', dot: 'bg-red-500' },
+      'missing-data': { label: 'Missing Data', color: '#94a3b8', dot: 'bg-slate-400' },
+      'needs-review': { label: 'Needs Review', color: '#d97706', dot: 'bg-amber-600' },
+    };
+    const counts = filtered.reduce<Record<string, number>>((acc, p) => {
+      const status = p.calculatedPricingStatus;
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+    return Object.keys(statusMeta).map(status => ({
+      status,
+      label: statusMeta[status].label,
+      count: counts[status] || 0,
+      color: statusMeta[status].color,
+      dot: statusMeta[status].dot,
+    }));
+  }, [filtered]);
+
+  const pricingHealthInsights = useMemo(() => {
+    const profitableCount = filtered.filter(p => getOutcome(p).effectiveMarginPercent > 0).length;
+    const profitablePct = filtered.length > 0 ? (profitableCount / filtered.length) * 100 : 0;
+    const avgMargin = filtered.length > 0
+      ? filtered.reduce((s, p) => s + getOutcome(p).effectiveMarginPercent, 0) / filtered.length
+      : 0;
+    const attentionStatuses = ['loss-making', 'below-break-even', 'low-margin', 'needs-review'];
+    const needsAttention = filtered.filter(p => attentionStatuses.includes(p.calculatedPricingStatus)).length;
+    const topPerformer = filtered.length > 0
+      ? [...filtered].sort((a, b) => getOutcome(b).effectiveMarginPercent - getOutcome(a).effectiveMarginPercent)[0]
+      : null;
+    const topPerformerMargin = topPerformer ? getOutcome(topPerformer).effectiveMarginPercent : 0;
+    return { profitableCount, profitablePct, avgMargin, needsAttention, topPerformer, topPerformerMargin };
+  }, [filtered]);
 
   // Show skeleton placeholders on initial load
   if (showSkeleton && products.length === 0 && !onboardingCompleted) {
@@ -459,6 +539,204 @@ export function DashboardPage() {
             icon={HeartPulse}
             color={avgHealthScore >= 70 ? 'emerald' : avgHealthScore >= 40 ? 'amber' : 'red'}
           />
+        )}
+      </div>
+
+      {/* Pricing Health Trends - Analytics Panel */}
+      <div>
+        <div className="mb-4 flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center shadow-sm">
+            <TrendingUp className="h-4 w-4 text-emerald-600" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">Pricing Health Trends</h2>
+            <p className="text-sm text-slate-500">Margin distribution and pricing health breakdown of your catalog</p>
+          </div>
+        </div>
+
+        {filtered.length === 0 ? (
+          <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-slate-50/20">
+            <CardContent className="py-12 flex flex-col items-center justify-center text-center">
+              <Package className="h-10 w-10 text-slate-300 mb-3" />
+              <p className="text-sm font-medium text-slate-600">No products to analyze</p>
+              <p className="text-xs text-slate-400 mt-1">Adjust your filters or add products to see pricing health trends</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Card A: Margin Distribution Histogram */}
+              <Card className="shadow-md border-0 overflow-hidden hover:shadow-lg transition-shadow duration-200 bg-gradient-to-b from-white to-slate-50/20">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    <BarChart3 className="h-4 w-4 text-emerald-500" />
+                    Margin Distribution
+                  </CardTitle>
+                  <CardDescription className="text-xs text-slate-400">How your products are distributed across margin ranges</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <RechartsBar data={marginBuckets} barSize={36}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
+                      <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={36} allowDecimals={false} />
+                      <Tooltip content={<MarginBucketTooltip />} cursor={{ fill: 'rgba(148,163,184,0.08)' }} />
+                      <Bar dataKey="count" name="Products" radius={[4, 4, 0, 0]}>
+                        {marginBuckets.map((entry, index) => <Cell key={index} fill={entry.color} />)}
+                      </Bar>
+                    </RechartsBar>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              {/* Card B: Pricing Status Breakdown (Donut) */}
+              <Card className="shadow-md border-0 overflow-hidden hover:shadow-lg transition-shadow duration-200 bg-gradient-to-b from-white to-emerald-50/20">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    <PieChart className="h-4 w-4 text-emerald-500" />
+                    Pricing Status Breakdown
+                  </CardTitle>
+                  <CardDescription className="text-xs text-slate-400">Current health distribution across your catalog</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="relative">
+                    <ResponsiveContainer width="100%" height={250}>
+                      <RechartsPie>
+                        <Pie
+                          data={statusBreakdown}
+                          dataKey="count"
+                          nameKey="label"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={90}
+                          paddingAngle={2}
+                          animationBegin={0}
+                          animationDuration={800}
+                          stroke="#fff"
+                          strokeWidth={1}
+                        >
+                          {statusBreakdown.map((entry, index) => <Cell key={index} fill={entry.color} />)}
+                        </Pie>
+                        <Tooltip content={<CustomTooltip />} />
+                      </RechartsPie>
+                    </ResponsiveContainer>
+                    {/* Center label overlay */}
+                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-2xl font-bold text-slate-800 leading-none">{filtered.length}</span>
+                      <span className="text-xs text-slate-500 mt-1">Products</span>
+                    </div>
+                  </div>
+                  {/* Legend below with color dots and counts */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 pt-3 border-t border-slate-100 mt-1">
+                    {statusBreakdown.map(s => (
+                      <div key={s.status} className="flex items-center gap-1.5">
+                        <span className={`h-2.5 w-2.5 rounded-full ${s.dot}`} />
+                        <span className="text-xs font-medium text-slate-600 truncate">{s.label}</span>
+                        <span className="text-xs font-semibold text-slate-800 ml-auto">{s.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Card C: Quick Insights */}
+            <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-amber-50/20 mt-4">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                  <Lightbulb className="h-4 w-4 text-amber-500" />
+                  Quick Insights
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-400">Auto-generated observations about your catalog pricing health</CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                {/* Insight 1: Profitable % */}
+                {(() => {
+                  const pct = pricingHealthInsights.profitablePct;
+                  const tone = pct >= 80 ? 'emerald' : pct >= 50 ? 'amber' : 'red';
+                  const toneClasses = {
+                    emerald: { bg: 'bg-emerald-50 border-emerald-100', icon: 'text-emerald-600', text: 'text-emerald-700' },
+                    amber: { bg: 'bg-amber-50 border-amber-100', icon: 'text-amber-600', text: 'text-amber-700' },
+                    red: { bg: 'bg-red-50 border-red-100', icon: 'text-red-600', text: 'text-red-700' },
+                  }[tone];
+                  return (
+                    <div className={`flex items-start gap-3 rounded-lg p-3 border ${toneClasses.bg}`}>
+                      <div className={`mt-0.5 ${toneClasses.icon}`}><CheckCircle2 className="h-4 w-4" /></div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-slate-500">Profitable Products</p>
+                        <p className={`text-sm font-semibold ${toneClasses.text}`}>{pct.toFixed(0)}% of your products are profitable</p>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Insight 2: Average margin */}
+                {(() => {
+                  const m = pricingHealthInsights.avgMargin;
+                  const target = businessSettings.defaultTargetMarginPercent;
+                  const diff = m - target;
+                  const tone = diff >= 0 ? 'emerald' : m >= target * 0.5 ? 'amber' : 'red';
+                  const toneClasses = {
+                    emerald: { bg: 'bg-emerald-50 border-emerald-100', icon: 'text-emerald-600', text: 'text-emerald-700' },
+                    amber: { bg: 'bg-amber-50 border-amber-100', icon: 'text-amber-600', text: 'text-amber-700' },
+                    red: { bg: 'bg-red-50 border-red-100', icon: 'text-red-600', text: 'text-red-700' },
+                  }[tone];
+                  const cmpText = diff >= 0
+                    ? `${diff.toFixed(1)}% above target`
+                    : `${Math.abs(diff).toFixed(1)}% below target`;
+                  return (
+                    <div className={`flex items-start gap-3 rounded-lg p-3 border ${toneClasses.bg}`}>
+                      <div className={`mt-0.5 ${toneClasses.icon}`}><Target className="h-4 w-4" /></div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-slate-500">Average Margin</p>
+                        <p className={`text-sm font-semibold ${toneClasses.text}`}>Average margin: {formatPercentage(m)} <span className="text-xs font-normal text-slate-500">({cmpText} of {formatPercentage(target)})</span></p>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Insight 3: Needs attention (clickable) */}
+                {(() => {
+                  const n = pricingHealthInsights.needsAttention;
+                  const tone = n === 0 ? 'emerald' : n <= 2 ? 'amber' : 'red';
+                  const toneClasses = {
+                    emerald: { bg: 'bg-emerald-50 border-emerald-100', icon: 'text-emerald-600', text: 'text-emerald-700' },
+                    amber: { bg: 'bg-amber-50 border-amber-100', icon: 'text-amber-600', text: 'text-amber-700' },
+                    red: { bg: 'bg-red-50 border-red-100', icon: 'text-red-600', text: 'text-red-700' },
+                  }[tone];
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setCurrentView('review-prices')}
+                      className={`flex items-start gap-3 rounded-lg p-3 border ${toneClasses.bg} text-left transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-amber-300`}
+                    >
+                      <div className={`mt-0.5 ${toneClasses.icon}`}><AlertTriangle className="h-4 w-4" /></div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-slate-500">Needs Attention</p>
+                        <p className={`text-sm font-semibold ${toneClasses.text}`}>{n} product{n === 1 ? '' : 's'} need attention <span className="text-xs font-normal text-slate-500 underline decoration-dotted">Review Prices →</span></p>
+                      </div>
+                    </button>
+                  );
+                })()}
+
+                {/* Insight 4: Top performer */}
+                {pricingHealthInsights.topPerformer && (() => {
+                  const p = pricingHealthInsights.topPerformer;
+                  const m = pricingHealthInsights.topPerformerMargin;
+                  return (
+                    <div className="flex items-start gap-3 rounded-lg p-3 border bg-emerald-50 border-emerald-100">
+                      <div className="mt-0.5 text-emerald-600"><TrendingUp className="h-4 w-4" /></div>
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-slate-500">Top Performer</p>
+                        <p className="text-sm font-semibold text-emerald-700">Top performer: {p.name} with {formatPercentage(m)} margin</p>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          </>
         )}
       </div>
 

@@ -12,11 +12,13 @@ import { Separator } from '@/components/ui/separator';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { SUPPORTED_CURRENCIES, RoundingRule, TaxTreatment, ApplicationMode } from '@/lib/pricepilot/types';
 import { AutoBackup } from '@/store/pricepilot-store';
 import { HelpSection } from './help-section';
 import { RestartTourButton } from './guided-tour';
-import { Building2, Coins, Palette, Database, Download, Upload, Trash2, RefreshCw, Shield, ChevronDown, ChevronRight, AlertTriangle, FileDown, Eye, Clock } from 'lucide-react';
+import { Building2, Coins, Palette, Database, Download, Upload, Trash2, RefreshCw, Shield, ChevronDown, ChevronRight, AlertTriangle, FileDown, Eye, Clock, Info } from 'lucide-react';
 import { toast } from 'sonner';
 
 const COUNTRIES = [
@@ -48,6 +50,28 @@ const ROUNDING_OPTIONS: { value: RoundingRule; label: string }[] = [
 
 const inputClass = 'bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500';
 const labelClass = 'text-sm font-medium text-slate-600';
+
+/** Amber "Estimate" pill with tooltip explaining the value is a pre-filled estimate. */
+function EstimateBadge({ channel }: { channel: string }) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge
+            variant="outline"
+            className="text-amber-700 border-amber-300 bg-amber-50 text-[10px] font-medium uppercase tracking-wide flex items-center gap-1 cursor-help"
+          >
+            <Info className="h-3 w-3" />
+            Estimate
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-[220px] leading-relaxed">
+          Typical {channel} fee. Actual fees vary by category and tier. Verify on the official {channel} seller portal.
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 export function SettingsPage() {
   const { businessSettings, updateBusinessSettings, appSettings, updateAppSettings, setApplicationMode, exportData, importData, clearAllProducts, resetApplication, products, downloadBackup, restoreBackup, createAutoBackup, autoBackups, setCurrentView } = usePricePilotStore();
@@ -220,6 +244,13 @@ export function SettingsPage() {
           <CardDescription>Default margin targets, costs, and fees applied to all products</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Estimate info banner */}
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+            <Info className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <div className="text-xs text-amber-800">
+              <span className="font-semibold">Fee estimates.</span> The default marketplace, payment gateway, and return/damage rate values below are typical estimates. Actual fees vary by product category and seller tier — please verify with each marketplace&apos;s official documentation.
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="targetMargin" className={labelClass}>Target Margin (%)</Label>
@@ -254,21 +285,33 @@ export function SettingsPage() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="defaultMarketplaceFee" className={labelClass}>Default Marketplace Fee (%)</Label>
+              <div className="flex items-center gap-1 mb-1">
+                <Label htmlFor="defaultMarketplaceFee" className={labelClass}>Default Marketplace Fee (%)</Label>
+                <EstimateBadge channel="marketplace" />
+              </div>
               <Input id="defaultMarketplaceFee" type="number" value={businessSettings.defaultMarketplaceFeePercent} onChange={e => updateBusinessSettings({ defaultMarketplaceFeePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
             <div>
-              <Label htmlFor="defaultPaymentFee" className={labelClass}>Default Payment Gateway (%)</Label>
+              <div className="flex items-center gap-1 mb-1">
+                <Label htmlFor="defaultPaymentFee" className={labelClass}>Default Payment Gateway (%)</Label>
+                <EstimateBadge channel="payment gateway" />
+              </div>
               <Input id="defaultPaymentFee" type="number" value={businessSettings.defaultPaymentFeePercent} onChange={e => updateBusinessSettings({ defaultPaymentFeePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="defaultReturnRate" className={labelClass}>Default Return Rate (%)</Label>
+              <div className="flex items-center gap-1 mb-1">
+                <Label htmlFor="defaultReturnRate" className={labelClass}>Default Return Rate (%)</Label>
+                <EstimateBadge channel="return rate" />
+              </div>
               <Input id="defaultReturnRate" type="number" value={businessSettings.defaultReturnRatePercent} onChange={e => updateBusinessSettings({ defaultReturnRatePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
             <div>
-              <Label htmlFor="defaultDamageRate" className={labelClass}>Default Damage Rate (%)</Label>
+              <div className="flex items-center gap-1 mb-1">
+                <Label htmlFor="defaultDamageRate" className={labelClass}>Default Damage Rate (%)</Label>
+                <EstimateBadge channel="damage rate" />
+              </div>
               <Input id="defaultDamageRate" type="number" value={businessSettings.defaultDamageRatePercent} onChange={e => updateBusinessSettings({ defaultDamageRatePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
           </div>

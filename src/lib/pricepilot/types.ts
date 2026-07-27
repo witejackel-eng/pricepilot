@@ -462,13 +462,20 @@ export type PercentFormat =
   | 'whole-percentages'   // 18 means 18%
   | 'decimal-fractions';  // 0.18 means 18%
 
+/** How to handle rows whose SKU already exists in the import batch or in the existing catalog */
+export type DuplicateHandling =
+  | 'skip'        // Skip duplicate SKU rows (default) — counted in importSummary.duplicates
+  | 'overwrite'   // Replace existing product with same SKU
+  | 'allow';      // Import all rows, even if SKU matches
+
 /** Cleaning options that control how imported data is processed */
 export interface CleaningOptions {
   stripCurrencySymbols: boolean;     // Strip currency symbols (₹, $, £, €, ¥)
   stripGroupingCommas: boolean;      // Remove grouping commas (1,00,000 → 100000)
   parsePercentages: boolean;         // Parse percentage values (18, 18%, 0.18)
   skipBlankRequired: boolean;        // Skip rows with blank required fields
-  skipDuplicateSku: boolean;         // Skip duplicate SKU rows (vs update existing)
+  skipDuplicateSku: boolean;         // Legacy boolean — kept for backward compatibility. When true, behaves like duplicateHandling='skip'.
+  duplicateHandling: DuplicateHandling;  // How to handle duplicate SKUs (skip | overwrite | allow)
   percentFormat: PercentFormat;      // How to interpret percentage values
 }
 
@@ -537,6 +544,7 @@ export function createDefaultCleaningOptions(): CleaningOptions {
     parsePercentages: true,
     skipBlankRequired: true,
     skipDuplicateSku: true,
+    duplicateHandling: 'skip',
     percentFormat: 'auto',
   };
 }

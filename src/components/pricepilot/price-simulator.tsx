@@ -302,7 +302,34 @@ export function PriceSimulator() {
             <CardDescription>Calculate prices and profitability using the canonical pricing engine</CardDescription>
           </CardHeader>
           <CardContent className="space-y-0">
-            {/* Cost inputs */}
+            {/* Proposed selling price — prominent at top so users see it before Live Results */}
+            <div className="mb-4 p-3 rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50/30 border border-emerald-200/50">
+              <Label className="text-sm font-semibold text-emerald-800 flex items-center gap-1">
+                <Calculator className="h-3.5 w-3.5" />
+                Proposed Selling Price
+              </Label>
+              <Input
+                type="number"
+                value={inputs.proposedPrice}
+                onChange={e => updateInput('proposedPrice', parseFloat(e.target.value) || 0)}
+                className="mt-1 bg-white shadow-sm border-emerald-200 focus:ring-2 focus:ring-emerald-500/20 text-lg font-semibold"
+                placeholder="Enter a price to see live results →"
+              />
+              {inputs.proposedPrice > 0 && (
+                <Slider
+                  min={Math.max(0, Math.floor(Math.max(recommendations.breakEven, 0) * 0.5))}
+                  max={Math.ceil(Math.max(recommendations.premium, recommendations.breakEven || 100) * 1.5)}
+                  step={1}
+                  value={[inputs.proposedPrice]}
+                  onValueChange={([v]) => updateInput('proposedPrice', v)}
+                  className="mt-2"
+                />
+              )}
+            </div>
+
+            <Separator className="my-4 bg-slate-100" />
+
+            {/* Cost inputs — 8 fields in a balanced 2-col grid */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-sm font-medium text-slate-600">Purchase Cost</Label>
@@ -331,6 +358,10 @@ export function PriceSimulator() {
               <div>
                 <Label className="text-sm font-medium text-slate-600">Freight (%)</Label>
                 <Input type="number" value={inputs.freightPercent} onChange={e => updateInput('freightPercent', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-slate-600">Shipping Charge to Customer</Label>
+                <Input type="number" value={inputs.shippingChargeToCustomer} onChange={e => updateInput('shippingChargeToCustomer', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
               </div>
             </div>
 
@@ -395,8 +426,8 @@ export function PriceSimulator() {
 
             <Separator className="my-4 bg-slate-100" />
 
-            {/* Purchase-side tax inputs */}
-            <div className="grid grid-cols-2 gap-4">
+            {/* Purchase-side tax inputs — 3 fields instead of 4 (Shipping Charge moved up) */}
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <Label className="text-sm font-medium text-slate-600">Purchase Tax Rate (%)</Label>
                 <Input type="number" value={inputs.purchaseTaxRatePercent} onChange={e => updateInput('purchaseTaxRatePercent', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
@@ -422,10 +453,6 @@ export function PriceSimulator() {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label className="text-sm font-medium text-slate-600">Shipping Charge to Customer</Label>
-                <Input type="number" value={inputs.shippingChargeToCustomer} onChange={e => updateInput('shippingChargeToCustomer', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
-              </div>
             </div>
 
             <Separator className="my-4 bg-slate-100" />
@@ -440,24 +467,6 @@ export function PriceSimulator() {
                 <Label className="text-sm font-medium text-slate-600">Competitor Price</Label>
                 <Input type="number" value={inputs.competitorPrice} onChange={e => updateInput('competitorPrice', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
               </div>
-            </div>
-
-            <Separator className="my-4 bg-slate-100" />
-
-            {/* Proposed selling price */}
-            <div>
-              <Label className="text-sm font-medium text-slate-600">Proposed Selling Price</Label>
-              <Input type="number" value={inputs.proposedPrice} onChange={e => updateInput('proposedPrice', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
-              {inputs.proposedPrice > 0 && (
-                <Slider
-                  min={Math.max(0, Math.floor(Math.max(recommendations.breakEven, 0) * 0.5))}
-                  max={Math.ceil(Math.max(recommendations.premium, recommendations.breakEven || 100) * 1.5)}
-                  step={1}
-                  value={[inputs.proposedPrice]}
-                  onValueChange={([v]) => updateInput('proposedPrice', v)}
-                  className="mt-2"
-                />
-              )}
             </div>
           </CardContent>
         </Card>

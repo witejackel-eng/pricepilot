@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Slider } from '@/components/ui/slider';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -29,11 +30,11 @@ import {
   CompetitorPrice,
   PriceApprovalStatus,
 } from '@/lib/pricepilot/types';
-import { calculateOutcomeAtPrice } from '@/lib/pricepilot/pricing-engine';
+import { calculateOutcomeAtPrice, calculateBreakEvenPriceFromOutcome } from '@/lib/pricepilot/pricing-engine';
 import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Calculator,
-  Edit3, CheckCircle, Undo2, Copy, ChevronDown, ChevronUp, Plus, X, ShieldCheck, FileCheck
+  Edit3, CheckCircle, Undo2, Copy, ChevronDown, ChevronUp, Plus, X, ShieldCheck, FileCheck, Sparkles
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -52,6 +53,13 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
   const [editHistory, setEditHistory] = useState<Array<{ field: string; oldValue: unknown; newValue: unknown }>>([]);
   const [isEditing, setIsEditing] = useState(false);
 
+  // ===== What-if Price Simulator state =====
+  // Initial slider value = product's current selling price. Reset on product
+  // change happens in the render-phase guard below (preferred over a
+  // `useEffect`+`setState` per React's "adjusting state when props change"
+  // guidance and the `react-hooks/set-state-in-effect` lint rule).
+  const [whatIfPrice, setWhatIfPrice] = useState<number>(0);
+
   const product = products.find(p => p.id === productId);
 
   // Initialize edit form when product changes (React pattern for adjusting state when props change)
@@ -63,6 +71,8 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
     setEditHistory([]);
     setIsEditing(false);
     setSelectedMode(product.selectedRecommendationMode || 'balanced');
+    // Reset the What-if slider to the newly selected product's current price
+    setWhatIfPrice(product.currentSellingPrice);
     // Track recently viewed product
     addRecentlyViewed(product.id);
   }
@@ -105,6 +115,30 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
       return null;
     }
   }, [editForm, editCompetitors, businessSettings, pricingRules]);
+
+  // ===== What-if Price Simulator derived computations =====
+  const effectiveRule = useMemo(() => {
+    if (!product) return undefined;
+    return resolveEffectivePricingPolicy(product, pricingRules, businessSettings);
+  }, [product, pricingRules, businessSettings]);
+
+  const whatIfOutcome = useMemo(() => {
+    if (!product || !effectiveRule) return null;
+    try {
+      return calculateOutcomeAtPrice({ product, sellingPrice: whatIfPrice, businessSettings, effectiveRule });
+    } catch {
+      return null;
+    }
+  }, [product, whatIfPrice, businessSettings, effectiveRule]);
+
+  const breakEvenPrice = useMemo(() => {
+    if (!product || !effectiveRule) return 0;
+    try {
+      return calculateBreakEvenPriceFromOutcome(product, businessSettings, effectiveRule);
+    } catch {
+      return 0;
+    }
+  }, [product, businessSettings, effectiveRule]);
 
   if (!product) {
     return (
@@ -191,6 +225,24 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
       default: return 'Unknown';
     }
   };
+
+  // ===== What-if Price Simulator derived values =====
+  const sliderBase = breakEvenPrice > 0 ? breakEvenPrice : product.currentSellingPrice;
+  const sliderMin = Math.max(0, Math.round(sliderBase * 0.5));
+  // Ensure the slider always encompasses the current selling price so the initial
+  // thumb position is valid, while still honoring the breakEven-based range.
+  const sliderMax = Math.max(sliderMin + 10, Math.round(sliderBase * 2), Math.round(product.currentSellingPrice));
+  const sliderStep = sliderBase < 100 ? 1 : 10;
+  const minMargin = effectiveRule?.minimumMarginPercent ?? businessSettings.defaultMinimumMarginPercent;
+  const targetMargin = effectiveRule?.targetMarginPercent ?? businessSettings.defaultTargetMarginPercent;
+  const currencyDiff = whatIfPrice - product.currentSellingPrice;
+  const diffPercent = product.currentSellingPrice > 0 ? (currencyDiff / product.currentSellingPrice) * 100 : 0;
+  const whatIfStatusBadge = (() => {
+    if (!whatIfOutcome) return <Badge className="bg-slate-100 text-slate-600 border-slate-200">—</Badge>;
+    if (whatIfOutcome.netProfit < 0) return <Badge className="bg-red-100 text-red-700 border-red-200">Loss-making</Badge>;
+    if (whatIfOutcome.effectiveMarginPercent >= targetMargin) return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">Healthy</Badge>;
+    return <Badge className="bg-amber-100 text-amber-700 border-amber-200">Low Margin</Badge>;
+  })();
 
   return (
     <Sheet open={!!productId} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -280,7 +332,20 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                 <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
                   <span>Margin health: {product.calculatedPricingStatus === 'loss-making' ? '0' : product.calculatedPricingStatus === 'below-break-even' ? '10' : product.calculatedPricingStatus === 'low-margin' ? '20' : product.calculatedPricingStatus === 'healthy' ? '30' : product.calculatedPricingStatus === 'high-margin' ? '40' : '—'}/40</span>
                   <span>Cost coverage: {product.calculatedMarginPercent >= 25 ? '30' : product.calculatedMarginPercent > 0 ? Math.round((product.calculatedMarginPercent / 25) * 30) : '0'}/30</span>
-                  <span>Price alignment: —/30</span>
+                  <span>Price alignment: {(() => {
+                    const cur = product.currentSellingPrice;
+                    const rec = product.recommendedPrices?.balanced ?? 0;
+                    if (rec > 0 && cur > 0) {
+                      const diffPct = Math.abs((cur - rec) / rec) * 100;
+                      if (diffPct <= 5) return '30';
+                      if (diffPct <= 10) return '25';
+                      if (diffPct <= 20) return '20';
+                      if (diffPct <= 30) return '15';
+                      if (diffPct <= 50) return '10';
+                      return '5';
+                    }
+                    return '5';
+                  })()}/30</span>
                 </div>
               </CardContent>
             </Card>
@@ -309,6 +374,96 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                 </CardContent>
               </Card>
             )}
+
+            {/* What-if Price Simulator */}
+            <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-emerald-500" />
+                  What-if Price Simulator
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 space-y-3">
+                <div className="text-center">
+                  <div className="text-3xl font-bold text-emerald-600">{formatCurrency(whatIfPrice, cc)}</div>
+                  <div className="text-xs text-muted-foreground">Hypothetical selling price</div>
+                </div>
+
+                <Slider
+                  value={[whatIfPrice]}
+                  min={sliderMin}
+                  max={sliderMax}
+                  step={sliderStep}
+                  onValueChange={(vals) => setWhatIfPrice(vals[0])}
+                  className="py-2"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{formatCurrency(sliderMin, cc)}</span>
+                  <span>{formatCurrency(sliderMax, cc)}</span>
+                </div>
+
+                <p className="text-xs text-muted-foreground text-center">
+                  Drag to see outcomes at any price. Does not change your actual price until you click 'Set as Current Price'.
+                </p>
+
+                {whatIfOutcome && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
+                      <div className="text-xs text-muted-foreground">Net Profit / Unit</div>
+                      <div className={`text-lg font-bold ${whatIfOutcome.netProfit > 0 ? 'text-emerald-600' : whatIfOutcome.netProfit < 0 ? 'text-red-600' : 'text-slate-600'}`}>
+                        {formatCurrency(whatIfOutcome.netProfit, cc)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
+                      <div className="text-xs text-muted-foreground">Margin</div>
+                      <div className={`text-lg font-bold ${whatIfOutcome.effectiveMarginPercent < minMargin ? 'text-amber-600' : 'text-slate-700'}`}>
+                        {formatPercentage(whatIfOutcome.effectiveMarginPercent)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
+                      <div className="text-xs text-muted-foreground">Markup</div>
+                      <div className="text-lg font-bold text-slate-700">{formatPercentage(whatIfOutcome.markupPercent)}</div>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
+                      <div className="text-xs text-muted-foreground">Status</div>
+                      <div className="mt-0.5">{whatIfStatusBadge}</div>
+                    </div>
+                  </div>
+                )}
+
+                {whatIfOutcome && (
+                  <div className="flex items-center justify-between text-sm border-t border-slate-100 pt-2">
+                    <span className="text-muted-foreground">vs Current</span>
+                    <span className={`font-semibold flex items-center gap-1 ${currencyDiff > 0 ? 'text-emerald-600' : currencyDiff < 0 ? 'text-red-600' : 'text-slate-500'}`}>
+                      {currencyDiff > 0 ? <ArrowUpRight className="h-4 w-4" /> : currencyDiff < 0 ? <ArrowDownRight className="h-4 w-4" /> : null}
+                      {diffPercent > 0 ? '+' : ''}{diffPercent.toFixed(1)}% ({currencyDiff > 0 ? '+' : currencyDiff < 0 ? '-' : ''}{formatCurrency(Math.abs(currencyDiff), cc)})
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      updateProduct(product.id, { currentSellingPrice: whatIfPrice });
+                      toast.success('Price updated', { description: `Set ${product.name} to ${formatCurrency(whatIfPrice, cc)}` });
+                    }}
+                    disabled={whatIfPrice === product.currentSellingPrice}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg"
+                  >
+                    <CheckCircle className="h-4 w-4 mr-1" /> Set as Current Price
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setWhatIfPrice(product.currentSellingPrice)}
+                    className="rounded-lg"
+                  >
+                    <Undo2 className="h-4 w-4 mr-1" /> Reset to Current
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Cost breakdown */}
             <Card className="shadow-md border-0 rounded-xl">
