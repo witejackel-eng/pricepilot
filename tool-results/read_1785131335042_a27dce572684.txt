@@ -1,0 +1,843 @@
+     1→/**
+     2→ * PricePilot - Data Validation
+     3→ *
+     4→ * Comprehensive validation for products, pricing rules,
+     5→ * business settings, and import data. Returns structured
+     6→ * error arrays for UI display.
+     7→ */
+     8→
+     9→import {
+    10→  Product,
+    11→  PricingRule,
+    12→  BusinessSettings,
+    13→  RuleLevel,
+    14→  TaxTreatment,
+    15→  SalesChannel,
+    16→  RoundingRule,
+    17→  CompetitorStrategy,
+    18→  SUPPORTED_CURRENCIES,
+    19→} from './types';
+    20→
+    21→// ============================================================
+    22→// Validation Result Types
+    23→// ============================================================
+    24→
+    25→export interface ValidationError {
+    26→  field: string;
+    27→  message: string;
+    28→  severity: 'error' | 'warning';
+    29→  value?: unknown;
+    30→  suggestion?: string;
+    31→}
+    32→
+    33→// ============================================================
+    34→// Common Validation Functions
+    35→// ============================================================
+    36→
+    37→/**
+    38→ * Validate that a value is non-negative.
+    39→ */
+    40→export function nonNegative(value: number, field: string): ValidationError | null {
+    41→  if (typeof value !== 'number' || isNaN(value)) {
+    42→    return {
+    43→      field,
+    44→      message: `${field} must be a valid number`,
+    45→      severity: 'error',
+    46→      value,
+    47→      suggestion: 'Enter a valid number',
+    48→    };
+    49→  }
+    50→  if (value < 0) {
+    51→    return {
+    52→      field,
+    53→      message: `${field} cannot be negative`,
+    54→      severity: 'error',
+    55→      value,
+    56→      suggestion: 'Enter a zero or positive value',
+    57→    };
+    58→  }
+    59→  return null;
+    60→}
+    61→
+    62→/**
+    63→ * Validate that a percentage value is within a reasonable range.
+    64→ */
+    65→export function percentageRange(
+    66→  value: number,
+    67→  field: string,
+    68→  min: number = 0,
+    69→  max: number = 100
+    70→): ValidationError | null {
+    71→  if (typeof value !== 'number' || isNaN(value)) {
+    72→    return {
+    73→      field,
+    74→      message: `${field} must be a valid percentage`,
+    75→      severity: 'error',
+    76→      value,
+    77→      suggestion: 'Enter a valid percentage number',
+    78→    };
+    79→  }
+    80→  if (value < min) {
+    81→    return {
+    82→      field,
+    83→      message: `${field} (${value}%) is below the minimum of ${min}%`,
+    84→      severity: 'error',
+    85→      value,
+    86→      suggestion: `Enter a value of at least ${min}%`,
+    87→    };
+    88→  }
+    89→  if (value > max) {
+    90→    return {
+    91→      field,
+    92→      message: `${field} (${value}%) exceeds the maximum of ${max}%`,
+    93→      severity: value > max * 2 ? 'error' : 'warning',
+    94→      value,
+    95→      suggestion: `Most values are under ${max}%. Please verify.`,
+    96→    };
+    97→  }
+    98→  return null;
+    99→}
+   100→
+   101→/**
+   102→ * Validate that a string field is not blank/empty.
+   103→ */
+   104→export function notBlank(value: string, field: string): ValidationError | null {
+   105→  if (typeof value !== 'string' || value.trim() === '') {
+   106→    return {
+   107→      field,
+   108→      message: `${field} cannot be empty`,
+   109→      severity: 'error',
+   110→      value,
+   111→      suggestion: `Enter a value for ${field}`,
+   112→    };
+   113→  }
+   114→  return null;
+   115→}
+   116→
+   117→/**
+   118→ * Validate that a currency code is valid.
+   119→ */
+   120→export function currencyValid(code: string, field: string = 'currencyCode'): ValidationError | null {
+   121→  const validCodes = SUPPORTED_CURRENCIES.map(c => c.code);
+   122→  if (!validCodes.includes(code)) {
+   123→    return {
+   124→      field,
+   125→      message: `${code} is not a supported currency`,
+   126→      severity: 'error',
+   127→      value: code,
+   128→      suggestion: `Use one of: ${validCodes.join(', ')}`,
+   129→    };
+   130→  }
+   131→  return null;
+   132→}
+   133→
+   134→/**
+   135→ * Validate that a tax treatment value is valid.
+   136→ */
+   137→export function taxTreatmentValid(treatment: string): ValidationError | null {
+   138→  const validTreatments: TaxTreatment[] = ['inclusive', 'exclusive', 'exempt', 'reverse', 'composite'];
+   139→  if (!validTreatments.includes(treatment as TaxTreatment)) {
+   140→    return {
+   141→      field: 'taxTreatment',
+   142→      message: `${treatment} is not a valid tax treatment`,
+   143→      severity: 'error',
+   144→      value: treatment,
+   145→      suggestion: `Use one of: ${validTreatments.join(', ')}`,
+   146→    };
+   147→  }
+   148→  return null;
+   149→}
+   150→
+   151→/**
+   152→ * Validate a sales channel value.
+   153→ */
+   154→export function salesChannelValid(channel: string): ValidationError | null {
+   155→  const validChannels: SalesChannel[] = [
+   156→    'online-marketplace', 'own-website', 'retail-store',
+   157→    'wholesale', 'distributor', 'offline', 'other'
+   158→  ];
+   159→  if (!validChannels.includes(channel as SalesChannel)) {
+   160→    return {
+   161→      field: 'salesChannel',
+   162→      message: `${channel} is not a valid sales channel`,
+   163→      severity: 'error',
+   164→      value: channel,
+   165→      suggestion: `Use one of: ${validChannels.join(', ')}`,
+   166→    };
+   167→  }
+   168→  return null;
+   169→}
+   170→
+   171→/**
+   172→ * Validate a rounding rule value.
+   173→ */
+   174→export function roundingRuleValid(rule: string): ValidationError | null {
+   175→  const validRules: RoundingRule[] = [
+   176→    'no-rounding', 'nearest-whole', 'nearest-5', 'nearest-10',
+   177→    'end-in-99', 'end-in-95', 'end-in-9', 'end-in-49',
+   178→    'end-in-99-whole', 'custom'
+   179→  ];
+   180→  if (!validRules.includes(rule as RoundingRule)) {
+   181→    return {
+   182→      field: 'roundingRule',
+   183→      message: `${rule} is not a valid rounding rule`,
+   184→      severity: 'error',
+   185→      value: rule,
+   186→      suggestion: `Use one of: ${validRules.join(', ')}`,
+   187→    };
+   188→  }
+   189→  return null;
+   190→}
+   191→
+   192→/**
+   193→ * Validate a rule level value.
+   194→ */
+   195→export function ruleLevelValid(level: string): ValidationError | null {
+   196→  const validLevels: RuleLevel[] = ['global', 'category', 'brand', 'channel', 'product'];
+   197→  if (!validLevels.includes(level as RuleLevel)) {
+   198→    return {
+   199→      field: 'level',
+   200→      message: `${level} is not a valid rule level`,
+   201→      severity: 'error',
+   202→      value: level,
+   203→      suggestion: `Use one of: ${validLevels.join(', ')}`,
+   204→    };
+   205→  }
+   206→  return null;
+   207→}
+   208→
+   209→// ============================================================
+   210→// Product Validation
+   211→// ============================================================
+   212→
+   213→/**
+   214→ * Validate a product and return an array of errors.
+   215→ */
+   216→export function validateProduct(product: Partial<Product>): ValidationError[] {
+   217→  const errors: ValidationError[] = [];
+   218→
+   219→  // --- Required Fields ---
+   220→  const nameError = notBlank(product.name ?? '', 'name');
+   221→  if (nameError) errors.push(nameError);
+   222→
+   223→  const skuError = notBlank(product.sku ?? '', 'sku');
+   224→  if (skuError) errors.push(skuError);
+   225→
+   226→  // --- Cost Fields ---
+   227→  const costFields: Array<{ value: number | undefined; field: string }> = [
+   228→    { value: product.purchaseCost, field: 'purchaseCost' },
+   229→    { value: product.shippingCost, field: 'shippingCost' },
+   230→    { value: product.packagingCost, field: 'packagingCost' },
+   231→    { value: product.handlingCost, field: 'handlingCost' },
+   232→    { value: product.otherCosts, field: 'otherCosts' },
+   233→    { value: product.marketplaceFeeFixed, field: 'marketplaceFeeFixed' },
+   234→    { value: product.paymentFeeFixed, field: 'paymentFeeFixed' },
+   235→    { value: product.otherFeesFixed, field: 'otherFeesFixed' },
+   236→  ];
+   237→
+   238→  for (const { value, field } of costFields) {
+   239→    if (value !== undefined) {
+   240→      const error = nonNegative(value, field);
+   241→      if (error) errors.push(error);
+   242→    }
+   243→  }
+   244→
+   245→  // --- Percentage Fields ---
+   246→  const percentFields: Array<{ value: number | undefined; field: string; max: number }> = [
+   247→    { value: product.returnRatePercent, field: 'returnRatePercent', max: 100 },
+   248→    { value: product.damageRatePercent, field: 'damageRatePercent', max: 100 },
+   249→    { value: product.customDutyPercent, field: 'customDutyPercent', max: 100 },
+   250→    { value: product.freightPercent, field: 'freightPercent', max: 100 },
+   251→    { value: product.taxRatePercent, field: 'taxRatePercent', max: 50 },
+   252→    { value: product.marketplaceFeePercent, field: 'marketplaceFeePercent', max: 50 },
+   253→    { value: product.paymentFeePercent, field: 'paymentFeePercent', max: 10 },
+   254→    { value: product.otherFeesPercent, field: 'otherFeesPercent', max: 20 },
+   255→  ];
+   256→
+   257→  for (const { value, field, max } of percentFields) {
+   258→    if (value !== undefined) {
+   259→      const error = percentageRange(value, field, 0, max);
+   260→      if (error) errors.push(error);
+   261→    }
+   262→  }
+   263→
+   264→  // --- Selling Price ---
+   265→  if (product.currentSellingPrice !== undefined) {
+   266→    const error = nonNegative(product.currentSellingPrice, 'currentSellingPrice');
+   267→    if (error) errors.push(error);
+   268→
+   269→    // Warn if selling price is less than purchase cost
+   270→    if (
+   271→      product.currentSellingPrice > 0 &&
+   272→      product.purchaseCost > 0 &&
+   273→      product.currentSellingPrice < product.purchaseCost
+   274→    ) {
+   275→      errors.push({
+   276→        field: 'currentSellingPrice',
+   277→        message: 'Selling price is below purchase cost — product will be loss-making',
+   278→        severity: 'warning',
+   279→        value: product.currentSellingPrice,
+   280→        suggestion: 'Increase the selling price above the purchase cost',
+   281→      });
+   282→    }
+   283→  }
+   284→
+   285→  // --- Tax Treatment ---
+   286→  if (product.taxTreatment) {
+   287→    const error = taxTreatmentValid(product.taxTreatment);
+   288→    if (error) errors.push(error);
+   289→  }
+   290→
+   291→  // --- Sales Channel ---
+   292→  if (product.salesChannel) {
+   293→    const error = salesChannelValid(product.salesChannel);
+   294→    if (error) errors.push(error);
+   295→  }
+   296→
+   297→  // --- Competitor Prices ---
+   298→  if (product.competitorPrices) {
+   299→    for (const cp of product.competitorPrices) {
+   300→      if (cp.price < 0) {
+   301→        errors.push({
+   302→          field: 'competitorPrices',
+   303→          message: `Competitor "${cp.name}" has a negative price`,
+   304→          severity: 'error',
+   305→          value: cp.price,
+   306→          suggestion: 'Set competitor price to zero or a positive value',
+   307→        });
+   308→      }
+   309→      if (!cp.name || cp.name.trim() === '') {
+   310→        errors.push({
+   311→          field: 'competitorPrices',
+   312→          message: 'Competitor name is missing',
+   313→          severity: 'warning',
+   314→          suggestion: 'Add a name for each competitor price entry',
+   315→        });
+   316→      }
+   317→    }
+   318→  }
+   319→
+   320→  // --- Total Fees Check ---
+   321→  if (product.marketplaceFeePercent !== undefined &&
+   322→      product.paymentFeePercent !== undefined &&
+   323→      product.otherFeesPercent !== undefined &&
+   324→      product.taxRatePercent !== undefined) {
+   325→    const totalPercentFees = 
+   326→      product.marketplaceFeePercent +
+   327→      product.paymentFeePercent +
+   328→      product.otherFeesPercent +
+   329→      (product.taxTreatment === 'exclusive' ? product.taxRatePercent : 0);
+   330→    
+   331→    if (totalPercentFees > 90) {
+   332→      errors.push({
+   333→        field: 'totalPercentageFees',
+   334→        message: `Total percentage fees (${totalPercentFees.toFixed(1)}%) exceed 90% — margins will be impossible`,
+   335→        severity: 'error',
+   336→        value: totalPercentFees,
+   337→        suggestion: 'Reduce marketplace, payment, or other percentage fees',
+   338→      });
+   339→    } else if (totalPercentFees > 50) {
+   340→      errors.push({
+   341→        field: 'totalPercentageFees',
+   342→        message: `Total percentage fees (${totalPercentFees.toFixed(1)}%) are very high`,
+   343→        severity: 'warning',
+   344→        value: totalPercentFees,
+   345→        suggestion: 'Consider negotiating lower fees or using a different channel',
+   346→      });
+   347→    }
+   348→  }
+   349→
+   350→  // --- ID Check ---
+   351→  if (!product.id || product.id.trim() === '') {
+   352→    errors.push({
+   353→      field: 'id',
+   354→      message: 'Product ID is missing',
+   355→      severity: 'error',
+   356→      suggestion: 'Each product must have a unique ID',
+   357→    });
+   358→  }
+   359→
+   360→  return errors;
+   361→}
+   362→
+   363→// ============================================================
+   364→// Pricing Rule Validation
+   365→// ============================================================
+   366→
+   367→/**
+   368→ * Validate a pricing rule and return an array of errors.
+   369→ */
+   370→export function validatePricingRule(rule: Partial<PricingRule>): ValidationError[] {
+   371→  const errors: ValidationError[] = [];
+   372→
+   373→  // --- Required Fields ---
+   374→  const nameError = notBlank(rule.name ?? '', 'name');
+   375→  if (nameError) errors.push(nameError);
+   376→
+   377→  const levelError = ruleLevelValid(rule.level ?? '');
+   378→  if (levelError) errors.push(levelError);
+   379→
+   380→  // --- Level-Specific Target Fields ---
+   381→  if (rule.level === 'category' && !rule.targetCategory?.trim()) {
+   382→    errors.push({
+   383→      field: 'targetCategory',
+   384→      message: 'Category-level rule must specify a target category',
+   385→      severity: 'error',
+   386→      suggestion: 'Set the targetCategory field',
+   387→    });
+   388→  }
+   389→  if (rule.level === 'brand' && !rule.targetBrand?.trim()) {
+   390→    errors.push({
+   391→      field: 'targetBrand',
+   392→      message: 'Brand-level rule must specify a target brand',
+   393→      severity: 'error',
+   394→      suggestion: 'Set the targetBrand field',
+   395→    });
+   396→  }
+   397→  if (rule.level === 'channel') {
+   398→    if (!rule.targetChannel) {
+   399→      errors.push({
+   400→        field: 'targetChannel',
+   401→        message: 'Channel-level rule must specify a target sales channel',
+   402→        severity: 'error',
+   403→        suggestion: 'Set the targetChannel field',
+   404→      });
+   405→    } else {
+   406→      const channelError = salesChannelValid(rule.targetChannel);
+   407→      if (channelError) errors.push(channelError);
+   408→    }
+   409→  }
+   410→  if (rule.level === 'product') {
+   411→    if (!rule.targetProductId?.trim() && !rule.targetProductSku?.trim()) {
+   412→      errors.push({
+   413→        field: 'targetProductId',
+   414→        message: 'Product-level rule must specify a target product ID or SKU',
+   415→        severity: 'error',
+   416→        suggestion: 'Set either targetProductId or targetProductSku',
+   417→      });
+   418→    }
+   419→  }
+   420→
+   421→  // --- Margin / Markup Targets ---
+   422→  const marginFields: Array<{ value: number | undefined; field: string; max: number }> = [
+   423→    { value: rule.targetMarginPercent, field: 'targetMarginPercent', max: 100 },
+   424→    { value: rule.minimumMarginPercent, field: 'minimumMarginPercent', max: 100 },
+   425→    { value: rule.maximumMarginPercent, field: 'maximumMarginPercent', max: 100 },
+   426→    { value: rule.targetMarkupPercent, field: 'targetMarkupPercent', max: 500 },
+   427→  ];
+   428→
+   429→  for (const { value, field, max } of marginFields) {
+   430→    if (value !== undefined) {
+   431→      const error = percentageRange(value, field, 0, max);
+   432→      if (error) errors.push(error);
+   433→    }
+   434→  }
+   435→
+   436→  // --- Logical Checks ---
+   437→  if (rule.minimumMarginPercent !== undefined && rule.maximumMarginPercent !== undefined) {
+   438→    if (rule.minimumMarginPercent > rule.maximumMarginPercent) {
+   439→      errors.push({
+   440→        field: 'minimumMarginPercent',
+   441→        message: `Minimum margin (${rule.minimumMarginPercent}%) cannot exceed maximum (${rule.maximumMarginPercent}%)`,
+   442→        severity: 'error',
+   443→        suggestion: 'Set minimum margin below the maximum margin',
+   444→      });
+   445→    }
+   446→  }
+   447→
+   448→  if (rule.targetMarginPercent !== undefined &&
+   449→      rule.minimumMarginPercent !== undefined &&
+   450→      rule.targetMarginPercent < rule.minimumMarginPercent) {
+   451→    errors.push({
+   452→      field: 'targetMarginPercent',
+   453→      message: `Target margin (${rule.targetMarginPercent}%) is below minimum (${rule.minimumMarginPercent}%)`,
+   454→      severity: 'warning',
+   455→      suggestion: 'Set target margin above the minimum margin',
+   456→    });
+   457→  }
+   458→
+   459→  // --- Override Fields ---
+   460→  if (rule.overrideTaxRatePercent !== undefined) {
+   461→    const error = percentageRange(rule.overrideTaxRatePercent, 'overrideTaxRatePercent', 0, 50);
+   462→    if (error) errors.push(error);
+   463→  }
+   464→  if (rule.overrideMarketplaceFeePercent !== undefined) {
+   465→    const error = percentageRange(rule.overrideMarketplaceFeePercent, 'overrideMarketplaceFeePercent', 0, 50);
+   466→    if (error) errors.push(error);
+   467→  }
+   468→  if (rule.overridePaymentFeePercent !== undefined) {
+   469→    const error = percentageRange(rule.overridePaymentFeePercent, 'overridePaymentFeePercent', 0, 10);
+   470→    if (error) errors.push(error);
+   471→  }
+   472→
+   473→  // --- Rounding Rule ---
+   474→  if (rule.roundingRule) {
+   475→    const error = roundingRuleValid(rule.roundingRule);
+   476→    if (error) errors.push(error);
+   477→
+   478→    if (rule.roundingRule === 'custom' && (!rule.customRoundingValue || rule.customRoundingValue <= 0)) {
+   479→      errors.push({
+   480→        field: 'customRoundingValue',
+   481→        message: 'Custom rounding requires a positive rounding value',
+   482→        severity: 'error',
+   483→        suggestion: 'Set customRoundingValue to a positive number',
+   484→      });
+   485→    }
+   486→  }
+   487→
+   488→  // --- Competitor Strategy ---
+   489→  if (rule.competitorStrategy) {
+   490→    const strategy = rule.competitorStrategy;
+   491→    const validModes: CompetitorStrategy['mode'][] = [
+   492→      'ignore', 'match-average', 'below-average', 'above-average',
+   493→      'match-lowest', 'match-highest', 'custom-offset'
+   494→    ];
+   495→    if (!validModes.includes(strategy.mode)) {
+   496→      errors.push({
+   497→        field: 'competitorStrategy.mode',
+   498→        message: `${strategy.mode} is not a valid competitor strategy mode`,
+   499→        severity: 'error',
+   500→        suggestion: `Use one of: ${validModes.join(', ')}`,
+   501→      });
+   502→    }
+   503→    if (strategy.weightPercent !== undefined) {
+   504→      const error = percentageRange(strategy.weightPercent, 'competitorStrategy.weightPercent', 0, 100);
+   505→      if (error) errors.push(error);
+   506→    }
+   507→  }
+   508→
+   509→  // --- Priority ---
+   510→  if (rule.priority !== undefined && rule.priority < 0) {
+   511→    errors.push({
+   512→      field: 'priority',
+   513→      message: 'Priority cannot be negative',
+   514→      severity: 'warning',
+   515→      suggestion: 'Use 0 or a positive priority number',
+   516→    });
+   517→  }
+   518→
+   519→  return errors;
+   520→}
+   521→
+   522→// ============================================================
+   523→// Business Settings Validation
+   524→// ============================================================
+   525→
+   526→/**
+   527→ * Validate business settings and return an array of errors.
+   528→ */
+   529→export function validateBusinessSettings(settings: Partial<BusinessSettings>): ValidationError[] {
+   530→  const errors: ValidationError[] = [];
+   531→
+   532→  // --- Business Name ---
+   533→  const nameError = notBlank(settings.businessName ?? '', 'businessName');
+   534→  if (nameError) errors.push(nameError);
+   535→
+   536→  // --- Currency ---
+   537→  if (settings.currencyCode) {
+   538→    const error = currencyValid(settings.currencyCode);
+   539→    if (error) errors.push(error);
+   540→  } else {
+   541→    errors.push({
+   542→      field: 'currencyCode',
+   543→      message: 'Currency code is required',
+   544→      severity: 'error',
+   545→      suggestion: 'Select a currency',
+   546→    });
+   547→  }
+   548→
+   549→  // --- Country ---
+   550→  if (!settings.country || settings.country.trim() === '') {
+   551→    errors.push({
+   552→      field: 'country',
+   553→      message: 'Country is required',
+   554→      severity: 'error',
+   555→      suggestion: 'Select a country',
+   556→    });
+   557→  }
+   558→
+   559→  // --- Tax Treatment ---
+   560→  if (settings.taxTreatment) {
+   561→    const error = taxTreatmentValid(settings.taxTreatment);
+   562→    if (error) errors.push(error);
+   563→  }
+   564→
+   565→  // --- Default Percentage Values ---
+   566→  const percentFields: Array<{ value: number | undefined; field: string; max: number }> = [
+   567→    { value: settings.defaultTaxRatePercent, field: 'defaultTaxRatePercent', max: 50 },
+   568→    { value: settings.defaultMarketplaceFeePercent, field: 'defaultMarketplaceFeePercent', max: 50 },
+   569→    { value: settings.defaultPaymentFeePercent, field: 'defaultPaymentFeePercent', max: 10 },
+   570→    { value: settings.defaultReturnRatePercent, field: 'defaultReturnRatePercent', max: 100 },
+   571→    { value: settings.defaultDamageRatePercent, field: 'defaultDamageRatePercent', max: 100 },
+   572→    { value: settings.defaultCustomDutyPercent, field: 'defaultCustomDutyPercent', max: 100 },
+   573→    { value: settings.defaultFreightPercent, field: 'defaultFreightPercent', max: 100 },
+   574→    { value: settings.defaultTargetMarginPercent, field: 'defaultTargetMarginPercent', max: 100 },
+   575→    { value: settings.defaultMinimumMarginPercent, field: 'defaultMinimumMarginPercent', max: 100 },
+   576→    { value: settings.defaultMaximumMarginPercent, field: 'defaultMaximumMarginPercent', max: 100 },
+   577→  ];
+   578→
+   579→  for (const { value, field, max } of percentFields) {
+   580→    if (value !== undefined) {
+   581→      const error = percentageRange(value, field, 0, max);
+   582→      if (error) errors.push(error);
+   583→    }
+   584→  }
+   585→
+   586→  // --- Default Cost Values ---
+   587→  const costFields: Array<{ value: number | undefined; field: string }> = [
+   588→    { value: settings.defaultShippingCost, field: 'defaultShippingCost' },
+   589→    { value: settings.defaultPackagingCost, field: 'defaultPackagingCost' },
+   590→    { value: settings.defaultHandlingCost, field: 'defaultHandlingCost' },
+   591→    { value: settings.defaultOtherCosts, field: 'defaultOtherCosts' },
+   592→    { value: settings.defaultMarketplaceFeeFixed, field: 'defaultMarketplaceFeeFixed' },
+   593→    { value: settings.defaultPaymentFeeFixed, field: 'defaultPaymentFeeFixed' },
+   594→  ];
+   595→
+   596→  for (const { value, field } of costFields) {
+   597→    if (value !== undefined) {
+   598→      const error = nonNegative(value, field);
+   599→      if (error) errors.push(error);
+   600→    }
+   601→  }
+   602→
+   603→  // --- Margin Logic ---
+   604→  if (settings.defaultMinimumMarginPercent !== undefined &&
+   605→      settings.defaultMaximumMarginPercent !== undefined &&
+   606→      settings.defaultMinimumMarginPercent > settings.defaultMaximumMarginPercent) {
+   607→    errors.push({
+   608→      field: 'defaultMinimumMarginPercent',
+   609→      message: `Minimum margin (${settings.defaultMinimumMarginPercent}%) exceeds maximum (${settings.defaultMaximumMarginPercent}%)`,
+   610→      severity: 'error',
+   611→    });
+   612→  }
+   613→
+   614→  if (settings.defaultTargetMarginPercent !== undefined &&
+   615→      settings.defaultMinimumMarginPercent !== undefined &&
+   616→      settings.defaultTargetMarginPercent < settings.defaultMinimumMarginPercent) {
+   617→    errors.push({
+   618→      field: 'defaultTargetMarginPercent',
+   619→      message: `Target margin (${settings.defaultTargetMarginPercent}%) is below minimum (${settings.defaultMinimumMarginPercent}%)`,
+   620→      severity: 'warning',
+   621→    });
+   622→  }
+   623→
+   624→  // --- Profitability Thresholds ---
+   625→  if (settings.healthyMarginMinPercent !== undefined &&
+   626→      settings.healthyMarginMaxPercent !== undefined &&
+   627→      settings.healthyMarginMinPercent > settings.healthyMarginMaxPercent) {
+   628→    errors.push({
+   629→      field: 'healthyMarginMinPercent',
+   630→      message: `Healthy margin min (${settings.healthyMarginMinPercent}%) exceeds max (${settings.healthyMarginMaxPercent}%)`,
+   631→      severity: 'error',
+   632→    });
+   633→  }
+   634→
+   635→  // --- Rounding ---
+   636→  if (settings.defaultRoundingRule) {
+   637→    const error = roundingRuleValid(settings.defaultRoundingRule);
+   638→    if (error) errors.push(error);
+   639→
+   640→    if (settings.defaultRoundingRule === 'custom' &&
+   641→        (!settings.customRoundingValue || settings.customRoundingValue <= 0)) {
+   642→      errors.push({
+   643→        field: 'customRoundingValue',
+   644→        message: 'Custom rounding requires a positive value',
+   645→        severity: 'error',
+   646→      });
+   647→    }
+   648→  }
+   649→
+   650→  return errors;
+   651→}
+   652→
+   653→// ============================================================
+   654→// Import Data Validation
+   655→// ============================================================
+   656→
+   657→/**
+   658→ * Validate imported data rows (after mapping/cleaning).
+   659→ * Checks for required fields, type validity, and logical consistency.
+   660→ */
+   661→export function validateImportData(rows: Record<string, unknown>[]): ValidationError[] {
+   662→  const errors: ValidationError[] = [];
+   663→
+   664→  if (rows.length === 0) {
+   665→    errors.push({
+   666→      field: 'rows',
+   667→      message: 'No data rows to validate',
+   668→      severity: 'error',
+   669→      suggestion: 'Import a file with at least one row of data',
+   670→    });
+   671→    return errors;
+   672→  }
+   673→
+   674→  // Check for duplicate SKUs
+   675→  const skuCounts: Record<string, number> = {};
+   676→  for (let i = 0; i < rows.length; i++) {
+   677→    const row = rows[i];
+   678→    const sku = String(row.sku ?? '').trim();
+   679→    if (sku) {
+   680→      skuCounts[sku] = (skuCounts[sku] ?? 0) + 1;
+   681→    }
+   682→  }
+   683→
+   684→  const duplicateSkus = Object.entries(skuCounts)
+   685→    .filter(([_, count]) => count > 1)
+   686→    .map(([sku]) => sku);
+   687→
+   688→  if (duplicateSkus.length > 0) {
+   689→    errors.push({
+   690→      field: 'sku',
+   691→      message: `Duplicate SKUs found: ${duplicateSkus.join(', ')}`,
+   692→      severity: 'warning',
+   693→      suggestion: 'Remove duplicates or assign unique SKUs to each product',
+   694→    });
+   695→  }
+   696→
+   697→  // Validate each row
+   698→  for (let i = 0; i < rows.length; i++) {
+   699→    const row = rows[i];
+   700→    const rowPrefix = `Row ${i + 1}`;
+   701→
+   702→    // Required fields
+   703→    if (!row.name || String(row.name).trim() === '') {
+   704→      errors.push({
+   705→        field: `${rowPrefix}.name`,
+   706→        message: `Row ${i + 1}: Product name is missing`,
+   707→        severity: 'error',
+   708→      });
+   709→    }
+   710→
+   711→    if (!row.sku || String(row.sku).trim() === '') {
+   712→      errors.push({
+   713→        field: `${rowPrefix}.sku`,
+   714→        message: `Row ${i + 1}: SKU is missing`,
+   715→        severity: 'error',
+   716→      });
+   717→    }
+   718→
+   719→    // Numeric fields
+   720→    const numericFields = [
+   721→      'purchaseCost', 'shippingCost', 'packagingCost', 'handlingCost',
+   722→      'otherCosts', 'currentSellingPrice', 'marketplaceFeeFixed',
+   723→      'paymentFeeFixed', 'otherFeesFixed',
+   724→    ];
+   725→    for (const field of numericFields) {
+   726→      if (row[field] !== undefined && row[field] !== null && row[field] !== '') {
+   727→        const num = Number(row[field]);
+   728→        if (isNaN(num)) {
+   729→          errors.push({
+   730→            field: `${rowPrefix}.${field}`,
+   731→            message: `Row ${i + 1}: ${field} "${row[field]}" is not a valid number`,
+   732→            severity: 'error',
+   733→            value: row[field],
+   734→          });
+   735→        } else if (num < 0) {
+   736→          errors.push({
+   737→            field: `${rowPrefix}.${field}`,
+   738→            message: `Row ${i + 1}: ${field} cannot be negative`,
+   739→            severity: 'error',
+   740→            value: num,
+   741→          });
+   742→        }
+   743→      }
+   744→    }
+   745→
+   746→    // Percentage fields
+   747→    const percentFields = [
+   748→      'returnRatePercent', 'damageRatePercent', 'customDutyPercent',
+   749→      'freightPercent', 'taxRatePercent', 'marketplaceFeePercent',
+   750→      'paymentFeePercent', 'otherFeesPercent',
+   751→    ];
+   752→    for (const field of percentFields) {
+   753→      if (row[field] !== undefined && row[field] !== null && row[field] !== '') {
+   754→        const num = Number(row[field]);
+   755→        if (isNaN(num)) {
+   756→          errors.push({
+   757→            field: `${rowPrefix}.${field}`,
+   758→            message: `Row ${i + 1}: ${field} "${row[field]}" is not a valid percentage`,
+   759→            severity: 'error',
+   760→            value: row[field],
+   761→          });
+   762→        } else if (num < 0 || num > 100) {
+   763→          errors.push({
+   764→            field: `${rowPrefix}.${field}`,
+   765→            message: `Row ${i + 1}: ${field} (${num}%) is out of range (0-100)`,
+   766→            severity: num > 200 ? 'error' : 'warning',
+   767→            value: num,
+   768→          });
+   769→        }
+   770→      }
+   771→    }
+   772→
+   773→    // Selling price vs purchase cost
+   774→    const sellingPrice = Number(row.currentSellingPrice ?? 0);
+   775→    const purchaseCost = Number(row.purchaseCost ?? 0);
+   776→    if (sellingPrice > 0 && purchaseCost > 0 && sellingPrice < purchaseCost) {
+   777→      errors.push({
+   778→        field: `${rowPrefix}.currentSellingPrice`,
+   779→        message: `Row ${i + 1}: Selling price (${sellingPrice}) is below purchase cost (${purchaseCost})`,
+   780→        severity: 'warning',
+   781→      });
+   782→    }
+   783→  }
+   784→
+   785→  return errors;
+   786→}
+   787→
+   788→// ============================================================
+   789→// Batch Validation
+   790→// ============================================================
+   791→
+   792→/**
+   793→ * Validate multiple products at once.
+   794→ */
+   795→export function validateProducts(products: Partial<Product>[]): ValidationError[] {
+   796→  const allErrors: ValidationError[] = [];
+   797→
+   798→  // Individual validation
+   799→  for (const product of products) {
+   800→    allErrors.push(...validateProduct(product));
+   801→  }
+   802→
+   803→  // Duplicate SKU check
+   804→  const skuCounts: Record<string, number> = {};
+   805→  for (const product of products) {
+   806→    const sku = (product.sku ?? '').trim();
+   807→    if (sku) skuCounts[sku] = (skuCounts[sku] ?? 0) + 1;
+   808→  }
+   809→  const duplicateSkus = Object.entries(skuCounts)
+   810→    .filter(([_, count]) => count > 1)
+   811→    .map(([sku]) => sku);
+   812→
+   813→  if (duplicateSkus.length > 0) {
+   814→    allErrors.push({
+   815→      field: 'sku',
+   816→      message: `Duplicate SKUs found: ${duplicateSkus.join(', ')}`,
+   817→      severity: 'warning',
+   818→      suggestion: 'Each product should have a unique SKU',
+   819→    });
+   820→  }
+   821→
+   822→  // Duplicate ID check
+   823→  const idCounts: Record<string, number> = {};
+   824→  for (const product of products) {
+   825→    const id = (product.id ?? '').trim();
+   826→    if (id) idCounts[id] = (idCounts[id] ?? 0) + 1;
+   827→  }
+   828→  const duplicateIds = Object.entries(idCounts)
+   829→    .filter(([_, count]) => count > 1)
+   830→    .map(([id]) => id);
+   831→
+   832→  if (duplicateIds.length > 0) {
+   833→    allErrors.push({
+   834→      field: 'id',
+   835→      message: `Duplicate IDs found: ${duplicateIds.join(', ')}`,
+   836→      severity: 'error',
+   837→      suggestion: 'Each product must have a unique ID',
+   838→    });
+   839→  }
+   840→
+   841→  return allErrors;
+   842→}
+   843→

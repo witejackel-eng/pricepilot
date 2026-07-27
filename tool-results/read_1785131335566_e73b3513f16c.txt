@@ -1,0 +1,1174 @@
+     1→/**
+     2→ * PricePilot - Pricing Calculation Engine
+     3→ *
+     4→ * Core calculation engine for all pricing, margin, markup, and
+     5→ * recommendation computations. Uses decimal-safe arithmetic
+     6→ * (Math.round with scaling) to avoid floating point errors.
+     7→ *
+     8→ * CRITICAL: Break-even price accounts for percentage fees being
+     9→ * charged on the selling price. Formula:
+    10→ *   breakEvenPrice = (totalLandedCost + fixedTransactionFee) /
+    11→ *                    (1 - totalPercentageFees - marginTarget)
+    12→ *
+    13→ * Percentage fees are ON the selling price, so you cannot simply
+    14→ * add margin to cost. The denominator shrinks the effective revenue.
+    15→ */
+    16→
+    17→import {
+    18→  Product,
+    19→  BusinessSettings,
+    20→  PricingRule,
+    21→  PricingStatus,
+    22→  ProfitabilityMeter,
+    23→  RoundingRule,
+    24→  RecommendationMode,
+    25→  Warning,
+    26→  WarningSeverity,
+    27→  RecommendedPrices,
+    28→  CompetitorStrategy,
+    29→} from './types';
+    30→import { roundTo2Decimals, roundTo4Decimals } from './formatting';
+    31→
+    32→// ============================================================
+    33→// Decimal-Safe Arithmetic Helpers
+    34→// ============================================================
+    35→
+    36→/**
+    37→ * Safely add two numbers with decimal precision.
+    38→ * Avoids floating point errors by scaling, rounding, then unscaling.
+    39→ */
+    40→function safeAdd(a: number, b: number): number {
+    41→  return roundTo4Decimals(a + b);
+    42→}
+    43→
+    44→/**
+    45→ * Safely subtract two numbers.
+    46→ */
+    47→function safeSub(a: number, b: number): number {
+    48→  return roundTo4Decimals(a - b);
+    49→}
+    50→
+    51→/**
+    52→ * Safely multiply two numbers.
+    53→ */
+    54→function safeMul(a: number, b: number): number {
+    55→  return roundTo4Decimals(a * b);
+    56→}
+    57→
+    58→/**
+    59→ * Safely divide two numbers. Returns 0 if divisor is zero or near-zero.
+    60→ */
+    61→function safeDiv(dividend: number, divisor: number): number {
+    62→  if (Math.abs(divisor) < 0.0001) return 0;
+    63→  return roundTo4Decimals(dividend / divisor);
+    64→}
+    65→
+    66→/**
+    67→ * Clamp a value between min and max.
+    68→ */
+    69→function clamp(value: number, min: number, max: number): number {
+    70→  return Math.max(min, Math.min(max, value));
+    71→}
+    72→
+    73→/**
+    74→ * Ensure a value is non-negative. Returns 0 for NaN/undefined/negative.
+    75→ */
+    76→function safeNonNegative(value: number): number {
+    77→  if (typeof value !== 'number' || isNaN(value) || value < 0) return 0;
+    78→  return value;
+    79→}
+    80→
+    81→/**
+    82→ * Get a number value or fallback to default. Handles undefined, NaN, null.
+    83→ */
+    84→function safeNumber(value: number | undefined | null, fallback: number): number {
+    85→  if (value === undefined || value === null || typeof value !== 'number' || isNaN(value)) return fallback;
+    86→  return value;
+    87→}
+    88→
+    89→// ============================================================
+    90→// Cost Calculations
+    91→// ============================================================
+    92→
+    93→/**
+    94→ * Calculate the base cost of a product (sum of all per-unit cost components).
+    95→ * Includes: purchase cost, shipping, packaging, handling, other costs,
+    96→ * and freight (as % of purchase cost).
+    97→ *
+    98→ * Does NOT include return/damage costs or custom duty.
+    99→ */
+   100→export function calculateBaseCost(
+   101→  product: Partial<Product>,
+   102→  settings: BusinessSettings
+   103→): number {
+   104→  const purchaseCost = safeNonNegative(safeNumber(product.purchaseCost, settings.defaultShippingCost || 0));
+   105→  const shippingCost = safeNonNegative(safeNumber(product.shippingCost, settings.defaultShippingCost));
+   106→  const packagingCost = safeNonNegative(safeNumber(product.packagingCost, settings.defaultPackagingCost));
+   107→  const handlingCost = safeNonNegative(safeNumber(product.handlingCost, settings.defaultHandlingCost));
+   108→  const otherCosts = safeNonNegative(safeNumber(product.otherCosts, settings.defaultOtherCosts));
+   109→  const freightPercent = safeNonNegative(safeNumber(product.freightPercent, settings.defaultFreightPercent));
+   110→
+   111→  // Freight as a percentage of purchase cost
+   112→  const freightCost = safeMul(purchaseCost, safeDiv(freightPercent, 100));
+   113→
+   114→  return roundTo2Decimals(
+   115→    safeAdd(purchaseCost, safeAdd(shippingCost, safeAdd(packagingCost, safeAdd(handlingCost, safeAdd(otherCosts, freightCost)))))
+   116→  );
+   117→}
+   118→
+   119→/**
+   120→ * Calculate the expected return cost.
+   121→ * Return rate means some units will be returned, and the cost of those
+   122→ * returned units is spread across all sold units.
+   123→ *
+   124→ * Formula: baseCost * (returnRate / 100)
+   125→ * This represents the additional per-unit cost burden due to returns.
+   126→ */
+   127→export function calculateExpectedReturnCost(
+   128→  product: Partial<Product>,
+   129→  settings: BusinessSettings
+   130→): number {
+   131→  const baseCost = calculateBaseCost(product, settings);
+   132→  const returnRatePercent = safeNonNegative(
+   133→    safeNumber(product.returnRatePercent, settings.defaultReturnRatePercent)
+   134→  );
+   135→  // Protect against unrealistic return rates
+   136→  const cappedRate = clamp(returnRatePercent, 0, 100);
+   137→
+   138→  return roundTo2Decimals(safeMul(baseCost, safeDiv(cappedRate, 100)));
+   139→}
+   140→
+   141→/**
+   142→ * Calculate the expected damage cost.
+   143→ * Damaged units cannot be resold; their cost is spread across all sold units.
+   144→ *
+   145→ * Formula: (baseCost + shippingCost) * (damageRate / 100)
+   146→ * We include shipping because damaged items still incur inbound shipping costs.
+   147→ */
+   148→export function calculateExpectedDamageCost(
+   149→  product: Partial<Product>,
+   150→  settings: BusinessSettings
+   151→): number {
+   152→  const baseCost = calculateBaseCost(product, settings);
+   153→  const damageRatePercent = safeNonNegative(
+   154→    safeNumber(product.damageRatePercent, settings.defaultDamageRatePercent)
+   155→  );
+   156→  // Protect against unrealistic damage rates
+   157→  const cappedRate = clamp(damageRatePercent, 0, 100);
+   158→
+   159→  return roundTo2Decimals(safeMul(baseCost, safeDiv(cappedRate, 100)));
+   160→}
+   161→
+   162→/**
+   163→ * Calculate the total landed cost per unit.
+   164→ * This is the complete cost per unit including all direct and indirect costs.
+   165→ *
+   166→ * Formula: baseCost + returnCost + damageCost + customDuty
+   167→ * Custom duty is applied as a percentage of purchase cost.
+   168→ */
+   169→export function calculateTotalLandedCost(
+   170→  product: Partial<Product>,
+   171→  settings: BusinessSettings
+   172→): number {
+   173→  const baseCost = calculateBaseCost(product, settings);
+   174→  const returnCost = calculateExpectedReturnCost(product, settings);
+   175→  const damageCost = calculateExpectedDamageCost(product, settings);
+   176→
+   177→  const purchaseCost = safeNonNegative(safeNumber(product.purchaseCost, 0));
+   178→  const customDutyPercent = safeNonNegative(
+   179→    safeNumber(product.customDutyPercent, settings.defaultCustomDutyPercent)
+   180→  );
+   181→  const cappedDuty = clamp(customDutyPercent, 0, 100);
+   182→  const customDutyCost = safeMul(purchaseCost, safeDiv(cappedDuty, 100));
+   183→
+   184→  return roundTo2Decimals(
+   185→    safeAdd(baseCost, safeAdd(returnCost, safeAdd(damageCost, customDutyCost)))
+   186→  );
+   187→}
+   188→
+   189→// ============================================================
+   190→// Fee Calculations
+   191→// ============================================================
+   192→
+   193→/**
+   194→ * Calculate all percentage-based fees that are charged on the selling price.
+   195→ * These fees reduce the effective revenue and must be accounted for
+   196→ * in the break-even calculation.
+   197→ *
+   198→ * Returns the total percentage as a decimal fraction (e.g., 0.18 for 18%).
+   199→ */
+   200→export function calculatePercentageFees(
+   201→  sellingPrice: number,
+   202→  product: Partial<Product>,
+   203→  settings: BusinessSettings,
+   204→  rule?: PricingRule
+   205→): number {
+   206→  // Marketplace fee %
+   207→  const marketplaceFeePercent = safeNonNegative(
+   208→    rule?.overrideMarketplaceFeePercent ?? 
+   209→    safeNumber(product.marketplaceFeePercent, settings.defaultMarketplaceFeePercent)
+   210→  );
+   211→
+   212→  // Payment fee %
+   213→  const paymentFeePercent = safeNonNegative(
+   214→    rule?.overridePaymentFeePercent ?? 
+   215→    safeNumber(product.paymentFeePercent, settings.defaultPaymentFeePercent)
+   216→  );
+   217→
+   218→  // Other fees %
+   219→  const otherFeesPercent = safeNonNegative(safeNumber(product.otherFeesPercent, 0));
+   220→
+   221→  // Tax (if exclusive, it's charged on selling price as a percentage)
+   222→  const taxRatePercent = safeNonNegative(
+   223→    rule?.overrideTaxRatePercent ?? 
+   224→    safeNumber(product.taxRatePercent, settings.defaultTaxRatePercent)
+   225→  );
+   226→  const taxTreatment = product.taxTreatment ?? settings.taxTreatment;
+   227→
+   228→  // Tax is a percentage fee ONLY if treatment is 'exclusive'
+   229→  // (inclusive means tax is already in the selling price, not an additional charge)
+   230→  const taxAsFeePercent = taxTreatment === 'exclusive' ? taxRatePercent : 0;
+   231→
+   232→  // Sum all percentage fees
+   233→  const totalPercent = safeAdd(
+   234→    marketplaceFeePercent,
+   235→    safeAdd(paymentFeePercent, safeAdd(otherFeesPercent, taxAsFeePercent))
+   236→  );
+   237→
+   238→  // Protect: total percentage fees must not exceed 100%
+   239→  const cappedTotal = clamp(totalPercent, 0, 100);
+   240→
+   241→  // Convert to decimal fraction
+   242→  return safeDiv(cappedTotal, 100);
+   243→}
+   244→
+   245→/**
+   246→ * Calculate total fixed (per-transaction) fees.
+   247→ * These are charged regardless of selling price.
+   248→ */
+   249→export function calculateFixedFees(
+   250→  product: Partial<Product>,
+   251→  settings: BusinessSettings
+   252→): number {
+   253→  const marketplaceFeeFixed = safeNonNegative(
+   254→    safeNumber(product.marketplaceFeeFixed, settings.defaultMarketplaceFeeFixed)
+   255→  );
+   256→  const paymentFeeFixed = safeNonNegative(
+   257→    safeNumber(product.paymentFeeFixed, settings.defaultPaymentFeeFixed)
+   258→  );
+   259→  const otherFeesFixed = safeNonNegative(safeNumber(product.otherFeesFixed, 0));
+   260→
+   261→  return roundTo2Decimals(
+   262→    safeAdd(marketplaceFeeFixed, safeAdd(paymentFeeFixed, otherFeesFixed))
+   263→  );
+   264→}
+   265→
+   266→// ============================================================
+   267→// Break-Even Price
+   268→// ============================================================
+   269→
+   270→/**
+   271→ * Calculate the break-even selling price.
+   272→ *
+   273→ * CRITICAL: Percentage fees are charged on the selling price, so we
+   274→ * cannot simply add margin to cost. We must solve for the selling price
+   275→ * where revenue after all fees equals total cost + desired margin.
+   276→ *
+   277→ * Formula:
+   278→ *   breakEvenPrice = (totalLandedCost + fixedFees) /
+   279→ *                    (1 - totalPercentageFees - marginTarget)
+   280→ *
+   281→ * Where:
+   282→ *   - totalLandedCost = full per-unit cost
+   283→ *   - fixedFees = per-transaction fixed fees
+   284→ *   - totalPercentageFees = sum of all % fees (as decimal)
+   285→ *   - marginTarget = desired margin (as decimal)
+   286→ *
+   287→ * This ensures that after deducting percentage fees from the selling price,
+   288→ * the remaining revenue covers both costs and the target margin.
+   289→ *
+   290→ * Without margin target (pure break-even), marginTarget = 0.
+   291→ */
+   292→export function calculateBreakEvenPrice(
+   293→  product: Partial<Product>,
+   294→  settings: BusinessSettings,
+   295→  rule?: PricingRule,
+   296→  marginTargetPercent?: number
+   297→): number {
+   298→  const totalLandedCost = calculateTotalLandedCost(product, settings);
+   299→  const fixedFees = calculateFixedFees(product, settings);
+   300→
+   301→  // Total percentage fees as a decimal fraction
+   302→  // We pass 0 as sellingPrice for break-even (percentage fees don't depend on price amount)
+   303→  const totalPercentFees = calculatePercentageFees(0, product, settings, rule);
+   304→
+   305→  // Margin target as decimal fraction
+   306→  const resolvedRule = rule ?? resolveRuleForProduct(product, []);
+   307→  const effectiveMarginTarget = safeNumber(
+   308→    marginTargetPercent,
+   309→    safeNumber(resolvedRule.minimumMarginPercent, settings.defaultMinimumMarginPercent)
+   310→  );
+   311→  const marginTargetDecimal = safeDiv(clamp(effectiveMarginTarget, 0, 99.9), 100);
+   312→
+   313→  // Validate: denominator must be positive
+   314→  // (1 - percentageFees - marginTarget) must be > 0
+   315→  const denominator = safeSub(1, safeAdd(totalPercentFees, marginTargetDecimal));
+   316→  
+   317→  if (denominator <= 0) {
+   318→    // Fees + margin exceed 100% — impossible to break even
+   319→    // Return a very large number to signal impossibility
+   320→    return 99999999;
+   321→  }
+   322→
+   323→  const numerator = safeAdd(totalLandedCost, fixedFees);
+   324→  const breakEvenPrice = safeDiv(numerator, denominator);
+   325→
+   326→  return roundTo2Decimals(Math.max(breakEvenPrice, 0));
+   327→}
+   328→
+   329→// ============================================================
+   330→// Markup & Margin
+   331→// ============================================================
+   332→
+   333→/**
+   334→ * Calculate markup percentage.
+   335→ * Markup = (sellingPrice - cost) / cost * 100
+   336→ *
+   337→ * @returns Markup percentage (e.g., 33.33 for 33.33% markup)
+   338→ */
+   339→export function calculateMarkup(cost: number, sellingPrice: number): number {
+   340→  const safeCost = safeNonNegative(cost);
+   341→  const safePrice = safeNonNegative(sellingPrice);
+   342→
+   343→  if (safeCost === 0) {
+   344→    // If cost is 0 and price is positive, markup is effectively infinite
+   345→    // We return 0 to avoid division by zero; this edge case should generate a warning
+   346→    return safePrice > 0 ? 999999 : 0;
+   347→  }
+   348→
+   349→  const markup = safeDiv(safeSub(safePrice, safeCost), safeCost) * 100;
+   350→  return roundTo2Decimals(markup);
+   351→}
+   352→
+   353→/**
+   354→ * Calculate margin percentage.
+   355→ * Margin = (sellingPrice - cost) / sellingPrice * 100
+   356→ *
+   357→ * @returns Margin percentage (e.g., 25 for 25% margin)
+   358→ */
+   359→export function calculateMargin(cost: number, sellingPrice: number): number {
+   360→  const safeCost = safeNonNegative(cost);
+   361→  const safePrice = safeNonNegative(sellingPrice);
+   362→
+   363→  if (safePrice === 0) return 0; // No selling price = 0% margin
+   364→
+   365→  // For margin calculation, "cost" here means total landed cost
+   366→  // plus fixed fees, because those are deductions from revenue
+   367→  const margin = safeDiv(safeSub(safePrice, safeCost), safePrice) * 100;
+   368→  return roundTo2Decimals(margin);
+   369→}
+   370→
+   371→/**
+   372→ * Calculate effective margin accounting for percentage fees.
+   373→ * This is the TRUE margin after all percentage-based fees are deducted.
+   374→ *
+   375→ * effectiveMargin = (sellingPrice - totalLandedCost - fixedFees - percentageFeesOnSellingPrice) / sellingPrice * 100
+   376→ */
+   377→export function calculateEffectiveMargin(
+   378→  product: Partial<Product>,
+   379→  settings: BusinessSettings,
+   380→  rule?: PricingRule
+   381→): number {
+   382→  const sellingPrice = safeNonNegative(safeNumber(product.currentSellingPrice, 0));
+   383→  if (sellingPrice === 0) return 0;
+   384→
+   385→  const totalLandedCost = calculateTotalLandedCost(product, settings);
+   386→  const fixedFees = calculateFixedFees(product, settings);
+   387→  const percentFeesDecimal = calculatePercentageFees(sellingPrice, product, settings, rule);
+   388→  const percentFeesAmount = safeMul(sellingPrice, percentFeesDecimal);
+   389→
+   390→  const totalDeductions = safeAdd(totalLandedCost, safeAdd(fixedFees, percentFeesAmount));
+   391→  const profitPerUnit = safeSub(sellingPrice, totalDeductions);
+   392→  const effectiveMargin = safeDiv(profitPerUnit, sellingPrice) * 100;
+   393→
+   394→  return roundTo2Decimals(effectiveMargin);
+   395→}
+   396→
+   397→/**
+   398→ * Calculate profit per unit.
+   399→ */
+   400→export function calculateProfitPerUnit(
+   401→  product: Partial<Product>,
+   402→  settings: BusinessSettings,
+   403→  rule?: PricingRule
+   404→): number {
+   405→  const sellingPrice = safeNonNegative(safeNumber(product.currentSellingPrice, 0));
+   406→  const totalLandedCost = calculateTotalLandedCost(product, settings);
+   407→  const fixedFees = calculateFixedFees(product, settings);
+   408→  const percentFeesDecimal = calculatePercentageFees(sellingPrice, product, settings, rule);
+   409→  const percentFeesAmount = safeMul(sellingPrice, percentFeesDecimal);
+   410→
+   411→  const totalDeductions = safeAdd(totalLandedCost, safeAdd(fixedFees, percentFeesAmount));
+   412→  return roundTo2Decimals(safeSub(sellingPrice, totalDeductions));
+   413→}
+   414→
+   415→// ============================================================
+   416→// Recommended Prices
+   417→// ============================================================
+   418→
+   419→/**
+   420→ * Calculate all four recommended prices for a product.
+   421→ *
+   422→ * @returns RecommendedPrices object with minimum, competitive, balanced, premium
+   423→ */
+   424→export function calculateRecommendedPrices(
+   425→  product: Partial<Product>,
+   426→  settings: BusinessSettings,
+   427→  rules: PricingRule[]
+   428→): RecommendedPrices {
+   429→  const resolvedRule = resolveRuleForProduct(product, rules);
+   430→
+   431→  return {
+   432→    minimum: calculateMinimumSafePrice(product, settings, resolvedRule),
+   433→    competitive: calculateCompetitivePrice(product, settings, resolvedRule),
+   434→    balanced: calculateBalancedPrice(product, settings, resolvedRule),
+   435→    premium: calculatePremiumPrice(product, settings, resolvedRule),
+   436→  };
+   437→}
+   438→
+   439→/**
+   440→ * Minimum Safe Price: The lowest price that covers all costs and fees
+   441→ * with the minimum acceptable margin.
+   442→ *
+   443→ * Formula: (totalLandedCost + fixedFees) / (1 - totalPercentageFees - minimumMargin)
+   444→ */
+   445→export function calculateMinimumSafePrice(
+   446→  product: Partial<Product>,
+   447→  settings: BusinessSettings,
+   448→  rule?: PricingRule
+   449→): number {
+   450→  const resolvedRule = rule ?? resolveRuleForProduct(product, []);
+   451→  const marginTarget = resolvedRule.minimumMarginPercent ?? settings.defaultMinimumMarginPercent;
+   452→  
+   453→  const price = calculateBreakEvenPrice(product, settings, resolvedRule, marginTarget);
+   454→  return applyRoundingRule(price, resolvedRule.roundingRule ?? settings.defaultRoundingRule, resolvedRule.customRoundingValue);
+   455→}
+   456→
+   457→/**
+   458→ * Competitive Price: Aligns with competitor pricing while maintaining
+   459→ * at least the minimum margin.
+   460→ *
+   461→ * Strategy depends on the competitorStrategy in the resolved rule.
+   462→ * If no competitor data exists, falls back to the balanced price.
+   463→ */
+   464→export function calculateCompetitivePrice(
+   465→  product: Partial<Product>,
+   466→  settings: BusinessSettings,
+   467→  rule?: PricingRule
+   468→): number {
+   469→  const resolvedRule = rule ?? resolveRuleForProduct(product, []);
+   470→  const strategy = resolvedRule.competitorStrategy ?? { mode: 'match-average', weightPercent: 30 };
+   471→
+   472→  const minimumSafe = calculateBreakEvenPrice(product, settings, resolvedRule, resolvedRule.minimumMarginPercent ?? settings.defaultMinimumMarginPercent);
+   473→  const competitorAvg = calculateCompetitorAverage(product);
+   474→
+   475→  // If no competitor data, fall back to balanced price with target margin
+   476→  if (competitorAvg === 0) {
+   477→    const balanced = calculateBreakEvenPrice(product, settings, resolvedRule, resolvedRule.targetMarginPercent ?? settings.defaultTargetMarginPercent);
+   478→    return applyRoundingRule(balanced, resolvedRule.roundingRule ?? settings.defaultRoundingRule, resolvedRule.customRoundingValue);
+   479→  }
+   480→
+   481→  let competitivePrice: number;
+   482→
+   483→  switch (strategy.mode) {
+   484→    case 'ignore':
+   485→      // Ignore competitors; use target margin
+   486→      competitivePrice = calculateBreakEvenPrice(product, settings, resolvedRule, resolvedRule.targetMarginPercent ?? settings.defaultTargetMarginPercent);
+   487→      break;
+   488→
+   489→    case 'match-average':
+   490→      competitivePrice = competitorAvg;
+   491→      break;
+   492→
+   493→    case 'below-average':
+   494→      competitivePrice = safeMul(competitorAvg, safeSub(1, safeDiv(safeNumber(strategy.offsetPercent ?? 5, 5), 100)));
+   495→      break;
+   496→
+   497→    case 'above-average':
+   498→      competitivePrice = safeMul(competitorAvg, safeAdd(1, safeDiv(safeNumber(strategy.offsetPercent ?? 5, 5), 100)));
+   499→      break;
+   500→
+   501→    case 'match-lowest':
+   502→      competitivePrice = calculateCompetitorLowest(product);
+   503→      break;
+   504→
+   505→    case 'match-highest':
+   506→      competitivePrice = calculateCompetitorHighest(product);
+   507→      break;
+   508→
+   509→    case 'custom-offset':
+   510→      const offsetPercent = safeNumber(strategy.offsetPercent ?? 0, 0);
+   511→      const offsetFixed = safeNumber(strategy.offsetFixed ?? 0, 0);
+   512→      competitivePrice = safeAdd(safeMul(competitorAvg, safeAdd(1, safeDiv(offsetPercent, 100))), offsetFixed);
+   513→      break;
+   514→
+   515→    default:
+   516→      competitivePrice = competitorAvg;
+   517→  }
+   518→
+   519→  // NEVER go below minimum safe price
+   520→  competitivePrice = Math.max(competitivePrice, minimumSafe);
+   521→
+   522→  // Blend with margin-based price based on weight
+   523→  if (strategy.weightPercent !== undefined && strategy.weightPercent > 0 && strategy.weightPercent < 100) {
+   524→    const weightDecimal = safeDiv(strategy.weightPercent, 100);
+   525→    const marginBasedPrice = calculateBreakEvenPrice(product, settings, resolvedRule, resolvedRule.targetMarginPercent ?? settings.defaultTargetMarginPercent);
+   526→    competitivePrice = safeAdd(
+   527→      safeMul(competitivePrice, weightDecimal),
+   528→      safeMul(marginBasedPrice, safeSub(1, weightDecimal))
+   529→    );
+   530→    competitivePrice = Math.max(competitivePrice, minimumSafe);
+   531→  }
+   532→
+   533→  return applyRoundingRule(
+   534→    roundTo2Decimals(competitivePrice),
+   535→    resolvedRule.roundingRule ?? settings.defaultRoundingRule,
+   536→    resolvedRule.customRoundingValue
+   537→  );
+   538→}
+   539→
+   540→/**
+   541→ * Balanced Price: Balances margin target with market competitiveness.
+   542→ * Uses a weighted blend of the margin-based price and competitor average.
+   543→ */
+   544→export function calculateBalancedPrice(
+   545→  product: Partial<Product>,
+   546→  settings: BusinessSettings,
+   547→  rule?: PricingRule
+   548→): number {
+   549→  const resolvedRule = rule ?? resolveRuleForProduct(product, []);
+   550→  const marginTarget = resolvedRule.targetMarginPercent ?? settings.defaultTargetMarginPercent;
+   551→  const minimumSafe = calculateBreakEvenPrice(product, settings, resolvedRule, resolvedRule.minimumMarginPercent ?? settings.defaultMinimumMarginPercent);
+   552→  
+   553→  // Margin-based price (target margin)
+   554→  const marginBasedPrice = calculateBreakEvenPrice(product, settings, resolvedRule, marginTarget);
+   555→
+   556→  // Competitor average
+   557→  const competitorAvg = calculateCompetitorAverage(product);
+   558→
+   559→  // If no competitor data, just use margin-based price
+   560→  if (competitorAvg === 0) {
+   561→    return applyRoundingRule(marginBasedPrice, resolvedRule.roundingRule ?? settings.defaultRoundingRule, resolvedRule.customRoundingValue);
+   562→  }
+   563→
+   564→  // Blend: 50% margin-based, 50% competitor (balanced by definition)
+   565→  const weightDecimal = 0.5;
+   566→  const blended = safeAdd(
+   567→    safeMul(marginBasedPrice, weightDecimal),
+   568→    safeMul(competitorAvg, safeSub(1, weightDecimal))
+   569→  );
+   570→
+   571→  // Never go below minimum safe price
+   572→  const finalPrice = Math.max(roundTo2Decimals(blended), minimumSafe);
+   573→
+   574→  return applyRoundingRule(finalPrice, resolvedRule.roundingRule ?? settings.defaultRoundingRule, resolvedRule.customRoundingValue);
+   575→}
+   576→
+   577→/**
+   578→ * Premium Price: Maximum margin pricing.
+   579→ * Uses the maximum margin target, and if competitors exist,
+   580→ * may price above the highest competitor.
+   581→ */
+   582→export function calculatePremiumPrice(
+   583→  product: Partial<Product>,
+   584→  settings: BusinessSettings,
+   585→  rule?: PricingRule
+   586→): number {
+   587→  const resolvedRule = rule ?? resolveRuleForProduct(product, []);
+   588→  const maxMargin = resolvedRule.maximumMarginPercent ?? settings.defaultMaximumMarginPercent;
+   589→  const minimumSafe = calculateBreakEvenPrice(product, settings, resolvedRule, resolvedRule.minimumMarginPercent ?? settings.defaultMinimumMarginPercent);
+   590→
+   591→  // Maximum margin-based price
+   592→  const maxMarginPrice = calculateBreakEvenPrice(product, settings, resolvedRule, maxMargin);
+   593→
+   594→  // Competitor highest
+   595→  const competitorHighest = calculateCompetitorHighest(product);
+   596→
+   597→  // If no competitor data, use max margin price
+   598→  if (competitorHighest === 0) {
+   599→    return applyRoundingRule(maxMarginPrice, resolvedRule.roundingRule ?? settings.defaultRoundingRule, resolvedRule.customRoundingValue);
+   600→  }
+   601→
+   602→  // Premium: average of max-margin price and competitor highest,
+   603→  // but never below minimum safe
+   604→  const premiumBlend = safeDiv(safeAdd(maxMarginPrice, competitorHighest), 2);
+   605→  const finalPrice = Math.max(roundTo2Decimals(premiumBlend), minimumSafe);
+   606→
+   607→  return applyRoundingRule(finalPrice, resolvedRule.roundingRule ?? settings.defaultRoundingRule, resolvedRule.customRoundingValue);
+   608→}
+   609→
+   610→// ============================================================
+   611→// Competitor Price Helpers
+   612→// ============================================================
+   613→
+   614→function calculateCompetitorAverage(product: Partial<Product>): number {
+   615→  const prices = product.competitorPrices ?? [];
+   616→  if (prices.length === 0) return 0;
+   617→  const validPrices = prices.filter(cp => cp.price > 0);
+   618→  if (validPrices.length === 0) return 0;
+   619→  const sum = validPrices.reduce((acc, cp) => safeAdd(acc, cp.price), 0);
+   620→  return roundTo2Decimals(safeDiv(sum, validPrices.length));
+   621→}
+   622→
+   623→function calculateCompetitorLowest(product: Partial<Product>): number {
+   624→  const prices = product.competitorPrices ?? [];
+   625→  if (prices.length === 0) return 0;
+   626→  const validPrices = prices.filter(cp => cp.price > 0);
+   627→  if (validPrices.length === 0) return 0;
+   628→  return Math.min(...validPrices.map(cp => cp.price));
+   629→}
+   630→
+   631→function calculateCompetitorHighest(product: Partial<Product>): number {
+   632→  const prices = product.competitorPrices ?? [];
+   633→  if (prices.length === 0) return 0;
+   634→  const validPrices = prices.filter(cp => cp.price > 0);
+   635→  if (validPrices.length === 0) return 0;
+   636→  return Math.max(...validPrices.map(cp => cp.price));
+   637→}
+   638→
+   639→// ============================================================
+   640→// Rounding Rules
+   641→// ============================================================
+   642→
+   643→/**
+   644→ * Apply a rounding rule to a price.
+   645→ *
+   646→ * Supported rules:
+   647→ * - no-rounding: No change
+   648→ * - nearest-whole: Round to nearest integer
+   649→ * - nearest-5: Round to nearest 5
+   650→ * - nearest-10: Round to nearest 10
+   651→ * - end-in-99: e.g., 500 → 499.99
+   652→ * - end-in-95: e.g., 500 → 499.95
+   653→ * - end-in-9: e.g., 500 → 499.9
+   654→ * - end-in-49: e.g., 500 → 499.49
+   655→ * - end-in-99-whole: e.g., 500 → 499
+   656→ * - custom: round to nearest custom value
+   657→ */
+   658→export function applyRoundingRule(
+   659→  price: number,
+   660→  roundingRule: RoundingRule,
+   661→  customValue?: number
+   662→): number {
+   663→  if (price <= 0) return price;
+   664→  if (roundingRule === 'no-rounding') return roundTo2Decimals(price);
+   665→
+   666→  switch (roundingRule) {
+   667→    case 'nearest-whole':
+   668→      return Math.round(price);
+   669→
+   670→    case 'nearest-5':
+   671→      return Math.round(price / 5) * 5;
+   672→
+   673→    case 'nearest-10':
+   674→      return Math.round(price / 10) * 10;
+   675→
+   676→    case 'end-in-99':
+   677→      // e.g., 500 → 499.99, 1234 → 1233.99
+   678→      return Math.floor(price) - 0.01;
+   679→
+   680→    case 'end-in-95':
+   681→      return Math.floor(price) - 0.05;
+   682→
+   683→    case 'end-in-9':
+   684→      return Math.floor(price) - 0.1;
+   685→
+   686→    case 'end-in-49':
+   687→      return Math.floor(price) - 0.51;
+   688→
+   689→    case 'end-in-99-whole':
+   690→      // e.g., 500 → 499, 1234 → 1233
+   691→      // Round down to nearest whole, then subtract 1 to end in 99
+   692→      // But if already whole, subtract 1
+   693→      const flooredWhole = Math.floor(price);
+   694→      if (flooredWhole <= 1) return flooredWhole; // Don't go below 1
+   695→      return flooredWhole - 1;
+   696→
+   697→    case 'custom':
+   698→      const custom = safeNumber(customValue, 1);
+   699→      if (custom <= 0) return roundTo2Decimals(price);
+   700→      return Math.round(price / custom) * custom;
+   701→
+   702→    default:
+   703→      return roundTo2Decimals(price);
+   704→  }
+   705→}
+   706→
+   707→// ============================================================
+   708→// Pricing Status & Profitability Meter
+   709→// ============================================================
+   710→
+   711→/**
+   712→ * Determine the pricing status for a product based on its
+   713→ * current selling price relative to costs, margins, and competitors.
+   714→ */
+   715→export function calculatePricingStatus(
+   716→  product: Partial<Product>,
+   717→  settings: BusinessSettings,
+   718→  rules: PricingRule[]
+   719→): PricingStatus {
+   720→  const resolvedRule = resolveRuleForProduct(product, rules);
+   721→  const sellingPrice = safeNumber(product.currentSellingPrice, 0);
+   722→  const totalLandedCost = calculateTotalLandedCost(product, settings);
+   723→
+   724→  // Check for missing data first
+   725→  if (sellingPrice === 0 || totalLandedCost === 0) {
+   726→    return 'missing-data';
+   727→  }
+   728→
+   729→  const effectiveMargin = calculateEffectiveMargin(product, settings, resolvedRule);
+   730→  const profitPerUnit = calculateProfitPerUnit(product, settings, resolvedRule);
+   731→
+   732→  // Loss-making: negative profit
+   733→  if (profitPerUnit < 0) {
+   734→    return 'loss-making';
+   735→  }
+   736→
+   737→  // Below break-even: profit is zero or margin below minimum
+   738→  const minimumMargin = resolvedRule.minimumMarginPercent ?? settings.defaultMinimumMarginPercent;
+   739→  if (effectiveMargin < minimumMargin) {
+   740→    if (effectiveMargin <= 0) return 'below-break-even';
+   741→    return 'low-margin';
+   742→  }
+   743→
+   744→  // Check competitor pricing
+   745→  const competitorAvg = calculateCompetitorAverage(product);
+   746→  if (competitorAvg > 0) {
+   747→    const aboveMarketThreshold = settings.aboveMarketThresholdPercent;
+   748→    const percentAboveMarket = safeDiv(safeSub(sellingPrice, competitorAvg), competitorAvg) * 100;
+   749→    if (percentAboveMarket > aboveMarketThreshold) {
+   750→      return 'above-market';
+   751→    }
+   752→  }
+   753→
+   754→  // Healthy margins
+   755→  const healthyMin = settings.healthyMarginMinPercent;
+   756→  const healthyMax = settings.healthyMarginMaxPercent;
+   757→  const strongThreshold = settings.strongMarginThresholdPercent;
+   758→
+   759→  if (effectiveMargin >= strongThreshold) {
+   760→    return 'high-margin';
+   761→  }
+   762→  if (effectiveMargin >= healthyMin && effectiveMargin <= healthyMax) {
+   763→    return 'healthy';
+   764→  }
+   765→
+   766→  // Low margin (between minimum and healthy minimum)
+   767→  return 'low-margin';
+   768→}
+   769→
+   770→/**
+   771→ * Determine the profitability meter level.
+   772→ */
+   773→export function calculateProfitabilityMeter(
+   774→  product: Partial<Product>,
+   775→  settings: BusinessSettings,
+   776→  rules: PricingRule[]
+   777→): ProfitabilityMeter {
+   778→  const resolvedRule = resolveRuleForProduct(product, rules);
+   779→  const effectiveMargin = calculateEffectiveMargin(product, settings, resolvedRule);
+   780→
+   781→  if (effectiveMargin < 0) return 'loss';
+   782→  if (effectiveMargin === 0) return 'break-even';
+   783→  if (effectiveMargin < settings.lowMarginThresholdPercent) return 'low-margin';
+   784→  if (effectiveMargin >= settings.strongMarginThresholdPercent) return 'strong-margin';
+   785→  return 'healthy';
+   786→}
+   787→
+   788→// ============================================================
+   789→// Pricing Explanation Generator
+   790→// ============================================================
+   791→
+   792→/**
+   793→ * Generate a plain-language explanation of a product's pricing situation.
+   794→ */
+   795→export function generatePricingExplanation(
+   796→  product: Partial<Product>,
+   797→  settings: BusinessSettings,
+   798→  rules: PricingRule[]
+   799→): string {
+   800→  const resolvedRule = resolveRuleForProduct(product, rules);
+   801→  const sellingPrice = safeNumber(product.currentSellingPrice, 0);
+   802→  const totalLandedCost = calculateTotalLandedCost(product, settings);
+   803→  const effectiveMargin = calculateEffectiveMargin(product, settings, resolvedRule);
+   804→  const profitPerUnit = calculateProfitPerUnit(product, settings, resolvedRule);
+   805→  const breakEvenPrice = calculateBreakEvenPrice(product, settings, resolvedRule, 0);
+   806→  const minimumSafe = calculateMinimumSafePrice(product, settings, resolvedRule);
+   807→  const status = calculatePricingStatus(product, settings, rules);
+   808→  const competitorAvg = calculateCompetitorAverage(product);
+   809→  const productName = product.name ?? product.sku ?? 'this product';
+   810→
+   811→  const lines: string[] = [];
+   812→
+   813→  // Header
+   814→  lines.push(`Pricing analysis for "${productName}":`);
+   815→
+   816→  // Cost summary
+   817→  lines.push(`Total landed cost per unit: ${formatCostValue(totalLandedCost, settings)}`);
+   818→
+   819→  // Current price assessment
+   820→  if (sellingPrice > 0) {
+   821→    lines.push(`Current selling price: ${formatCostValue(sellingPrice, settings)}`);
+   822→    lines.push(`Effective margin after all fees: ${effectiveMargin.toFixed(1)}%`);
+   823→    lines.push(`Profit per unit: ${formatCostValue(profitPerUnit, settings)}`);
+   824→  } else {
+   825→    lines.push(`No selling price has been set yet.`);
+   826→  }
+   827→
+   828→  // Break-even and minimum safe
+   829→  lines.push(`Pure break-even price (0% margin): ${formatCostValue(breakEvenPrice, settings)}`);
+   830→  lines.push(`Minimum safe price (${resolvedRule.minimumMarginPercent ?? settings.defaultMinimumMarginPercent}% margin): ${formatCostValue(minimumSafe, settings)}`);
+   831→
+   832→  // Status-specific explanation
+   833→  switch (status) {
+   834→    case 'loss-making':
+   835→      lines.push(`⚠️ This product is LOSS-MAKING. The selling price does not cover total costs and fees. You lose ${formatCostValue(Math.abs(profitPerUnit), settings)} per unit sold.`);
+   836→      lines.push(`Recommendation: Increase price to at least ${formatCostValue(minimumSafe, settings)} to achieve the minimum acceptable margin.`);
+   837→      break;
+   838→
+   839→    case 'below-break-even':
+   840→      lines.push(`⚠️ This product is BELOW BREAK-EVEN. After accounting for all fees, you make no profit on each unit sold.`);
+   841→      lines.push(`Recommendation: Set price to at least ${formatCostValue(breakEvenPrice, settings)} to break even, or ${formatCostValue(minimumSafe, settings)} for a healthy margin.`);
+   842→      break;
+   843→
+   844→    case 'low-margin':
+   845→      lines.push(`⚡ This product has a LOW MARGIN (${effectiveMargin.toFixed(1)}%). While profitable, the margin is below the healthy threshold of ${settings.healthyMarginMinPercent}%.`);
+   846→      lines.push(`Recommendation: Consider increasing the price to improve margin, or accept the trade-off for competitive positioning.`);
+   847→      break;
+   848→
+   849→    case 'healthy':
+   850→      lines.push(`✓ This product has a HEALTHY margin (${effectiveMargin.toFixed(1)}%). Pricing is within the optimal range.`);
+   851→      break;
+   852→
+   853→    case 'high-margin':
+   854→      lines.push(`★ This product has a HIGH margin (${effectiveMargin.toFixed(1)}%). Excellent profitability, but verify this doesn't hurt competitiveness.`);
+   855→      break;
+   856→
+   857→    case 'above-market':
+   858→      lines.push(`⚡ This product is priced significantly ABOVE the market average. Competitor average: ${formatCostValue(competitorAvg, settings)}. Your price is ${(safeDiv(safeSub(sellingPrice, competitorAvg), competitorAvg) * 100).toFixed(1)}% higher.`);
+   859→      lines.push(`Consider whether this premium positioning is intentional or needs adjustment.`);
+   860→      break;
+   861→
+   862→    case 'missing-data':
+   863→      lines.push(`❓ Pricing analysis requires more data. Please set a selling price and verify cost information.`);
+   864→      break;
+   865→
+   866→    case 'needs-review':
+   867→      lines.push(`🔔 This product has been flagged for manual review. Some values appear unusual.`);
+   868→      break;
+   869→
+   870→    case 'approved':
+   871→      lines.push(`✓ This product's pricing has been manually reviewed and approved.`);
+   872→      break;
+   873→  }
+   874→
+   875→  // Competitor context
+   876→  if (competitorAvg > 0) {
+   877→    lines.push(`Competitor average price: ${formatCostValue(competitorAvg, settings)}`);
+   878→    const diff = sellingPrice - competitorAvg;
+   879→    const diffPercent = safeDiv(Math.abs(diff), competitorAvg) * 100;
+   880→    if (diff > 0) {
+   881→      lines.push(`Your price is ${diffPercent.toFixed(1)}% above the competitor average.`);
+   882→    } else if (diff < 0) {
+   883→      lines.push(`Your price is ${diffPercent.toFixed(1)}% below the competitor average.`);
+   884→    } else {
+   885→      lines.push(`Your price matches the competitor average.`);
+   886→    }
+   887→  }
+   888→
+   889→  return lines.join('\n');
+   890→}
+   891→
+   892→function formatCostValue(value: number, settings: BusinessSettings): string {
+   893→  // Simple inline formatting — full formatting should use the formatting.ts module
+   894→  const symbol = getCurrencySymbolForCode(settings.currencyCode);
+   895→  if (value < 0) {
+   896→    return `-${symbol}${Math.abs(value).toFixed(2)}`;
+   897→  }
+   898→  return `${symbol}${value.toFixed(2)}`;
+   899→}
+   900→
+   901→function getCurrencySymbolForCode(code: string): string {
+   902→  const symbols: Record<string, string> = {
+   903→    INR: '₹', GBP: '£', USD: '$', EUR: '€', AED: 'د.إ',
+   904→  };
+   905→  return symbols[code] ?? '₹';
+   906→}
+   907→
+   908→// ============================================================
+   909→// Warning Generator
+   910→// ============================================================
+   911→
+   912→/**
+   913→ * Generate warnings for a product based on its data and pricing.
+   914→ */
+   915→export function generateWarnings(
+   916→  product: Partial<Product>,
+   917→  settings: BusinessSettings,
+   918→  rules: PricingRule[]
+   919→): Warning[] {
+   920→  const warnings: Warning[] = [];
+   921→  const resolvedRule = resolveRuleForProduct(product, rules);
+   922→  const productId = product.id ?? '';
+   923→  let warningCounter = 0;
+   924→
+   925→  function addWarning(
+   926→    type: string,
+   927→    severity: WarningSeverity,
+   928→    message: string,
+   929→    detail?: string,
+   930→    suggestion?: string,
+   931→    field?: string,
+   932→    value?: number
+   933→  ) {
+   934→    warnings.push({
+   935→      id: `${productId}-w-${++warningCounter}`,
+   936→      productId,
+   937→      type,
+   938→      severity,
+   939→      message,
+   940→      detail,
+   941→      suggestion,
+   942→      field,
+   943→      value,
+   944→      createdAt: new Date().toISOString(),
+   945→    });
+   946→  }
+   947→
+   948→  // --- Missing Data Warnings ---
+   949→  if (!product.name || product.name.trim() === '') {
+   950→    addWarning('missing-name', 'warning', 'Product name is missing', undefined, 'Add a product name for better identification', 'name');
+   951→  }
+   952→  if (!product.sku || product.sku.trim() === '') {
+   953→    addWarning('missing-sku', 'warning', 'SKU is missing', undefined, 'Add a SKU for tracking and identification', 'sku');
+   954→  }
+   955→  if (!product.currentSellingPrice || product.currentSellingPrice <= 0) {
+   956→    addWarning('missing-price', 'error', 'No selling price set', undefined, 'Set a selling price to enable pricing analysis', 'currentSellingPrice');
+   957→  }
+   958→  if (!product.purchaseCost || product.purchaseCost <= 0) {
+   959→    addWarning('missing-cost', 'error', 'Purchase cost is missing or zero', undefined, 'Enter the purchase cost to calculate margins', 'purchaseCost');
+   960→  }
+   961→  if (!product.category || product.category.trim() === '') {
+   962→    addWarning('missing-category', 'info', 'Category is not set', undefined, 'Assign a category for better rule matching', 'category');
+   963→  }
+   964→  if (!product.brand || product.brand.trim() === '') {
+   965→    addWarning('missing-brand', 'info', 'Brand is not set', undefined, 'Assign a brand for better rule matching', 'brand');
+   966→  }
+   967→
+   968→  // --- Unrealistic Values ---
+   969→  if (product.returnRatePercent && product.returnRatePercent > 50) {
+   970→    addWarning('high-return-rate', 'warning', `Return rate of ${product.returnRatePercent}% is unusually high`, 'Returns above 50% are extremely rare', 'Verify this value; typical return rates are 2-10%', 'returnRatePercent', product.returnRatePercent);
+   971→  }
+   972→  if (product.damageRatePercent && product.damageRatePercent > 30) {
+   973→    addWarning('high-damage-rate', 'warning', `Damage rate of ${product.damageRatePercent}% is unusually high`, 'Damage above 30% suggests supply chain issues', 'Investigate quality and logistics; typical rates are 0.5-5%', 'damageRatePercent', product.damageRatePercent);
+   974→  }
+   975→  if (product.taxRatePercent && product.taxRatePercent > 50) {
+   976→    addWarning('high-tax-rate', 'critical', `Tax rate of ${product.taxRatePercent}% exceeds realistic bounds`, undefined, 'Verify the tax rate; most countries have rates under 30%', 'taxRatePercent', product.taxRatePercent);
+   977→  }
+   978→  if (product.marketplaceFeePercent && product.marketplaceFeePercent > 50) {
+   979→    addWarning('high-marketplace-fee', 'warning', `Marketplace fee of ${product.marketplaceFeePercent}% is unusually high`, 'Most marketplace commissions are 5-20%', 'Verify the marketplace fee percentage', 'marketplaceFeePercent', product.marketplaceFeePercent);
+   980→  }
+   981→  if (product.paymentFeePercent && product.paymentFeePercent > 10) {
+   982→    addWarning('high-payment-fee', 'warning', `Payment fee of ${product.paymentFeePercent}% is unusually high`, 'Most payment gateway fees are 1-3%', 'Verify the payment fee percentage', 'paymentFeePercent', product.paymentFeePercent);
+   983→  }
+   984→
+   985→  // --- Fee Overflow Check ---
+   986→  const totalPercentFees = calculatePercentageFees(
+   987→    product.currentSellingPrice ?? 0,
+   988→    product,
+   989→    settings,
+   990→    resolvedRule
+   991→  );
+   992→  if (totalPercentFees >= 0.9) {
+   993→    addWarning('fee-overflow', 'critical', 'Total percentage fees exceed 90% of selling price', `Total percentage fees: ${(totalPercentFees * 100).toFixed(1)}%`, 'Reduce fees or find a different sales channel; margins will be impossible', 'totalPercentageFees', totalPercentFees * 100);
+   994→  } else if (totalPercentFees >= 0.5) {
+   995→    addWarning('high-fees', 'warning', 'Total percentage fees exceed 50% of selling price', `Total percentage fees: ${(totalPercentFees * 100).toFixed(1)}%`, 'Consider negotiating lower fees or adjusting pricing strategy', 'totalPercentageFees', totalPercentFees * 100);
+   996→  }
+   997→
+   998→  // --- Margin Checks ---
+   999→  if (product.currentSellingPrice && product.currentSellingPrice > 0 && product.purchaseCost && product.purchaseCost > 0) {
+  1000→    const effectiveMargin = calculateEffectiveMargin(product, settings, resolvedRule);
+  1001→    
+  1002→    if (effectiveMargin < 0) {
+  1003→      addWarning('loss-making', 'critical', 'Product is loss-making', `Margin: ${effectiveMargin.toFixed(1)}%`, `Increase price above ${formatCostValue(calculateMinimumSafePrice(product, settings, resolvedRule), settings)} to become profitable`, 'effectiveMargin', effectiveMargin);
+  1004→    } else if (effectiveMargin < settings.defaultMinimumMarginPercent) {
+  1005→      addWarning('below-min-margin', 'warning', `Margin (${effectiveMargin.toFixed(1)}%) is below minimum target (${settings.defaultMinimumMarginPercent}%)`, undefined, 'Consider increasing the price or reducing costs', 'effectiveMargin', effectiveMargin);
+  1006→    }
+  1007→  }
+  1008→
+  1009→  // --- Competitor Anomaly ---
+  1010→  const competitorPrices = product.competitorPrices ?? [];
+  1011→  if (competitorPrices.length > 0) {
+  1012→    const avg = calculateCompetitorAverage(product);
+  1013→    if (product.currentSellingPrice && avg > 0) {
+  1014→      const priceDiff = product.currentSellingPrice - avg;
+  1015→      const priceDiffPercent = safeDiv(Math.abs(priceDiff), avg) * 100;
+  1016→      
+  1017→      if (priceDiff > 0 && priceDiffPercent > settings.aboveMarketThresholdPercent) {
+  1018→        addWarning('above-market', 'warning', `Price is ${priceDiffPercent.toFixed(1)}% above competitor average`, `Competitor avg: ${formatCostValue(avg, settings)}`, 'Verify the premium positioning is intentional', 'currentSellingPrice', product.currentSellingPrice);
+  1019→      } else if (priceDiff < 0 && priceDiffPercent > 50) {
+  1020→        addWarning('far-below-market', 'warning', `Price is ${priceDiffPercent.toFixed(1)}% below competitor average`, `Competitor avg: ${formatCostValue(avg, settings)}`, 'This could indicate a pricing error or aggressive undercutting', 'currentSellingPrice', product.currentSellingPrice);
+  1021→      }
+  1022→    }
+  1023→  }
+  1024→
+  1025→  // --- Cost Component Imbalance ---
+  1026→  if (product.purchaseCost && product.currentSellingPrice && product.purchaseCost > product.currentSellingPrice) {
+  1027→    addWarning('cost-exceeds-price', 'critical', 'Purchase cost exceeds selling price', `Purchase: ${formatCostValue(product.purchaseCost, settings)}, Selling: ${formatCostValue(product.currentSellingPrice, settings)}`, 'The selling price must exceed the purchase cost for profitability', 'purchaseCost', product.purchaseCost);
+  1028→  }
+  1029→
+  1030→  // --- Duplicate SKU Warning ---
+  1031→  // (This is handled at the product list level, not per-product)
+  1032→
+  1033→  return warnings;
+  1034→}
+  1035→
+  1036→// ============================================================
+  1037→// Rule Resolution
+  1038→// ============================================================
+  1039→
+  1040→/**
+  1041→ * Resolve the effective pricing rule for a product by checking
+  1042→ * rules in priority order:
+  1043→ *
+  1044→ * Priority: product > brand > category > channel > global
+  1045→ * Within each level, higher `priority` number wins.
+  1046→ *
+  1047→ * Falls back to defaults from BusinessSettings if no rules match.
+  1048→ */
+  1049→export function resolveRuleForProduct(
+  1050→  product: Partial<Product>,
+  1051→  rules: PricingRule[]
+  1052→): PricingRule {
+  1053→  // Filter to active rules only
+  1054→  const activeRules = rules.filter(r => r.isActive);
+  1055→
+  1056→  // Sort by specificity (product > brand > category > channel > global)
+  1057→  // and within the same level, by priority number (descending)
+  1058→  const levelOrder: Record<string, number> = {
+  1059→    'product': 4,
+  1060→    'brand': 3,
+  1061→    'category': 2,
+  1062→    'channel': 1,
+  1063→    'global': 0,
+  1064→  };
+  1065→
+  1066→  // Try to find matching rules at each level
+  1067→  const productRules = activeRules
+  1068→    .filter(r => r.level === 'product' && (r.targetProductId === product.id || r.targetProductSku === product.sku))
+  1069→    .sort((a, b) => b.priority - a.priority);
+  1070→
+  1071→  const brandRules = activeRules
+  1072→    .filter(r => r.level === 'brand' && r.targetBrand === product.brand)
+  1073→    .sort((a, b) => b.priority - a.priority);
+  1074→
+  1075→  const categoryRules = activeRules
+  1076→    .filter(r => r.level === 'category' && r.targetCategory === product.category)
+  1077→    .sort((a, b) => b.priority - a.priority);
+  1078→
+  1079→  const channelRules = activeRules
+  1080→    .filter(r => r.level === 'channel' && r.targetChannel === product.salesChannel)
+  1081→    .sort((a, b) => b.priority - a.priority);
+  1082→
+  1083→  const globalRules = activeRules
+  1084→    .filter(r => r.level === 'global')
+  1085→    .sort((a, b) => b.priority - a.priority);
+  1086→
+  1087→  // Pick the first (highest specificity + priority) matching rule
+  1088→  const allMatching = [
+  1089→    ...productRules,
+  1090→    ...brandRules,
+  1091→    ...categoryRules,
+  1092→    ...channelRules,
+  1093→    ...globalRules,
+  1094→  ];
+  1095→
+  1096→  if (allMatching.length > 0) {
+  1097→    return allMatching[0];
+  1098→  }
+  1099→
+  1100→  // No rules match — return a default rule based on business settings
+  1101→  // This is used as the fallback so calculations always have a rule to work with
+  1102→  return {
+  1103→    id: 'default-fallback',
+  1104→    name: 'Default (from Business Settings)',
+  1105→    level: 'global',
+  1106→    targetMarginPercent: 25,
+  1107→    minimumMarginPercent: 10,
+  1108→    maximumMarginPercent: 60,
+  1109→    targetMarkupPercent: 33,
+  1110→    roundingRule: 'no-rounding',
+  1111→    competitorStrategy: {
+  1112→      mode: 'match-average',
+  1113→      weightPercent: 30,
+  1114→    },
+  1115→    priority: 0,
+  1116→    isActive: true,
+  1117→    createdAt: new Date().toISOString(),
+  1118→    updatedAt: new Date().toISOString(),
+  1119→    notes: 'Auto-generated default rule from business settings',
+  1120→  };
+  1121→}
+  1122→
+  1123→// ============================================================
+  1124→// Full Product Calculation (Convenience)
+  1125→// ============================================================
+  1126→
+  1127→/**
+  1128→ * Run all calculations on a product and return the fully populated
+  1129→ * calculated fields. This is the main entry point for refreshing
+  1130→ * a product's calculated values.
+  1131→ */
+  1132→export function calculateProduct(
+  1133→  product: Partial<Product>,
+  1134→  settings: BusinessSettings,
+  1135→  rules: PricingRule[]
+  1136→): Partial<Product> {
+  1137→  const resolvedRule = resolveRuleForProduct(product, rules);
+  1138→
+  1139→  const baseCost = calculateBaseCost(product, settings);
+  1140→  const expectedReturnCost = calculateExpectedReturnCost(product, settings);
+  1141→  const expectedDamageCost = calculateExpectedDamageCost(product, settings);
+  1142→  const totalLandedCost = calculateTotalLandedCost(product, settings);
+  1143→
+  1144→  const sellingPrice = safeNumber(product.currentSellingPrice, 0);
+  1145→  const totalPercentageFees = calculatePercentageFees(sellingPrice, product, settings, resolvedRule);
+  1146→  const totalFixedFees = calculateFixedFees(product, settings);
+  1147→
+  1148→  const breakEvenPrice = calculateBreakEvenPrice(product, settings, resolvedRule, 0);
+  1149→  const markupPercent = sellingPrice > 0 ? calculateMarkup(totalLandedCost, sellingPrice) : 0;
+  1150→  const marginPercent = sellingPrice > 0 ? calculateEffectiveMargin(product, settings, resolvedRule) : 0;
+  1151→  const profitPerUnit = sellingPrice > 0 ? calculateProfitPerUnit(product, settings, resolvedRule) : 0;
+  1152→  const pricingStatus = calculatePricingStatus(product, settings, rules);
+  1153→  const profitabilityMeter = calculateProfitabilityMeter(product, settings, rules);
+  1154→  const recommendedPrices = calculateRecommendedPrices(product, settings, rules);
+  1155→
+  1156→  return {
+  1157→    ...product,
+  1158→    calculatedBaseCost: roundTo2Decimals(baseCost),
+  1159→    calculatedExpectedReturnCost: roundTo2Decimals(expectedReturnCost),
+  1160→    calculatedExpectedDamageCost: roundTo2Decimals(expectedDamageCost),
+  1161→    calculatedTotalLandedCost: roundTo2Decimals(totalLandedCost),
+  1162→    calculatedBreakEvenPrice: roundTo2Decimals(breakEvenPrice),
+  1163→    calculatedMarkupPercent: roundTo2Decimals(markupPercent),
+  1164→    calculatedMarginPercent: roundTo2Decimals(marginPercent),
+  1165→    calculatedProfitPerUnit: roundTo2Decimals(profitPerUnit),
+  1166→    calculatedTotalPercentageFees: roundTo2Decimals(totalPercentageFees * 100), // Store as percentage
+  1167→    calculatedTotalFixedFees: roundTo2Decimals(totalFixedFees),
+  1168→    calculatedPricingStatus: pricingStatus,
+  1169→    calculatedProfitabilityMeter: profitabilityMeter,
+  1170→    recommendedPrices,
+  1171→    updatedAt: new Date().toISOString(),
+  1172→  };
+  1173→}
+  1174→

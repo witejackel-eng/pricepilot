@@ -1,0 +1,945 @@
+     1→/**
+     2→ * PricePilot - Excel Import and Export Utilities
+     3→ *
+     4→ * Handles parsing of Excel and CSV files, automatic column
+     5→ * mapping detection, data cleaning, and formatted export.
+     6→ *
+     7→ * Uses the xlsx library for Excel operations and implements
+     8→ * intelligent column detection for common heading variations.
+     9→ */
+    10→
+    11→import {
+    12→  ColumnMapping,
+    13→  Product,
+    14→  BusinessSettings,
+    15→  ExportPreset,
+    16→  ExportConfig,
+    17→  CompetitorPrice,
+    18→  ImportError,
+    19→  WarningSeverity,
+    20→} from './types';
+    21→import { parseNumericInput } from './formatting';
+    22→
+    23→// ============================================================
+    24→// Excel Parsing
+    25→// ============================================================
+    26→
+    27→/**
+    28→ * Parse an Excel file (xlsx) and return sheets with rows.
+    29→ * Each sheet is returned as an array of objects where keys
+    30→ * are column headers and values are cell values (as strings).
+    31→ *
+    32→ * Uses the xlsx library which must be available at runtime.
+    33→ */
+    34→export async function parseExcelFile(fileBuffer: ArrayBuffer): Promise<{
+    35→  sheets: Array<{
+    36→    name: string;
+    37→    headers: string[];
+    38→    rows: Record<string, string>[];
+    39→  }>;
+    40→  errors: ImportError[];
+    41→}> {
+    42→  const errors: ImportError[] = [];
+    43→
+    44→  try {
+    45→    // Dynamic import of xlsx (it's a large library)
+    46→    const XLSX = await import('xlsx');
+    47→
+    48→    const workbook = XLSX.read(fileBuffer, { type: 'array' });
+    49→
+    50→    const sheets: Array<{
+    51→      name: string;
+    52→      headers: string[];
+    53→      rows: Record<string, string>[];
+    54→    }> = [];
+    55→
+    56→    for (const sheetName of workbook.SheetNames) {
+    57→      const worksheet = workbook.Sheets[sheetName];
+    58→
+    59→      // Convert to JSON with headers
+    60→      const rawData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+    61→        defval: '',
+    62→        raw: false,  // Get formatted strings instead of raw values
+    63→      });
+    64→
+    65→      if (rawData.length === 0) continue;
+    66→
+    67→      // Extract headers from first row
+    68→      const headers = Object.keys(rawData[0]);
+    69→
+    70→      // Convert all values to strings for uniform handling
+    71→      const rows: Record<string, string>[] = rawData.map(row => {
+    72→        const stringRow: Record<string, string> = {};
+    73→        for (const key of headers) {
+    74→          stringRow[key] = String(row[key] ?? '');
+    75→        }
+    76→        return stringRow;
+    77→      });
+    78→
+    79→      sheets.push({ name: sheetName, headers, rows });
+    80→    }
+    81→
+    82→    if (sheets.length === 0) {
+    83→      errors.push({
+    84→        row: 0,
+    85→        column: '',
+    86→        value: '',
+    87→        message: 'No data found in the Excel file. The file may be empty or all sheets are blank.',
+    88→        severity: 'error',
+    89→      });
+    90→    }
+    91→
+    92→    return { sheets, errors };
+    93→  } catch (error) {
+    94→    errors.push({
+    95→      row: 0,
+    96→      column: '',
+    97→      value: '',
+    98→      message: `Failed to parse Excel file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    99→      severity: 'critical',
+   100→    });
+   101→    return { sheets: [], errors };
+   102→  }
+   103→}
+   104→
+   105→/**
+   106→ * Parse a CSV text file and return rows.
+   107→ * Handles common CSV formats including comma and tab separation.
+   108→ */
+   109→export function parseCSVFile(text: string): {
+   110→  headers: string[];
+   111→  rows: Record<string, string>[];
+   112→  errors: ImportError[];
+   113→} {
+   114→  const errors: ImportError[] = [];
+   115→
+   116→  try {
+   117→    const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+   118→
+   119→    if (lines.length < 2) {
+   120→      errors.push({
+   121→        row: 0,
+   122→        column: '',
+   123→        value: '',
+   124→        message: 'CSV file must have at least a header row and one data row',
+   125→        severity: 'error',
+   126→      });
+   127→      return { headers: [], rows: [], errors };
+   128→    }
+   129→
+   130→    // Detect delimiter (comma, tab, semicolon, pipe)
+   131→    const firstLine = lines[0];
+   132→    const delimiters = [',', '\t', ';', '|'];
+   133→    let bestDelimiter = ',';
+   134→    let maxColumns = 0;
+   135→
+   136→    for (const delimiter of delimiters) {
+   137→      const columns = splitCSVLine(firstLine, delimiter).length;
+   138→      if (columns > maxColumns) {
+   139→        maxColumns = columns;
+   140→        bestDelimiter = delimiter;
+   141→      }
+   142→    }
+   143→
+   144→    // Parse headers
+   145→    const headers = splitCSVLine(firstLine, bestDelimiter).map(h => h.trim());
+   146→
+   147→    // Parse rows
+   148→    const rows: Record<string, string>[] = [];
+   149→    for (let i = 1; i < lines.length; i++) {
+   150→      const values = splitCSVLine(lines[i], bestDelimiter);
+   151→      const row: Record<string, string> = {};
+   152→      for (let j = 0; j < headers.length; j++) {
+   153→        row[headers[j]] = j < values.length ? values[j].trim() : '';
+   154→      }
+   155→      rows.push(row);
+   156→    }
+   157→
+   158→    return { headers, rows, errors };
+   159→  } catch (error) {
+   160→    errors.push({
+   161→      row: 0,
+   162→      column: '',
+   163→      value: '',
+   164→      message: `Failed to parse CSV: ${error instanceof Error ? error.message : 'Unknown error'}`,
+   165→      severity: 'critical',
+   166→    });
+   167→    return { headers: [], rows: [], errors };
+   168→  }
+   169→}
+   170→
+   171→/**
+   172→ * Split a CSV line respecting quoted values.
+   173→ * Handles values enclosed in double quotes that may contain the delimiter.
+   174→ */
+   175→function splitCSVLine(line: string, delimiter: string): string[] {
+   176→  const result: string[] = [];
+   177→  let current = '';
+   178→  let inQuotes = false;
+   179→
+   180→  for (let i = 0; i < line.length; i++) {
+   181→    const char = line[i];
+   182→
+   183→    if (char === '"') {
+   184→      if (inQuotes && i + 1 < line.length && line[i + 1] === '"') {
+   185→        // Double quote inside quoted value = escaped quote
+   186→        current += '"';
+   187→        i++;
+   188→      } else {
+   189→        inQuotes = !inQuotes;
+   190→      }
+   191→    } else if (char === delimiter && !inQuotes) {
+   192→      result.push(current);
+   193→      current = '';
+   194→    } else {
+   195→      current += char;
+   196→    }
+   197→  }
+   198→
+   199→  result.push(current);
+   200→  return result;
+   201→}
+   202→
+   203→// ============================================================
+   204→// Column Mapping Detection
+   205→// ============================================================
+   206→
+   207→/**
+   208→ * Mapping of our target fields to common heading variations.
+   209→ * Used for auto-detecting column mappings during import.
+   210→ */
+   211→const COLUMN_VARIATIONS: Record<string, string[]> = {
+   212→  // Identification
+   213→  'name': ['product name', 'product_name', 'name', 'item name', 'item_name', 'title', 'description', 'product', 'item'],
+   214→  'sku': ['sku', 'product code', 'product_code', 'item code', 'item_code', 'code', 'product id', 'product_id', 'item no', 'item_no', 'part number', 'part_no', 'article number', 'article_no', 'pid', 'prod_id', 'model', 'model number'],
+   215→  'category': ['category', 'product category', 'product_category', 'cat', 'type', 'product type', 'product_type', 'group', 'product group', 'classification', 'class'],
+   216→  'brand': ['brand', 'brand name', 'brand_name', 'manufacturer', 'maker', 'supplier', 'vendor', 'company'],
+   217→  'description': ['description', 'desc', 'product description', 'product_desc', 'details', 'short description', 'short_desc', 'summary', 'long description', 'long_desc'],
+   218→
+   219→  // Cost Fields
+   220→  'purchaseCost': ['purchase cost', 'purchase_cost', 'cost', 'purchase price', 'purchase_price', 'buying price', 'buying_price', 'buy price', 'unit cost', 'unit_cost', 'base cost', 'base_cost', 'wholesale cost', 'wholesale_cost', 'wholesale price', 'cogs', 'cost of goods', 'acquisition cost', 'acquisition_price', 'price paid', 'paid price', 'supplier price', 'factory cost', 'manufacturing cost', 'raw cost', 'product cost', 'product_cost'],
+   221→  'shippingCost': ['shipping cost', 'shipping_cost', 'shipping', 'freight cost', 'freight_cost', 'freight', 'delivery cost', 'delivery_cost', 'transport cost', 'transport_cost', 'logistics cost', 'logistics_cost', 'inbound shipping', 'inbound_shipping'],
+   222→  'packagingCost': ['packaging cost', 'packaging_cost', 'packaging', 'packing cost', 'packing_cost', 'packing', 'box cost', 'box_cost', 'wrapping cost', 'wrapping_cost'],
+   223→  'handlingCost': ['handling cost', 'handling_cost', 'handling', 'labour cost', 'labour_cost', 'labor cost', 'labor_cost', 'processing cost', 'processing_cost', 'assembly cost', 'assembly_cost'],
+   224→  'otherCosts': ['other costs', 'other_costs', 'other cost', 'misc costs', 'misc_costs', 'miscellaneous costs', 'miscellaneous_costs', 'additional costs', 'additional_costs', 'extra costs', 'extra_costs', 'overhead cost', 'overhead_cost', 'overhead'],
+   225→  'returnRatePercent': ['return rate', 'return_rate', 'return rate %', 'return_rate_pct', 'returns %', 'return percentage', 'return_pct', 'refund rate', 'refund_rate', 'returns', 'return pct'],
+   226→  'damageRatePercent': ['damage rate', 'damage_rate', 'damage rate %', 'damage_rate_pct', 'damage %', 'damage percentage', 'damage_pct', 'defect rate', 'defect_rate', 'defective rate', 'defective_rate', 'damage pct'],
+   227→  'customDutyPercent': ['custom duty', 'custom_duty', 'custom duty %', 'custom_duty_pct', 'duty %', 'import duty', 'import_duty', 'import duty %', 'duty', 'customs duty', 'tariff', 'tariff rate', 'duty pct'],
+   228→  'freightPercent': ['freight %', 'freight_pct', 'freight percentage', 'freight percent', 'freight percent of cost', 'shipping percent', 'shipping_pct', 'transport %'],
+   229→
+   230→  // Selling Fields
+   231→  'currentSellingPrice': ['selling price', 'selling_price', 'sell price', 'sell_price', 'current price', 'current_price', 'price', 'sale price', 'sale_price', 'retail price', 'retail_price', 'listing price', 'listing_price', 'mrp', 'maximum retail price', 'market price', 'market_price', 'offered price', 'offered_price', 'selling', 'sp', 'sell'],
+   232→  'taxRatePercent': ['tax rate', 'tax_rate', 'tax %', 'tax_pct', 'gst rate', 'gst_rate', 'gst %', 'gst_pct', 'vat rate', 'vat_rate', 'vat %', 'vat_pct', 'tax', 'gst', 'vat', 'sales tax', 'sales_tax', 'tax percentage'],
+   233→  'taxTreatment': ['tax treatment', 'tax_treatment', 'tax type', 'tax_type', 'tax inclusive', 'tax_inclusive', 'tax exclusive', 'tax_exclusive', 'gst treatment', 'gst_treatment', 'gst type', 'gst_type'],
+   234→
+   235→  // Fee Fields
+   236→  'marketplaceFeePercent': ['marketplace fee', 'marketplace_fee', 'marketplace fee %', 'marketplace_fee_pct', 'platform fee', 'platform_fee', 'platform fee %', 'platform_fee_pct', 'commission', 'commission %', 'commission_pct', 'marketplace commission', 'channel fee', 'channel_fee', 'channel fee %', 'seller fee', 'seller_fee', 'listing fee %', 'listing_fee_pct'],
+   237→  'marketplaceFeeFixed': ['marketplace fixed fee', 'marketplace_fixed_fee', 'fixed marketplace fee', 'platform fixed fee', 'platform_fixed_fee', 'fixed commission', 'fixed_fee', 'fixed fee', 'per order fee', 'per_order_fee', 'order fee', 'transaction fee fixed', 'flat fee'],
+   238→  'paymentFeePercent': ['payment fee', 'payment_fee', 'payment fee %', 'payment_fee_pct', 'gateway fee', 'gateway_fee', 'gateway fee %', 'gateway_fee_pct', 'payment gateway fee', 'payment_gateway_fee', 'payment commission', 'payment commission %', 'processing fee %', 'processing_fee_pct'],
+   239→  'paymentFeeFixed': ['payment fixed fee', 'payment_fixed_fee', 'fixed payment fee', 'gateway fixed fee', 'gateway_fixed_fee', 'payment processing fixed', 'payment_processing_fixed', 'transaction fee', 'transaction_fee', 'flat payment fee'],
+   240→  'shippingChargeToCustomer': ['shipping charge', 'shipping_charge', 'customer shipping', 'customer_shipping', 'shipping to customer', 'shipping_to_customer', 'delivery charge', 'delivery_charge', 'outbound shipping', 'outbound_shipping'],
+   241→  'otherFeesPercent': ['other fees %', 'other_fees_pct', 'additional fees %', 'additional_fees_pct', 'extra fees %', 'extra_fees_pct', 'other percentage fees', 'other_percentage_fees'],
+   242→  'otherFeesFixed': ['other fixed fees', 'other_fixed_fees', 'other fees fixed', 'additional fixed fees', 'additional_fixed_fees', 'extra fixed fees', 'extra_fixed_fees', 'misc fees fixed', 'misc_fees_fixed'],
+   243→  'salesChannel': ['channel', 'sales channel', 'sales_channel', 'channel type', 'channel_type', 'platform', 'selling channel', 'selling_channel', 'distribution channel', 'distribution_channel'],
+   244→
+   245→  // Competitor
+   246→  'competitorPrice1': ['competitor price 1', 'competitor_price_1', 'comp price 1', 'comp_price_1', 'competitor 1', 'competitor_1', 'market price 1', 'market_price_1', 'rival price 1', 'rival_price_1'],
+   247→  'competitorPrice2': ['competitor price 2', 'competitor_price_2', 'comp price 2', 'comp_price_2', 'competitor 2', 'competitor_2', 'market price 2', 'market_price_2', 'rival price 2', 'rival_price_2'],
+   248→  'competitorPrice3': ['competitor price 3', 'competitor_price_3', 'comp price 3', 'comp_price_3', 'competitor 3', 'competitor_3', 'market price 3', 'market_price_3', 'rival price 3', 'rival_price_3'],
+   249→  'competitorPrice4': ['competitor price 4', 'competitor_price_4', 'comp price 4', 'comp_price_4', 'competitor 4', 'competitor_4', 'market price 4', 'market_price_4'],
+   250→  'competitorName1': ['competitor name 1', 'competitor_name_1', 'comp name 1', 'comp_name_1', 'competitor 1 name', 'competitor_1_name'],
+   251→  'competitorName2': ['competitor name 2', 'competitor_name_2', 'comp name 2', 'comp_name_2', 'competitor 2 name', 'competitor_2_name'],
+   252→  'competitorName3': ['competitor name 3', 'competitor_name_3', 'comp name 3', 'comp_name_3', 'competitor 3 name', 'competitor_3_name'],
+   253→
+   254→  // Metadata
+   255→  'notes': ['notes', 'note', 'comments', 'comment', 'remarks', 'remark', 'memo', 'internal notes', 'internal_notes', 'description notes'],
+   256→  'tags': ['tags', 'tag', 'labels', 'label', 'keywords', 'keyword'],
+   257→};
+   258→
+   259→/**
+   260→ * Detect column mappings automatically based on headers.
+   261→ * Returns suggested mappings with confidence scores.
+   262→ *
+   263→ * Algorithm:
+   264→ * 1. Normalize header names (lowercase, replace spaces/dashes with underscores)
+   265→ * 2. Check for exact match in variation lists
+   266→ * 3. Check for partial match (contains variation)
+   267→ * 4. Assign confidence based on match quality
+   268→ */
+   269→export function detectColumnMappings(headers: string[]): ColumnMapping[] {
+   270→  const mappings: ColumnMapping[] = [];
+   271→  const usedHeaders = new Set<string>();
+   272→
+   273→  for (const header of headers) {
+   274→    const normalizedHeader = header.toLowerCase().trim().replace(/[\s\-\.]+/g, '_').replace(/[^a-z0-9_]/g, '');
+   275→
+   276→    let bestMatch: string | null = null;
+   277→    let bestConfidence = 0;
+   278→
+   279→    for (const [targetField, variations] of Object.entries(COLUMN_VARIATIONS)) {
+   280→      for (const variation of variations) {
+   281→        const normalizedVariation = variation.toLowerCase().replace(/[\s\-\.]+/g, '_').replace(/[^a-z0-9_]/g, '');
+   282→
+   283→        // Exact match = highest confidence
+   284→        if (normalizedHeader === normalizedVariation) {
+   285→          bestMatch = targetField;
+   286→          bestConfidence = 1.0;
+   287→          break;
+   288→        }
+   289→
+   290→        // Header contains variation (e.g., "product_name_v2" contains "product_name")
+   291→        if (normalizedHeader.includes(normalizedVariation) && bestConfidence < 0.85) {
+   292→          bestMatch = targetField;
+   293→          bestConfidence = 0.85;
+   294→        }
+   295→
+   296→        // Variation contains header (e.g., "sku" is contained in "sku_code")
+   297→        if (normalizedVariation.includes(normalizedHeader) && bestConfidence < 0.7 && normalizedHeader.length >= 3) {
+   298→          bestMatch = targetField;
+   299→          bestConfidence = 0.7;
+   300→        }
+   301→      }
+   302→
+   303→      if (bestConfidence === 1.0) break; // Can't improve on exact match
+   304→    }
+   305→
+   306→    if (bestMatch) {
+   307→      mappings.push({
+   308→        sourceColumn: header,
+   309→        targetField: bestMatch,
+   310→        confidence: bestConfidence,
+   311→        isManual: false,
+   312→      });
+   313→      usedHeaders.add(header);
+   314→    } else {
+   315→      // No match found — header remains unmapped
+   316→      // We don't add it to mappings; it will show as "unmapped"
+   317→    }
+   318→  }
+   319→
+   320→  return mappings;
+   321→}
+   322→
+   323→/**
+   324→ * Get all unmapped headers (those without a suggested mapping).
+   325→ */
+   326→export function getUnmappedHeaders(headers: string[], mappings: ColumnMapping[]): string[] {
+   327→  const mappedSources = new Set(mappings.map(m => m.sourceColumn));
+   328→  return headers.filter(h => !mappedSources.has(h));
+   329→}
+   330→
+   331→// ============================================================
+   332→// Data Cleaning
+   333→// ============================================================
+   334→
+   335→/**
+   336→ * Clean imported data rows based on column mappings and settings.
+   337→ * Handles: currency symbols, commas, blanks, percentages, duplicates.
+   338→ *
+   339→ * Returns cleaned rows and cleaning statistics.
+   340→ */
+   341→export function cleanImportData(
+   342→  rows: Record<string, string>[],
+   343→  mappings: ColumnMapping[],
+   344→  settings: BusinessSettings
+   345→): {
+   346→  cleanedRows: Record<string, unknown>[];
+   347→  skippedRows: number;
+   348→  duplicateCount: number;
+   349→  blankFieldCount: number;
+   350→  invalidValueCount: number;
+   351→  errors: ImportError[];
+   352→  warnings: ImportError[];
+   353→} {
+   354→  const cleanedRows: Record<string, unknown>[] = [];
+   355→  const errors: ImportError[] = [];
+   356→  const warnings: ImportError[] = [];
+   357→  let skippedRows = 0;
+   358→  let duplicateCount = 0;
+   359→  let blankFieldCount = 0;
+   360→  let invalidValueCount = 0;
+   361→
+   362→  // Track SKUs for duplicate detection
+   363→  const seenSkus: Set<string> = new Set();
+   364→
+   365→  // Build a map from source column → target field + transform
+   366→  const mappingMap = new Map<string, { targetField: string; transform?: string }>();
+   367→  for (const mapping of mappings) {
+   368→    mappingMap.set(mapping.sourceColumn, {
+   369→      targetField: mapping.targetField,
+   370→      transform: mapping.transform,
+   371→    });
+   372→  }
+   373→
+   374→  // Fields that are numeric (costs, percentages, fees)
+   375→  const numericFields = new Set([
+   376→    'purchaseCost', 'shippingCost', 'packagingCost', 'handlingCost',
+   377→    'otherCosts', 'currentSellingPrice', 'marketplaceFeeFixed',
+   378→    'paymentFeeFixed', 'otherFeesFixed', 'shippingChargeToCustomer',
+   379→  ]);
+   380→
+   381→  // Fields that are percentages
+   382→  const percentFields = new Set([
+   383→    'returnRatePercent', 'damageRatePercent', 'customDutyPercent',
+   384→    'freightPercent', 'taxRatePercent', 'marketplaceFeePercent',
+   385→    'paymentFeePercent', 'otherFeesPercent',
+   386→  ]);
+   387→
+   388→  // Fields that are string identifiers
+   389→  const stringFields = new Set([
+   390→    'name', 'sku', 'category', 'brand', 'description', 'notes',
+   391→    'salesChannel', 'taxTreatment',
+   392→  ]);
+   393→
+   394→  for (let i = 0; i < rows.length; i++) {
+   395→    const row = rows[i];
+   396→    const cleanedRow: Record<string, unknown> = {};
+   397→    let hasCriticalError = false;
+   398→
+   399→    // Process each mapped column
+   400→    for (const [sourceCol, mappingInfo] of mappingMap.entries()) {
+   401→      const rawValue = row[sourceCol] ?? '';
+   402→      const targetField = mappingInfo.targetField;
+   403→      const transform = mappingInfo.transform;
+   404→
+   405→      // Handle blank values
+   406→      if (rawValue.trim() === '') {
+   407→        blankFieldCount++;
+   408→
+   409→        // Set defaults for blank fields
+   410→        if (numericFields.has(targetField)) {
+   411→          cleanedRow[targetField] = getDefaultForField(targetField, settings);
+   412→        } else if (percentFields.has(targetField)) {
+   413→          cleanedRow[targetField] = getDefaultPercentForField(targetField, settings);
+   414→        } else if (stringFields.has(targetField)) {
+   415→          cleanedRow[targetField] = '';
+   416→        } else {
+   417→          cleanedRow[targetField] = '';
+   418→        }
+   419→        continue;
+   420→      }
+   421→
+   422→      // Apply transforms and parse values
+   423→      if (numericFields.has(targetField)) {
+   424→        const parsed = parseNumericInput(rawValue);
+   425→        if (isNaN(parsed)) {
+   426→          invalidValueCount++;
+   427→          errors.push({
+   428→            row: i + 1,
+   429→            column: sourceCol,
+   430→            value: rawValue,
+   431→            message: `Could not parse numeric value "${rawValue}" for ${targetField}`,
+   432→            severity: 'error',
+   433→          });
+   434→          cleanedRow[targetField] = getDefaultForField(targetField, settings);
+   435→        } else {
+   436→          // Ensure non-negative
+   437→          cleanedRow[targetField] = parsed < 0 ? 0 : parsed;
+   438→        }
+   439→      } else if (percentFields.has(targetField)) {
+   440→        // Strip % sign and parse
+   441→        let percentRaw = rawValue;
+   442→        if (percentRaw.includes('%')) {
+   443→          percentRaw = percentRaw.replace(/%/g, '');
+   444→        }
+   445→        const parsed = parseNumericInput(percentRaw);
+   446→        if (isNaN(parsed)) {
+   447→          invalidValueCount++;
+   448→          errors.push({
+   449→            row: i + 1,
+   450→            column: sourceCol,
+   451→            value: rawValue,
+   452→            message: `Could not parse percentage value "${rawValue}" for ${targetField}`,
+   453→            severity: 'error',
+   454→          });
+   455→          cleanedRow[targetField] = getDefaultPercentForField(targetField, settings);
+   456→        } else {
+   457→          // Clamp to 0-100 range
+   458→          cleanedRow[targetField] = Math.max(0, Math.min(100, parsed));
+   459→        }
+   460→      } else if (stringFields.has(targetField)) {
+   461→        let strValue = rawValue.trim();
+   462→
+   463→        // Apply transforms
+   464→        if (transform === 'trim' || transform === 'split-comma') {
+   465→          strValue = strValue.trim();
+   466→        }
+   467→
+   468→        cleanedRow[targetField] = strValue;
+   469→      } else {
+   470→        // Other fields (competitor prices, tags)
+   471→        if (targetField.startsWith('competitorPrice')) {
+   472→          const parsed = parseNumericInput(rawValue);
+   473→          cleanedRow[targetField] = isNaN(parsed) ? 0 : Math.max(0, parsed);
+   474→        } else if (targetField.startsWith('competitorName')) {
+   475→          cleanedRow[targetField] = rawValue.trim();
+   476→        } else if (targetField === 'tags') {
+   477→          cleanedRow[targetField] = rawValue.split(/[,\|;]/).map(t => t.trim()).filter(t => t !== '');
+   478→        } else {
+   479→          cleanedRow[targetField] = rawValue.trim();
+   480→        }
+   481→      }
+   482→    }
+   483→
+   484→    // Duplicate SKU check
+   485→    const sku = String(cleanedRow['sku'] ?? '').trim();
+   486→    if (sku) {
+   487→      if (seenSkus.has(sku)) {
+   488→        duplicateCount++;
+   489→        warnings.push({
+   490→          row: i + 1,
+   491→          column: 'sku',
+   492→          value: sku,
+   493→          message: `Duplicate SKU "${sku}" found`,
+   494→          severity: 'warning',
+   495→        });
+   496→      } else {
+   497→        seenSkus.add(sku);
+   498→      }
+   499→    }
+   500→
+   501→    // Skip rows with critical errors (missing both name and sku)
+   502→    if (!cleanedRow['name'] && !cleanedRow['sku']) {
+   503→      skippedRows++;
+   504→      errors.push({
+   505→        row: i + 1,
+   506→        column: 'name/sku',
+   507→        value: '',
+   508→        message: `Row ${i + 1} skipped: missing both product name and SKU`,
+   509→        severity: 'error',
+   510→      });
+   511→      continue;
+   512→    }
+   513→
+   514→    // Assign ID if missing
+   515→    if (!cleanedRow['id']) {
+   516→      cleanedRow['id'] = generateUniqueId(i);
+   517→    }
+   518→
+   519→    // Set defaults for missing required fields
+   520→    if (!cleanedRow['salesChannel']) cleanedRow['salesChannel'] = 'online-marketplace';
+   521→    if (!cleanedRow['taxTreatment']) cleanedRow['taxTreatment'] = settings.taxTreatment;
+   522→    if (!cleanedRow['taxRatePercent']) cleanedRow['taxRatePercent'] = settings.defaultTaxRatePercent;
+   523→    if (!cleanedRow['marketplaceFeePercent']) cleanedRow['marketplaceFeePercent'] = settings.defaultMarketplaceFeePercent;
+   524→    if (!cleanedRow['paymentFeePercent']) cleanedRow['paymentFeePercent'] = settings.defaultPaymentFeePercent;
+   525→    if (!cleanedRow['marketplaceFeeFixed']) cleanedRow['marketplaceFeeFixed'] = settings.defaultMarketplaceFeeFixed;
+   526→    if (!cleanedRow['paymentFeeFixed']) cleanedRow['paymentFeeFixed'] = settings.defaultPaymentFeeFixed;
+   527→
+   528→    // Convert competitor price/name fields into structured competitorPrices array
+   529→    const competitorPrices: CompetitorPrice[] = [];
+   530→    for (let c = 1; c <= 4; c++) {
+   531→      const priceKey = `competitorPrice${c}`;
+   532→      const nameKey = `competitorName${c}`;
+   533→      const price = cleanedRow[priceKey];
+   534→      const name = cleanedRow[nameKey];
+   535→
+   536→      if (typeof price === 'number' && price > 0) {
+   537→        competitorPrices.push({
+   538→          name: typeof name === 'string' && name.trim() ? name : `Competitor ${c}`,
+   539→          price: price,
+   540→        });
+   541→      }
+   542→
+   543→      // Remove flat competitor fields (they're now in the array)
+   544→      delete cleanedRow[priceKey];
+   545→      delete cleanedRow[nameKey];
+   546→    }
+   547→    cleanedRow['competitorPrices'] = competitorPrices;
+   548→
+   549→    // Set timestamps
+   550→    cleanedRow['createdAt'] = new Date().toISOString();
+   551→    cleanedRow['updatedAt'] = new Date().toISOString();
+   552→    cleanedRow['isApproved'] = false;
+   553→
+   554→    if (!hasCriticalError) {
+   555→      cleanedRows.push(cleanedRow);
+   556→    }
+   557→  }
+   558→
+   559→  return {
+   560→    cleanedRows,
+   561→    skippedRows,
+   562→    duplicateCount,
+   563→    blankFieldCount,
+   564→    invalidValueCount,
+   565→    errors,
+   566→    warnings,
+   567→  };
+   568→}
+   569→
+   570→function getDefaultForField(field: string, settings: BusinessSettings): number {
+   571→  const defaults: Record<string, number> = {
+   572→    'purchaseCost': 0,
+   573→    'shippingCost': settings.defaultShippingCost,
+   574→    'packagingCost': settings.defaultPackagingCost,
+   575→    'handlingCost': settings.defaultHandlingCost,
+   576→    'otherCosts': settings.defaultOtherCosts,
+   577→    'currentSellingPrice': 0,
+   578→    'marketplaceFeeFixed': settings.defaultMarketplaceFeeFixed,
+   579→    'paymentFeeFixed': settings.defaultPaymentFeeFixed,
+   580→    'otherFeesFixed': 0,
+   581→    'shippingChargeToCustomer': 0,
+   582→  };
+   583→  return defaults[field] ?? 0;
+   584→}
+   585→
+   586→function getDefaultPercentForField(field: string, settings: BusinessSettings): number {
+   587→  const defaults: Record<string, number> = {
+   588→    'returnRatePercent': settings.defaultReturnRatePercent,
+   589→    'damageRatePercent': settings.defaultDamageRatePercent,
+   590→    'customDutyPercent': settings.defaultCustomDutyPercent,
+   591→    'freightPercent': settings.defaultFreightPercent,
+   592→    'taxRatePercent': settings.defaultTaxRatePercent,
+   593→    'marketplaceFeePercent': settings.defaultMarketplaceFeePercent,
+   594→    'paymentFeePercent': settings.defaultPaymentFeePercent,
+   595→    'otherFeesPercent': 0,
+   596→  };
+   597→  return defaults[field] ?? 0;
+   598→}
+   599→
+   600→function generateUniqueId(index: number): string {
+   601→  return `import-${Date.now()}-${index}`;
+   602→}
+   603→
+   604→// ============================================================
+   605→// Excel Export
+   606→// ============================================================
+   607→
+   608→/**
+   609→ * Export products to an Excel workbook with multiple sheets.
+   610→ *
+   611→ * Presets determine which columns and sheets are included:
+   612→ * - full: All data with calculations
+   613→ * - summary: Key metrics only
+   614→ * - pricing-only: Price-related columns
+   615→ * - cost-analysis: Cost breakdown
+   616→ * - competitor: Competitor comparison
+   617→ * - custom: User-selected columns
+   618→ */
+   619→export async function exportToExcel(
+   620→  products: Product[],
+   621→  settings: BusinessSettings,
+   622→  preset: ExportPreset,
+   623→  config?: Partial<ExportConfig>
+   624→): Promise<Blob> {
+   625→  const XLSX = await import('xlsx');
+   626→
+   627→  const workbook = XLSX.utils.book_new();
+   628→  const currency = settings.currencyCode;
+   629→
+   630→  // Determine columns based on preset
+   631→  const columns = getExportColumns(preset, config?.columns);
+   632→
+   633→  // Build main data sheet
+   634→  const mainData = products.map(product => {
+   635→    const row: Record<string, string | number> = {};
+   636→    for (const col of columns) {
+   637→      const value = getExportValue(product, col, settings);
+   638→      row[col.label] = value;
+   639→    }
+   640→    return row;
+   641→  });
+   642→
+   643→  const mainSheet = XLSX.utils.json_to_sheet(mainData);
+   644→
+   645→  // Set column widths
+   646→  const colWidths = columns.map(col => ({
+   647→    wch: Math.max(col.label.length + 2, 15),
+   648→  }));
+   649→  mainSheet['!cols'] = colWidths;
+   650→
+   651→  XLSX.utils.book_append_sheet(workbook, mainSheet, config?.sheetName ?? 'Products');
+   652→
+   653→  // Add additional sheets based on preset
+   654→  if (preset === 'full' || preset === 'cost-analysis') {
+   655→    const costSheet = createCostAnalysisSheet(products, settings, XLSX);
+   656→    XLSX.utils.book_append_sheet(workbook, costSheet, 'Cost Analysis');
+   657→  }
+   658→
+   659→  if (preset === 'full' || preset === 'competitor') {
+   660→    const competitorSheet = createCompetitorSheet(products, settings, XLSX);
+   661→    XLSX.utils.book_append_sheet(workbook, competitorSheet, 'Competitor Analysis');
+   662→  }
+   663→
+   664→  if (preset === 'full') {
+   665→    const summarySheet = createSummarySheet(products, settings, XLSX);
+   666→    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+   667→  }
+   668→
+   669→  // Generate the workbook as an array buffer
+   670→  const buffer = XLSX.write(workbook, {
+   671→    bookType: 'xlsx',
+   672→    type: 'array',
+   673→  });
+   674→
+   675→  return new Blob([buffer], {
+   676→    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+   677→  });
+   678→}
+   679→
+   680→/**
+   681→ * Export products to CSV format.
+   682→ */
+   683→export function exportToCSV(
+   684→  products: Product[],
+   685→  preset: ExportPreset,
+   686→  config?: Partial<ExportConfig>
+   687→): string {
+   688→  const columns = getExportColumns(preset, config?.columns);
+   689→
+   690→  // Header row
+   691→  const headerLine = columns.map(col => `"${col.label}"`).join(',');
+   692→
+   693→  // Data rows
+   694→  const dataLines = products.map(product => {
+   695→    return columns.map(col => {
+   696→      const value = getExportValue(product, col, null); // No settings for simple CSV
+   697→      // Escape values that contain commas or quotes
+   698→      if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+   699→        return `"${value.replace(/"/g, '""')}"`;
+   700→      }
+   701→      return String(value);
+   702→    }).join(',');
+   703→  });
+   704→
+   705→  return [headerLine, ...dataLines].join('\n');
+   706→}
+   707→
+   708→// ============================================================
+   709→// Export Column Definitions
+   710→// ============================================================
+   711→
+   712→interface ExportColumn {
+   713→  key: string;
+   714→  label: string;
+   715→  type: 'string' | 'number' | 'percentage' | 'currency' | 'status';
+   716→}
+   717→
+   718→function getExportColumns(preset: ExportPreset, customColumns?: string[]): ExportColumn[] {
+   719→  const allColumns: ExportColumn[] = [
+   720→    // Identification
+   721→    { key: 'sku', label: 'SKU', type: 'string' },
+   722→    { key: 'name', label: 'Product Name', type: 'string' },
+   723→    { key: 'category', label: 'Category', type: 'string' },
+   724→    { key: 'brand', label: 'Brand', type: 'string' },
+   725→    { key: 'description', label: 'Description', type: 'string' },
+   726→
+   727→    // Cost Fields
+   728→    { key: 'purchaseCost', label: 'Purchase Cost', type: 'currency' },
+   729→    { key: 'shippingCost', label: 'Shipping Cost', type: 'currency' },
+   730→    { key: 'packagingCost', label: 'Packaging Cost', type: 'currency' },
+   731→    { key: 'handlingCost', label: 'Handling Cost', type: 'currency' },
+   732→    { key: 'otherCosts', label: 'Other Costs', type: 'currency' },
+   733→    { key: 'calculatedBaseCost', label: 'Base Cost', type: 'currency' },
+   734→    { key: 'calculatedExpectedReturnCost', label: 'Expected Return Cost', type: 'currency' },
+   735→    { key: 'calculatedExpectedDamageCost', label: 'Expected Damage Cost', type: 'currency' },
+   736→    { key: 'calculatedTotalLandedCost', label: 'Total Landed Cost', type: 'currency' },
+   737→
+   738→    // Selling & Fees
+   739→    { key: 'currentSellingPrice', label: 'Current Selling Price', type: 'currency' },
+   740→    { key: 'taxRatePercent', label: 'Tax Rate (%)', type: 'percentage' },
+   741→    { key: 'taxTreatment', label: 'Tax Treatment', type: 'string' },
+   742→    { key: 'marketplaceFeePercent', label: 'Marketplace Fee (%)', type: 'percentage' },
+   743→    { key: 'marketplaceFeeFixed', label: 'Marketplace Fee (Fixed)', type: 'currency' },
+   744→    { key: 'paymentFeePercent', label: 'Payment Fee (%)', type: 'percentage' },
+   745→    { key: 'paymentFeeFixed', label: 'Payment Fee (Fixed)', type: 'currency' },
+   746→    { key: 'calculatedTotalPercentageFees', label: 'Total Percentage Fees (%)', type: 'percentage' },
+   747→    { key: 'calculatedTotalFixedFees', label: 'Total Fixed Fees', type: 'currency' },
+   748→
+   749→    // Calculated Values
+   750→    { key: 'calculatedBreakEvenPrice', label: 'Break-Even Price', type: 'currency' },
+   751→    { key: 'calculatedMarkupPercent', label: 'Markup (%)', type: 'percentage' },
+   752→    { key: 'calculatedMarginPercent', label: 'Effective Margin (%)', type: 'percentage' },
+   753→    { key: 'calculatedProfitPerUnit', label: 'Profit Per Unit', type: 'currency' },
+   754→    { key: 'calculatedPricingStatus', label: 'Pricing Status', type: 'status' },
+   755→    { key: 'calculatedProfitabilityMeter', label: 'Profitability', type: 'status' },
+   756→
+   757→    // Recommendations
+   758→    { key: 'recommendedPrices.minimum', label: 'Min Safe Price', type: 'currency' },
+   759→    { key: 'recommendedPrices.competitive', label: 'Competitive Price', type: 'currency' },
+   760→    { key: 'recommendedPrices.balanced', label: 'Balanced Price', type: 'currency' },
+   761→    { key: 'recommendedPrices.premium', label: 'Premium Price', type: 'currency' },
+   762→
+   763→    // Other
+   764→    { key: 'salesChannel', label: 'Sales Channel', type: 'string' },
+   765→    { key: 'isApproved', label: 'Approved', type: 'string' },
+   766→    { key: 'notes', label: 'Notes', type: 'string' },
+   767→  ];
+   768→
+   769→  switch (preset) {
+   770→    case 'full':
+   771→      return allColumns;
+   772→
+   773→    case 'summary':
+   774→      return allColumns.filter(col =>
+   775→        ['sku', 'name', 'category', 'brand', 'purchaseCost', 'currentSellingPrice',
+   776→         'calculatedTotalLandedCost', 'calculatedMarginPercent', 'calculatedProfitPerUnit',
+   777→         'calculatedPricingStatus', 'recommendedPrices.balanced'].includes(col.key)
+   778→      );
+   779→
+   780→    case 'pricing-only':
+   781→      return allColumns.filter(col =>
+   782→        ['sku', 'name', 'currentSellingPrice', 'calculatedBreakEvenPrice',
+   783→         'calculatedMarginPercent', 'calculatedProfitPerUnit', 'calculatedPricingStatus',
+   784→         'recommendedPrices.minimum', 'recommendedPrices.competitive',
+   785→         'recommendedPrices.balanced', 'recommendedPrices.premium'].includes(col.key)
+   786→      );
+   787→
+   788→    case 'cost-analysis':
+   789→      return allColumns.filter(col =>
+   790→        ['sku', 'name', 'purchaseCost', 'shippingCost', 'packagingCost',
+   791→         'handlingCost', 'otherCosts', 'calculatedBaseCost',
+   792→         'calculatedExpectedReturnCost', 'calculatedExpectedDamageCost',
+   793→         'calculatedTotalLandedCost', 'currentSellingPrice',
+   794→         'calculatedProfitPerUnit', 'calculatedMarginPercent'].includes(col.key)
+   795→      );
+   796→
+   797→    case 'competitor':
+   798→      return allColumns.filter(col =>
+   799→        ['sku', 'name', 'currentSellingPrice', 'calculatedMarginPercent'].includes(col.key)
+   800→      );
+   801→      // Plus competitor columns added separately
+   802→
+   803→    case 'custom':
+   804→      if (customColumns && customColumns.length > 0) {
+   805→        return allColumns.filter(col => customColumns.includes(col.key));
+   806→      }
+   807→      return allColumns;
+   808→
+   809→    default:
+   810→      return allColumns;
+   811→  }
+   812→}
+   813→
+   814→function getExportValue(
+   815→  product: Product,
+   816→  column: ExportColumn,
+   817→  settings: BusinessSettings | null
+   818→): string | number {
+   819→  // Handle nested keys (e.g., "recommendedPrices.minimum")
+   820→  const keyParts = column.key.split('.');
+   821→  let value: unknown = product;
+   822→
+   823→  for (const part of keyParts) {
+   824→    if (value && typeof value === 'object') {
+   825→      value = (value as Record<string, unknown>)[part];
+   826→    } else {
+   827→      value = undefined;
+   828→    }
+   829→  }
+   830→
+   831→  if (value === undefined || value === null) return '';
+   832→
+   833→  switch (column.type) {
+   834→    case 'currency':
+   835→      return typeof value === 'number' ? Number(value.toFixed(2)) : String(value);
+   836→    case 'percentage':
+   837→      return typeof value === 'number' ? Number(value.toFixed(1)) : String(value);
+   838→    case 'number':
+   839→      return typeof value === 'number' ? Number(value.toFixed(2)) : String(value);
+   840→    case 'string':
+   841→    case 'status':
+   842→      return String(value);
+   843→    default:
+   844→      return String(value);
+   845→  }
+   846→}
+   847→
+   848→// ============================================================
+   849→// Additional Export Sheets
+   850→// ============================================================
+   851→
+   852→function createCostAnalysisSheet(
+   853→  products: Product[],
+   854→  settings: BusinessSettings,
+   855→  XLSX: typeof import('xlsx')
+   856→): import('xlsx').WorkSheet {
+   857→  const data = products.map(p => ({
+   858→    'SKU': p.sku,
+   859→    'Product': p.name,
+   860→    'Purchase Cost': p.purchaseCost,
+   861→    'Shipping': p.shippingCost,
+   862→    'Packaging': p.packagingCost,
+   863→    'Handling': p.handlingCost,
+   864→    'Other': p.otherCosts,
+   865→    'Freight': p.freightPercent > 0 ? (p.purchaseCost * p.freightPercent / 100) : 0,
+   866→    'Base Cost': p.calculatedBaseCost,
+   867→    'Return Cost': p.calculatedExpectedReturnCost,
+   868→    'Damage Cost': p.calculatedExpectedDamageCost,
+   869→    'Custom Duty': p.customDutyPercent > 0 ? (p.purchaseCost * p.customDutyPercent / 100) : 0,
+   870→    'Total Landed Cost': p.calculatedTotalLandedCost,
+   871→    'Current Price': p.currentSellingPrice,
+   872→    'Profit/Unit': p.calculatedProfitPerUnit,
+   873→    'Margin %': p.calculatedMarginPercent,
+   874→  }));
+   875→
+   876→  return XLSX.utils.json_to_sheet(data);
+   877→}
+   878→
+   879→function createCompetitorSheet(
+   880→  products: Product[],
+   881→  settings: BusinessSettings,
+   882→  XLSX: typeof import('xlsx')
+   883→): import('xlsx').WorkSheet {
+   884→  const data: Record<string, string | number>[] = [];
+   885→
+   886→  for (const p of products) {
+   887→    const baseRow: Record<string, string | number> = {
+   888→      'SKU': p.sku,
+   889→      'Product': p.name,
+   890→      'Our Price': p.currentSellingPrice,
+   891→    };
+   892→
+   893→    // Add each competitor as a column
+   894→    if (p.competitorPrices.length > 0) {
+   895→      const avgComp = p.competitorPrices.reduce((sum, cp) => sum + cp.price, 0) / p.competitorPrices.length;
+   896→      baseRow['Competitor Avg'] = Number(avgComp.toFixed(2));
+   897→      baseRow['Difference'] = Number((p.currentSellingPrice - avgComp).toFixed(2));
+   898→      baseRow['Diff %'] = Number(((p.currentSellingPrice - avgComp) / avgComp * 100).toFixed(1));
+   899→
+   900→      for (const cp of p.competitorPrices) {
+   901→        baseRow[cp.name] = cp.price;
+   902→      }
+   903→    } else {
+   904→      baseRow['Competitor Avg'] = 'N/A';
+   905→      baseRow['Difference'] = 'N/A';
+   906→      baseRow['Diff %'] = 'N/A';
+   907→    }
+   908→
+   909→    data.push(baseRow);
+   910→  }
+   911→
+   912→  return XLSX.utils.json_to_sheet(data);
+   913→}
+   914→
+   915→function createSummarySheet(
+   916→  products: Product[],
+   917→  settings: BusinessSettings,
+   918→  XLSX: typeof import('xlsx')
+   919→): import('xlsx').WorkSheet {
+   920→  const totalProducts = products.length;
+   921→  const lossMaking = products.filter(p => p.calculatedPricingStatus === 'loss-making').length;
+   922→  const belowBreakEven = products.filter(p => p.calculatedPricingStatus === 'below-break-even').length;
+   923→  const healthy = products.filter(p => p.calculatedPricingStatus === 'healthy').length;
+   924→  const highMargin = products.filter(p => p.calculatedPricingStatus === 'high-margin').length;
+   925→  const avgMargin = products.length > 0
+   926→    ? products.reduce((sum, p) => sum + p.calculatedMarginPercent, 0) / products.length
+   927→    : 0;
+   928→  const avgProfit = products.length > 0
+   929→    ? products.reduce((sum, p) => sum + p.calculatedProfitPerUnit, 0) / products.length
+   930→    : 0;
+   931→
+   932→  const data = [
+   933→    { 'Metric': 'Total Products', 'Value': totalProducts },
+   934→    { 'Metric': 'Loss-Making Products', 'Value': lossMaking },
+   935→    { 'Metric': 'Below Break-Even', 'Value': belowBreakEven },
+   936→    { 'Metric': 'Healthy Pricing', 'Value': healthy },
+   937→    { 'Metric': 'High Margin', 'Value': highMargin },
+   938→    { 'Metric': 'Average Margin %', 'Value': Number(avgMargin.toFixed(1)) },
+   939→    { 'Metric': 'Average Profit/Unit', 'Value': Number(avgProfit.toFixed(2)) },
+   940→    { 'Metric': 'Export Date', 'Value': new Date().toISOString() },
+   941→  ];
+   942→
+   943→  return XLSX.utils.json_to_sheet(data);
+   944→}
+   945→

@@ -1,0 +1,1717 @@
+# BUILD A COMPLETE PRODUCT PRICING AND PROFIT OPTIMISER WEB APPLICATION
+
+Build a complete, working, production-quality web application called:
+
+# PricePilot
+
+PricePilot is a private product-pricing application for small businesses, wholesalers, retailers and ecommerce sellers.
+
+The user must be able to upload an Excel or CSV product sheet, configure business costs and profit goals, automatically calculate recommended selling prices for every product, review the results in an app-like dashboard, manually adjust recommendations and export the final data back to Excel.
+
+This must be a genuinely functional application.
+
+Do not create only a visual mockup, static dashboard, landing page or non-functional prototype.
+
+Every button, calculation, upload flow, filter, editable field, chart and export function must work.
+
+---
+
+# 1. PRIMARY USER PROBLEM
+
+The user currently manages products in Excel but does not want to manually create formulas.
+
+They want an application-like interface that:
+
+1. Accepts an existing Excel or CSV product sheet.
+2. Detects relevant product columns.
+3. Allows the user to map spreadsheet columns.
+4. Adds business costs and pricing rules.
+5. Calculates the actual total cost of every product.
+6. Calculates break-even pricing.
+7. Calculates markup, gross margin and estimated profit.
+8. Recommends multiple selling-price options.
+9. Identifies products that are underpriced or loss-making.
+10. Allows prices to be adjusted manually.
+11. Exports the completed product list to a new Excel file.
+
+The user should not need to understand or edit spreadsheet formulas.
+
+All calculations must happen automatically inside the application.
+
+---
+
+# 2. APPLICATION TYPE
+
+Build this as a browser-based application using:
+
+* React
+* TypeScript
+* Vite
+* Tailwind CSS
+* shadcn/ui components where useful
+* Lucide icons
+* SheetJS/xlsx for Excel import and export
+* Recharts for dashboard charts
+* React Hook Form
+* Zod validation
+* Browser localStorage for saving settings and recent work
+* IndexedDB if necessary for larger uploaded product datasets
+
+Do not require:
+
+* A paid database
+* Paid APIs
+* User authentication
+* External AI APIs
+* A backend server
+* A subscription
+* A third-party spreadsheet service
+
+The first version must work entirely client-side in the browser.
+
+Uploaded data must remain inside the user’s browser.
+
+Display a clear privacy message:
+
+“Your product data is processed locally in your browser and is not uploaded to an external server.”
+
+---
+
+# 3. DESIGN DIRECTION
+
+Create a polished B2B SaaS-style application.
+
+The interface should feel like a genuine pricing and profitability tool, not like an Excel spreadsheet placed inside a webpage.
+
+Use:
+
+* Clean white and light-grey surfaces
+* Dark charcoal text
+* Green for profitable or healthy states
+* Amber for warnings
+* Red for losses and critical problems
+* Blue or indigo as the primary application accent
+* Rounded cards
+* Subtle borders
+* Clear spacing
+* Responsive tables
+* Professional charts
+* Legible sans-serif typography
+
+Avoid:
+
+* Excessive gradients
+* Glassmorphism
+* Decorative animations
+* Huge marketing-style hero sections
+* Unnecessary landing-page content
+* Fake testimonials
+* Fake company statistics
+* Excessively colourful dashboards
+
+The application should prioritise clarity, usability and financial accuracy.
+
+Use a responsive desktop-first layout that also works properly on tablets and mobile devices.
+
+---
+
+# 4. APPLICATION NAVIGATION
+
+Create a left sidebar on desktop and a collapsible navigation menu on mobile.
+
+Navigation items:
+
+1. Dashboard
+2. Products
+3. Import Products
+4. Pricing Rules
+5. Price Simulator
+6. Saved Scenarios
+7. Export
+8. Settings
+
+The sidebar should show:
+
+* PricePilot logo
+* Current workspace name
+* Navigation links
+* Data privacy indicator
+* Reset application option
+
+The top header should include:
+
+* Current page title
+* Search products field
+* Currency selector
+* Save status
+* Import button
+* Export button
+
+---
+
+# 5. FIRST-TIME ONBOARDING
+
+When the application opens for the first time, show a short onboarding flow.
+
+## Step 1: Business details
+
+Ask for:
+
+* Business or store name
+* Default currency
+* Country
+* Whether prices include tax
+* Default tax percentage
+* Default target margin
+* Default minimum margin
+* Preferred rounding method
+
+Set the default currency to INR, but allow the user to change it.
+
+Currency options should include at minimum:
+
+* INR ₹
+* GBP £
+* USD $
+* EUR €
+* AED د.إ
+
+## Step 2: Selling channel
+
+Ask where the products are primarily sold:
+
+* Direct/offline
+* Own ecommerce website
+* Amazon
+* Flipkart
+* Meesho
+* Wholesale
+* Multiple channels
+
+Allow multiple selections.
+
+## Step 3: Cost defaults
+
+Ask for optional default values:
+
+* Packaging cost
+* Shipping cost
+* Payment gateway percentage
+* Marketplace commission percentage
+* Expected return rate
+* Return handling cost
+* Advertising cost per sale
+* Other variable cost
+* Minimum profit per product
+
+The user must be able to skip the onboarding and configure these values later.
+
+Save onboarding settings in localStorage.
+
+---
+
+# 6. EXCEL AND CSV IMPORT FLOW
+
+Create a robust multi-step import flow.
+
+## Import Step 1: Upload file
+
+Support:
+
+* .xlsx
+* .xls
+* .csv
+
+Include:
+
+* Drag-and-drop upload
+* Browse file button
+* File type validation
+* File size validation
+* File name display
+* Number of sheets detected
+* Ability to select a sheet when the workbook contains multiple sheets
+
+Set a sensible default maximum file size, such as 20 MB.
+
+## Import Step 2: Preview data
+
+Display:
+
+* First 10–20 rows
+* Detected column headings
+* Total row count
+* Empty row count
+* Duplicate SKU count
+* Rows with missing cost values
+* Rows with invalid numeric values
+
+Allow the user to choose which row contains the column headings.
+
+## Import Step 3: Map columns
+
+Automatically suggest mappings, but allow manual correction.
+
+Required or recommended mappings:
+
+* Product name
+* SKU or product code
+* Category
+* Brand
+* Purchase cost
+* Existing selling price
+* Competitor price
+* Quantity or stock
+* Tax rate
+* Shipping cost
+* Packaging cost
+* Marketplace fee
+* Payment fee
+* Other cost
+
+Only product name and purchase cost should be mandatory.
+
+SKU should be recommended but not required.
+
+The application should recognise common heading variations such as:
+
+* Cost
+* Cost Price
+* Purchase Price
+* Buying Price
+* Unit Cost
+* Landing Cost
+* Selling Price
+* Sale Price
+* MRP
+* Product
+* Product Name
+* Item Name
+* SKU
+* Model
+* Product Code
+* GST
+* Tax
+* Commission
+* Delivery
+* Freight
+
+## Import Step 4: Data cleaning
+
+Provide automatic and manual handling for:
+
+* Currency symbols inside numeric cells
+* Commas in numbers
+* Blank cells
+* Duplicate SKUs
+* Duplicate product names
+* Negative values
+* Text inside numeric columns
+* Percentage values entered as 18, 18% or 0.18
+* Hidden rows
+* Completely empty rows
+
+Let the user choose:
+
+* Skip invalid rows
+* Import and flag invalid rows
+* Replace blanks with defaults
+
+## Import Step 5: Confirmation
+
+Show an import summary:
+
+* Valid products
+* Products requiring attention
+* Duplicate products
+* Skipped rows
+* Missing values
+* Estimated total inventory cost
+
+Include buttons:
+
+* Go back
+* Import products
+* Cancel
+
+After import, take the user to the Products page.
+
+---
+
+# 7. PRODUCT DATA MODEL
+
+Each product should support the following fields:
+
+## Basic information
+
+* Internal ID
+* Product name
+* SKU
+* Category
+* Brand
+* Supplier
+* Product status
+* Notes
+
+## Cost information
+
+* Purchase cost
+* Inbound shipping cost
+* Packaging cost
+* Handling cost
+* Storage cost per unit
+* Advertising cost per sale
+* Other fixed cost per unit
+* Other percentage cost
+* Expected return rate
+* Return handling cost
+* Damage or wastage rate
+
+## Selling information
+
+* Existing selling price
+* Competitor lowest price
+* Competitor average price
+* Competitor highest price
+* Maximum acceptable market price
+* Channel
+* Tax rate
+* Marketplace commission rate
+* Payment gateway rate
+* Fixed transaction fee
+* Discount rate
+* Coupon cost
+
+## Calculated values
+
+* Base cost
+* Expected return cost
+* Expected damage cost
+* Total landed cost
+* Break-even selling price
+* Existing gross profit
+* Existing markup
+* Existing gross margin
+* Existing net profit estimate
+* Minimum recommended price
+* Competitive recommended price
+* Balanced recommended price
+* Premium recommended price
+* Selected recommended price
+* Recommended markup
+* Recommended margin
+* Recommended profit
+* Price increase or decrease required
+* Profitability status
+* Pricing confidence
+* Warning messages
+* Last modified date
+
+---
+
+# 8. PRICING CALCULATION ENGINE
+
+Implement all calculations accurately using decimal-safe logic.
+
+Do not use normal floating-point arithmetic where it can cause financial rounding errors.
+
+Use a decimal arithmetic library if appropriate.
+
+All percentages and calculations must be protected against:
+
+* Division by zero
+* Negative values
+* Blank fields
+* Invalid input
+* Fees greater than 100%
+* Tax rates greater than realistic values
+* Margins at or above 100%
+
+## 8.1 Base cost
+
+Base cost should include:
+
+* Purchase cost
+* Inbound shipping
+* Packaging
+* Handling
+* Storage
+* Advertising cost
+* Other fixed cost
+
+## 8.2 Expected return cost
+
+Calculate expected return cost using:
+
+* Expected return rate
+* Return handling cost
+* Any unrecoverable product cost assumption
+
+Allow the user to configure whether returned products are:
+
+* Fully recoverable
+* Partially recoverable
+* Completely lost
+
+## 8.3 Expected damage cost
+
+Calculate expected damage or wastage cost using:
+
+* Product cost
+* Damage percentage
+
+## 8.4 Total landed cost
+
+Total landed cost must include all fixed and expected costs attributable to one successful sale.
+
+## 8.5 Percentage selling fees
+
+Percentage-based selling fees can include:
+
+* Marketplace commission
+* Payment gateway fee
+* Other percentage cost
+* Discount or coupon burden where relevant
+
+## 8.6 Break-even selling price
+
+Break-even selling price must account for:
+
+* Total landed cost
+* Percentage-based fees
+* Fixed transaction fees
+* Tax treatment
+
+The user must never be shown a break-even price that still produces a loss after fees.
+
+## 8.7 Markup
+
+Markup should be calculated internally as profit relative to cost.
+
+## 8.8 Margin
+
+Margin should be calculated internally as profit relative to selling price.
+
+The interface should clearly distinguish markup from margin.
+
+Add an information tooltip:
+
+“Markup measures profit against cost. Margin measures profit against selling price.”
+
+## 8.9 Recommended price modes
+
+Generate four price recommendations.
+
+### Minimum Safe Price
+
+The lowest price that satisfies:
+
+* Break-even requirements
+* Minimum margin
+* Minimum profit per product
+* All fees and expected costs
+
+### Competitive Price
+
+Prioritises market competitiveness.
+
+Use competitor pricing when available.
+
+The competitive price should:
+
+* Remain above the minimum safe price
+* Consider competitor lowest and average prices
+* Flag the result when market prices are below the safe price
+
+### Balanced Price
+
+The default recommendation.
+
+It should balance:
+
+* Target profit margin
+* Target markup
+* Competitor average price
+* Existing selling price
+* Minimum profit
+* Price rounding rules
+
+### Premium Price
+
+A higher-margin option.
+
+It should consider:
+
+* Premium target margin
+* Competitor highest price
+* Maximum acceptable market price
+* Brand or category pricing rules
+
+## 8.10 Recommended price selection
+
+Default to the Balanced Price.
+
+Allow the user to switch the selected recommendation to:
+
+* Minimum
+* Competitive
+* Balanced
+* Premium
+* Custom
+
+If the user selects Custom, allow manual price entry and instantly recalculate:
+
+* Profit
+* Markup
+* Margin
+* Fees
+* Tax
+* Price status
+
+---
+
+# 9. PRICING RULES PAGE
+
+Create a complete Pricing Rules page.
+
+Rules should be configurable globally and optionally by:
+
+* Category
+* Brand
+* Selling channel
+* Individual product
+
+Use a priority system:
+
+1. Individual product rule
+2. Brand rule
+3. Category rule
+4. Channel rule
+5. Global default
+
+## Global rule settings
+
+Include:
+
+* Minimum margin
+* Target margin
+* Premium margin
+* Minimum markup
+* Target markup
+* Minimum profit amount
+* Maximum allowed discount
+* Default tax
+* Default marketplace fee
+* Default payment fee
+* Default packaging cost
+* Default shipping cost
+* Default expected return rate
+* Default damage rate
+
+## Price rounding rules
+
+Support:
+
+* No rounding
+* Nearest whole number
+* Nearest 5
+* Nearest 10
+* End in .99
+* End in .95
+* End in 9
+* End in 49
+* End in 99
+* Custom ending
+
+Examples:
+
+* ₹1,247 becomes ₹1,249
+* ₹1,247 becomes ₹1,299
+* ₹1,247 becomes ₹1,250
+
+Show a live preview of each rounding rule.
+
+## Rule management
+
+Allow users to:
+
+* Add a rule
+* Edit a rule
+* Duplicate a rule
+* Disable a rule
+* Delete a rule
+* Reset defaults
+
+Display rule conflicts and explain which rule takes precedence.
+
+---
+
+# 10. PRODUCTS PAGE
+
+Create a professional product-management table.
+
+Columns should include:
+
+* Checkbox
+* Product
+* SKU
+* Category
+* Purchase cost
+* Existing price
+* Recommended price
+* Profit
+* Margin
+* Markup
+* Status
+* Actions
+
+The table must support:
+
+* Search
+* Sort
+* Pagination
+* Column visibility controls
+* Column resizing where practical
+* Filters
+* Multi-select
+* Bulk actions
+* Sticky table header
+* Horizontal scrolling
+* Responsive mobile cards
+
+## Filters
+
+Include:
+
+* All products
+* Profitable
+* Low margin
+* Loss-making
+* Missing cost
+* Missing competitor data
+* Price increase recommended
+* Price decrease recommended
+* Above market price
+* Below market price
+* Needs review
+* Category
+* Brand
+* Channel
+
+## Bulk actions
+
+Allow:
+
+* Apply pricing rule
+* Set category
+* Set marketplace fee
+* Set target margin
+* Choose recommendation mode
+* Approve recommended prices
+* Mark for review
+* Delete selected
+* Export selected
+
+## Inline editing
+
+Allow important values to be edited directly in the table:
+
+* Purchase cost
+* Existing selling price
+* Competitor price
+* Recommended price
+* Target margin
+
+Recalculate results immediately after an edit.
+
+---
+
+# 11. PRODUCT DETAILS DRAWER OR PAGE
+
+Clicking a product should open a detailed drawer or dedicated product page.
+
+Include sections:
+
+## Product summary
+
+* Product name
+* SKU
+* Category
+* Brand
+* Existing price
+* Recommended price
+* Status badge
+
+## Cost breakdown
+
+Show every cost component in a clear stacked list.
+
+Example:
+
+* Purchase cost
+* Shipping
+* Packaging
+* Marketplace commission
+* Payment fee
+* Expected returns
+* Tax
+* Other costs
+* Total estimated cost
+
+## Price recommendations
+
+Show four recommendation cards:
+
+* Minimum
+* Competitive
+* Balanced
+* Premium
+
+Each card should display:
+
+* Selling price
+* Profit
+* Margin
+* Markup
+* Difference from existing price
+* Difference from competitor average
+
+The selected card should be visually prominent.
+
+## Pricing explanation
+
+Generate a plain-language explanation based on the calculations.
+
+Example:
+
+“The current selling price produces an estimated margin of 8.4%, which is below your 20% minimum. Increasing the price to ₹1,499 would produce an estimated profit of ₹312 per sale and a margin of 20.8%.”
+
+This explanation must be created locally from calculation rules. Do not use an external AI API.
+
+## Warnings
+
+Examples:
+
+* Current price is below break-even.
+* Marketplace fees consume more than 25% of revenue.
+* Competitor price is below your safe selling price.
+* Missing shipping cost may make this recommendation inaccurate.
+* Target margin cannot be achieved within the entered market-price limit.
+* Purchase cost has increased since the last saved scenario.
+
+## Editable assumptions
+
+Allow the user to override all cost and pricing assumptions for this product.
+
+---
+
+# 12. DASHBOARD
+
+Create a useful executive dashboard.
+
+## Summary cards
+
+Include:
+
+* Total products
+* Products analysed
+* Average existing margin
+* Average recommended margin
+* Current estimated profit
+* Recommended estimated profit
+* Potential profit improvement
+* Products currently making a loss
+
+## Charts
+
+Include:
+
+### Profitability distribution
+
+Show products divided into:
+
+* Loss-making
+* Low margin
+* Healthy margin
+* High margin
+
+### Existing versus recommended margin
+
+Show a comparison chart.
+
+### Potential profit improvement by category
+
+Use a bar chart.
+
+### Price recommendation distribution
+
+Show how many products require:
+
+* Price increase
+* No major change
+* Price decrease
+* Manual review
+
+### Highest improvement opportunities
+
+Display products with the largest potential profit increase.
+
+### Highest-risk products
+
+Display products with:
+
+* Negative profit
+* Very low margins
+* High fees
+* Missing critical data
+* Market-price conflicts
+
+## Dashboard filters
+
+Allow dashboard calculations to be filtered by:
+
+* Category
+* Brand
+* Channel
+* Date imported
+* Product status
+
+---
+
+# 13. PRICE SIMULATOR
+
+Create a standalone price simulator.
+
+The simulator should allow the user to enter:
+
+* Purchase cost
+* Shipping
+* Packaging
+* Other fixed cost
+* Marketplace commission
+* Payment gateway fee
+* Tax
+* Return rate
+* Target margin
+* Desired profit
+* Competitor price
+* Proposed selling price
+
+Show live results:
+
+* Total landed cost
+* Break-even price
+* Net profit
+* Markup
+* Margin
+* Total fees
+* Tax amount
+* Recommended minimum price
+* Balanced recommended price
+* Premium recommended price
+
+Include a slider or input for proposed selling price.
+
+As the user changes the selling price, update all values instantly.
+
+Show a visual profitability meter:
+
+* Loss
+* Break-even
+* Low margin
+* Healthy
+* Strong margin
+
+Allow the user to save simulator results as a scenario or create a new product from them.
+
+---
+
+# 14. SAVED SCENARIOS
+
+Allow the user to save snapshots of product pricing.
+
+Examples:
+
+* Current supplier pricing
+* Festival discount scenario
+* Amazon commission increase
+* New shipping rates
+* Wholesale pricing
+* Premium pricing test
+
+Each scenario should store:
+
+* Product data
+* Pricing rules
+* Cost assumptions
+* Recommended prices
+* Date created
+* Scenario name
+* Notes
+
+Allow users to:
+
+* Create scenario
+* Duplicate scenario
+* Rename scenario
+* Compare two scenarios
+* Restore scenario
+* Delete scenario
+* Export scenario
+
+## Scenario comparison
+
+Show:
+
+* Revenue difference
+* Profit difference
+* Margin difference
+* Number of products affected
+* Products becoming unprofitable
+* Products with improved profitability
+
+---
+
+# 15. EXPORT PAGE
+
+Create a flexible export system.
+
+Allow users to export:
+
+* All products
+* Filtered products
+* Selected products
+* Products requiring review
+* Approved recommended prices
+* Full pricing analysis
+* Simplified selling-price list
+
+Supported formats:
+
+* .xlsx
+* .csv
+
+## Exported columns
+
+Let the user choose which columns to export.
+
+Provide export presets:
+
+### Simple Price List
+
+* Product name
+* SKU
+* Existing price
+* Recommended price
+
+### Full Analysis
+
+* Product details
+* All costs
+* All price recommendations
+* Markup
+* Margin
+* Profit
+* Status
+* Warnings
+
+### Ecommerce Update
+
+* SKU
+* Product name
+* Final selling price
+* MRP
+* Discount
+* Stock
+
+### Accountant Report
+
+* Purchase cost
+* Total landed cost
+* Tax
+* Fees
+* Revenue
+* Estimated profit
+* Margin
+
+Preserve the original spreadsheet columns wherever possible.
+
+Append calculated columns rather than replacing original data unless the user explicitly chooses replacement.
+
+Use professionally formatted Excel output:
+
+* Bold header row
+* Frozen first row
+* Filters enabled
+* Currency formatting
+* Percentage formatting
+* Suitable column widths
+* Conditional highlighting for loss-making products
+* Separate summary sheet
+* Separate warnings sheet where relevant
+
+The exported workbook should include:
+
+1. Products
+2. Pricing Summary
+3. Products Requiring Review
+4. Applied Pricing Rules
+5. Export Information
+
+---
+
+# 16. SETTINGS PAGE
+
+Include:
+
+## Business settings
+
+* Business name
+* Currency
+* Country
+* Tax treatment
+* Number formatting
+* Date formatting
+
+## Pricing defaults
+
+* Minimum margin
+* Target margin
+* Premium margin
+* Minimum profit
+* Default costs
+* Default fees
+
+## Display settings
+
+* Light mode
+* Dark mode
+* System mode
+* Table density
+* Default dashboard period
+* Default visible columns
+
+## Data settings
+
+* Export all application data
+* Import saved application data
+* Clear product data
+* Reset pricing rules
+* Reset entire application
+
+Show confirmation dialogs before destructive actions.
+
+---
+
+# 17. STATUS AND WARNING SYSTEM
+
+Create clear statuses.
+
+## Pricing statuses
+
+* Loss-making
+* Below break-even
+* Low margin
+* Healthy
+* High margin
+* Above market
+* Missing data
+* Needs review
+* Approved
+
+## Suggested thresholds
+
+Make thresholds configurable.
+
+Example defaults:
+
+* Loss-making: profit below 0
+* Below break-even: price below safe break-even
+* Low margin: positive margin below minimum margin
+* Healthy: margin between minimum and premium target
+* High margin: margin above premium target
+
+Use colour-coded badges consistently.
+
+Do not rely on colour alone. Include text and icons for accessibility.
+
+---
+
+# 18. DATA VALIDATION
+
+Validate all user input.
+
+Rules should include:
+
+* Purchase cost cannot be negative
+* Selling price cannot be negative
+* Percentages cannot be negative
+* Commission cannot reach or exceed 100%
+* Margin target must be below 100%
+* Product name cannot be blank
+* Currency values must be valid
+* Imported rows must retain their original row reference
+* Duplicate SKUs must be flagged
+* Invalid rows must not crash the application
+
+Use clear error messages.
+
+Examples:
+
+* “Purchase cost must be zero or greater.”
+* “Total percentage-based fees must be below 100%.”
+* “A 100% margin is not mathematically possible.”
+* “This product is missing a purchase cost.”
+* “The uploaded file contains no usable product rows.”
+
+---
+
+# 19. EMPTY STATES
+
+Create useful empty states.
+
+## No products
+
+Show:
+
+“Import your product spreadsheet or add your first product to begin analysing prices.”
+
+Buttons:
+
+* Import spreadsheet
+* Add product
+* Try sample data
+
+## No scenarios
+
+Show:
+
+“Save a pricing scenario to compare supplier costs, fees or pricing strategies over time.”
+
+## No warnings
+
+Show:
+
+“No critical pricing issues were found in the current product selection.”
+
+Do not leave blank white screens.
+
+---
+
+# 20. SAMPLE DATA
+
+Include optional sample data so the user can test the application immediately.
+
+Create approximately 12 fictional products across categories such as:
+
+* CCTV cameras
+* Biometric devices
+* Headsets
+* Network equipment
+* Office electronics
+
+Use realistic but fictional values.
+
+Do not use copyrighted product descriptions.
+
+Include a “Load sample data” option.
+
+Clearly label all sample data as fictional.
+
+---
+
+# 21. LOCAL DATA STORAGE
+
+Persist the following in the browser:
+
+* Business settings
+* Pricing rules
+* Imported products
+* Column mappings
+* Saved scenarios
+* Dashboard preferences
+* Export preferences
+* Onboarding completion
+
+Use a versioned storage schema so future updates do not unnecessarily destroy saved data.
+
+Include:
+
+* Automatic save indicator
+* Last saved time
+* Manual save option
+* Backup export
+* Backup import
+
+---
+
+# 22. PERFORMANCE REQUIREMENTS
+
+The application should handle at least:
+
+* 5,000 products smoothly
+* Large spreadsheet imports without freezing the page
+* Sorting and filtering efficiently
+* Recalculation after rule changes
+* Excel export for large datasets
+
+Use:
+
+* Memoisation
+* Efficient state management
+* Virtualised tables if needed
+* Web Workers for heavy spreadsheet parsing or pricing calculations if appropriate
+
+Show progress indicators during:
+
+* File parsing
+* Product import
+* Bulk recalculation
+* Scenario restoration
+* Excel export
+
+Do not show a fake progress bar.
+
+---
+
+# 23. ACCESSIBILITY
+
+Implement:
+
+* Keyboard-accessible navigation
+* Visible focus states
+* Proper labels for inputs
+* Semantic HTML
+* Accessible dialogs
+* Screen-reader-friendly error messages
+* Sufficient colour contrast
+* Icons with labels or accessible descriptions
+* Responsive text sizing
+
+---
+
+# 24. ERROR HANDLING
+
+Create proper error boundaries and user-friendly recovery.
+
+Handle:
+
+* Corrupt Excel files
+* Unsupported file formats
+* Empty worksheets
+* Missing headings
+* Invalid values
+* Export failures
+* Browser storage quota problems
+* Failed scenario restoration
+* Unexpected calculation errors
+
+Provide actions such as:
+
+* Try again
+* Return to products
+* Download error report
+* Reset import
+* Use sample data
+
+Never expose raw technical stack traces to normal users.
+
+---
+
+# 25. APPLICATION ARCHITECTURE
+
+Use a clean, maintainable folder structure.
+
+Suggested structure:
+
+src/
+components/
+app-shell/
+dashboard/
+products/
+import/
+pricing/
+simulator/
+scenarios/
+export/
+settings/
+shared/
+pages/
+hooks/
+lib/
+calculations/
+excel/
+validation/
+storage/
+formatting/
+types/
+data/
+workers/
+tests/
+
+Create separate modules for:
+
+* Pricing calculations
+* Excel parsing
+* Excel export
+* Data validation
+* Rule resolution
+* Currency formatting
+* Local storage
+* Scenario comparison
+
+Do not place the entire application inside one large component.
+
+---
+
+# 26. TESTING REQUIREMENTS
+
+Add meaningful automated tests.
+
+Use Vitest and React Testing Library.
+
+Test at minimum:
+
+* Markup calculation
+* Margin calculation
+* Break-even calculation
+* Percentage fee handling
+* Fixed fee handling
+* Tax-inclusive pricing
+* Tax-exclusive pricing
+* Minimum profit rule
+* Minimum margin rule
+* Price rounding
+* Competitor-price conflict
+* Missing data handling
+* Zero cost
+* Zero selling price
+* Negative input rejection
+* Fees approaching 100%
+* Excel import mapping
+* Excel export creation
+* Rule-priority resolution
+* Scenario save and restore
+
+Include test fixtures for spreadsheet import.
+
+All tests should pass before the project is considered complete.
+
+---
+
+# 27. IMPORTANT CALCULATION EXAMPLES
+
+Use these examples to validate the application.
+
+## Example 1
+
+Purchase cost: ₹1,000
+Shipping: ₹100
+Packaging: ₹50
+Marketplace fee: 10%
+Payment fee: 2%
+Target margin: 20%
+
+The application must account for the fact that percentage fees are charged on the selling price.
+
+It must not simply add 20% to the cost.
+
+The recommended price must cover:
+
+* ₹1,150 fixed cost
+* 12% selling fees
+* 20% target margin
+
+## Example 2
+
+Purchase cost: ₹500
+Existing selling price: ₹600
+Total percentage fees: 15%
+Fixed costs: ₹50
+
+The application must identify whether the current selling price is actually profitable after all fees.
+
+## Example 3
+
+Safe minimum price: ₹1,499
+Competitor average price: ₹1,399
+
+The application must not recommend ₹1,399 as a safe price.
+
+It should flag:
+
+“Competitor pricing is below your minimum profitable price.”
+
+## Example 4
+
+Calculated balanced price: ₹1,247
+Selected rounding rule: End in 49
+
+Recommended rounded price:
+
+₹1,249
+
+After rounding, all profitability values must be recalculated using ₹1,249.
+
+---
+
+# 28. USER EXPERIENCE REQUIREMENTS
+
+The user’s primary workflow should take no more than:
+
+1. Upload spreadsheet.
+2. Map product and cost columns.
+3. Confirm default costs and margin.
+4. Review calculated prices.
+5. Export the updated workbook.
+
+Keep this workflow obvious.
+
+Do not overwhelm the user with every advanced setting during initial import.
+
+Use progressive disclosure:
+
+* Basic mode for simple pricing
+* Advanced mode for detailed costs and fees
+
+## Basic mode fields
+
+* Purchase cost
+* Existing selling price
+* Shipping
+* Fees
+* Target margin
+
+## Advanced mode fields
+
+* Returns
+* Damage
+* Advertising
+* Fixed transaction fees
+* Tax method
+* Competitor ranges
+* Category-level rules
+
+---
+
+# 29. HELP AND EDUCATION
+
+Include a small Help section inside the application.
+
+Explain briefly:
+
+## Markup
+
+“Markup shows profit as a percentage of product cost.”
+
+## Margin
+
+“Margin shows profit as a percentage of the selling price.”
+
+## Break-even price
+
+“The minimum selling price needed to cover all entered costs and fees.”
+
+## Landed cost
+
+“The complete estimated cost of making one product available for sale.”
+
+## Why markup and margin differ
+
+Include a simple interactive example.
+
+Do not force the user to understand formulas before using the application.
+
+---
+
+# 30. FINAL DELIVERY REQUIREMENTS
+
+Before considering the application complete:
+
+1. Run the project.
+2. Fix all TypeScript errors.
+3. Fix all lint errors.
+4. Run all tests.
+5. Confirm Excel import works.
+6. Confirm CSV import works.
+7. Confirm multi-sheet selection works.
+8. Confirm all pricing calculations update correctly.
+9. Confirm bulk editing works.
+10. Confirm local storage persists after refresh.
+11. Confirm scenario comparison works.
+12. Confirm Excel export downloads a valid workbook.
+13. Confirm the application works on desktop and mobile.
+14. Confirm no button is decorative or non-functional.
+15. Confirm the application works without paid services.
+16. Add a complete README.
+
+The README must explain:
+
+* What the application does
+* Technology stack
+* How to install
+* How to run locally
+* How to build for production
+* How pricing calculations work
+* How Excel import works
+* How data privacy works
+* How to deploy on Vercel
+* Known limitations
+* Future upgrade possibilities
+
+---
+
+# 31. DEPLOYMENT
+
+Prepare the application for deployment to Vercel.
+
+Include:
+
+* Correct build scripts
+* No server-only dependency
+* No required environment variables
+* Responsive production build
+* Appropriate page title
+* Favicon
+* Metadata
+* Error page
+* Loading states
+
+The app must also be runnable locally using standard commands such as:
+
+npm install
+npm run dev
+npm run build
+npm run test
+
+---
+
+# 32. NON-NEGOTIABLE REQUIREMENTS
+
+Do not:
+
+* Create only a landing page
+* Create only a dashboard mockup
+* Leave buttons non-functional
+* Use placeholder charts
+* Fake spreadsheet uploads
+* Use hardcoded calculation results
+* Require paid APIs
+* Require Firebase, Supabase or another database
+* Send uploaded product data to an external service
+* Hide calculation errors
+* Confuse markup with margin
+* Recommend prices below break-even without a clear warning
+* Finish while TypeScript errors remain
+* Finish while tests are failing
+* replace working features with TODO comments
+
+Do:
+
+* Build a complete working application
+* Keep all product processing local
+* Implement accurate financial calculations
+* Make imported spreadsheet mapping flexible
+* Make the interface easy for non-technical users
+* Allow complete Excel export
+* Include robust validation
+* Include sample data
+* Include automated tests
+* Include a deployment-ready README
+
+---
+
+# 33. BUILD ORDER
+
+Follow this implementation sequence:
+
+## Phase 1
+
+* Initialise the React and TypeScript project
+* Configure Tailwind CSS
+* Add application shell and navigation
+* Define product and settings data models
+* Build local-storage system
+
+## Phase 2
+
+* Build pricing-calculation engine
+* Add validation
+* Add unit tests for calculations
+* Verify all financial edge cases
+
+## Phase 3
+
+* Build Excel and CSV import
+* Build column mapping
+* Build data-cleaning flow
+* Add sample spreadsheet fixtures
+
+## Phase 4
+
+* Build products table
+* Add filters, sorting and editing
+* Add product details
+* Add bulk actions
+
+## Phase 5
+
+* Build dashboard
+* Build charts
+* Build warnings and status system
+
+## Phase 6
+
+* Build pricing-rules management
+* Build rounding rules
+* Build rule priority resolution
+
+## Phase 7
+
+* Build price simulator
+* Build saved scenarios
+* Build scenario comparison
+
+## Phase 8
+
+* Build Excel export
+* Add workbook formatting
+* Add export presets
+
+## Phase 9
+
+* Add onboarding
+* Add settings
+* Add accessibility
+* Add error handling
+* Add responsive mobile views
+
+## Phase 10
+
+* Run tests
+* Run production build
+* Fix all errors
+* Review every interaction
+* Create README
+* Prepare for Vercel deployment
+
+Do not skip ahead by creating static screens without implementing the underlying logic.
+
+---
+
+# 34. FINAL OUTPUT EXPECTED FROM YOU
+
+After completing the application, provide:
+
+1. A summary of the completed features.
+2. The final folder structure.
+3. Installation instructions.
+4. Local development commands.
+5. Testing commands.
+6. Production build command.
+7. Vercel deployment instructions.
+8. Explanation of the pricing engine.
+9. List of assumptions made.
+10. List of any genuine remaining limitations.
+
+Do not claim that a feature is completed unless it has actually been implemented and tested.

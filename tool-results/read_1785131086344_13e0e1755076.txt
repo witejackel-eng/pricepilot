@@ -1,0 +1,837 @@
+     1→/**
+     2→ * PricePilot - Sample Product Data
+     3→ *
+     4→ * 12 fictional products across 5 categories:
+     5→ * - CCTV Cameras (3 products)
+     6→ * - Biometric Devices (2 products)
+     7→ * - Headsets (2 products)
+     8→ * - Network Equipment (3 products)
+     9→ * - Office Electronics (2 products)
+    10→ *
+    11→ * All values are fictional and realistic for the Indian market (INR).
+    12→ * Clearly marked as fictional. Calculated values are left at defaults
+    13→ * and should be populated by running the calculation engine.
+    14→ */
+    15→
+    16→import { Product, PricingRule, CompetitorPrice, SalesChannel, TaxTreatment } from './types';
+    17→
+    18→// ============================================================
+    19→// Helper for generating IDs
+    20→// ============================================================
+    21→
+    22→function generateId(index: number): string {
+    23→  return `sample-prod-${index.toString().padStart(3, '0')}`;
+    24→}
+    25→
+    26→// ============================================================
+    27→// CCTV Cameras
+    28→// ============================================================
+    29→
+    30→const cctvCamera1: Product = {
+    31→  id: generateId(1),
+    32→  sku: 'CCTV-HD-360',
+    33→  name: 'SecureView 360° HD Dome Camera',
+    34→  category: 'CCTV Cameras',
+    35→  brand: 'SecureView',
+    36→  description: 'Fictional 360-degree HD dome security camera with night vision, motion detection, and weather-resistant housing. Ideal for indoor and outdoor surveillance.',
+    37→  tags: ['cctv', 'camera', 'dome', 'hd', '360-degree', 'security'],
+    38→
+    39→  // Cost Information
+    40→  purchaseCost: 2450,
+    41→  shippingCost: 120,
+    42→  packagingCost: 45,
+    43→  handlingCost: 30,
+    44→  otherCosts: 25,
+    45→  returnRatePercent: 3.5,
+    46→  damageRatePercent: 0.8,
+    47→  customDutyPercent: 0,
+    48→  freightPercent: 0,
+    49→
+    50→  // Selling Information
+    51→  currentSellingPrice: 4999,
+    52→  competitorPrices: [
+    53→    { name: 'SafeEye', price: 5200, dateChecked: '2024-11-15' },
+    54→    { name: 'WatchGuard Pro', price: 4800, dateChecked: '2024-11-10' },
+    55→    { name: 'DigiSecure', price: 5050, dateChecked: '2024-11-12' },
+    56→  ],
+    57→  salesChannel: 'online-marketplace' as SalesChannel,
+    58→  taxRatePercent: 18,
+    59→  taxTreatment: 'inclusive' as TaxTreatment,
+    60→
+    61→  // Fee Information
+    62→  marketplaceFeePercent: 8,
+    63→  marketplaceFeeFixed: 25,
+    64→  paymentFeePercent: 2.5,
+    65→  paymentFeeFixed: 3,
+    66→  shippingChargeToCustomer: 0,
+    67→  otherFeesPercent: 0,
+    68→  otherFeesFixed: 0,
+    69→
+    70→  // Calculated Values (defaults — to be populated by engine)
+    71→  calculatedBaseCost: 0,
+    72→  calculatedExpectedReturnCost: 0,
+    73→  calculatedExpectedDamageCost: 0,
+    74→  calculatedTotalLandedCost: 0,
+    75→  calculatedBreakEvenPrice: 0,
+    76→  calculatedMarkupPercent: 0,
+    77→  calculatedMarginPercent: 0,
+    78→  calculatedProfitPerUnit: 0,
+    79→  calculatedTotalPercentageFees: 0,
+    80→  calculatedTotalFixedFees: 0,
+    81→  calculatedPricingStatus: 'missing-data',
+    82→  calculatedProfitabilityMeter: 'loss',
+    83→  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+    84→
+    85→  // Metadata
+    86→  createdAt: '2024-10-01T10:00:00Z',
+    87→  updatedAt: '2024-12-01T10:00:00Z',
+    88→  isApproved: false,
+    89→  notes: 'Fictional product for demo purposes. Popular mid-range dome camera.',
+    90→};
+    91→
+    92→const cctvCamera2: Product = {
+    93→  id: generateId(2),
+    94→  sku: 'CCTV-BT-1080',
+    95→  name: 'TrailEyes 1080p Bullet Camera',
+    96→  category: 'CCTV Cameras',
+    97→  brand: 'TrailEyes',
+    98→  description: 'Fictional 1080p bullet-style outdoor CCTV camera with 30m IR range, IP66 weatherproof rating, and wide-angle lens.',
+    99→  tags: ['cctv', 'camera', 'bullet', '1080p', 'outdoor', 'security'],
+   100→
+   101→  purchaseCost: 1800,
+   102→  shippingCost: 95,
+   103→  packagingCost: 35,
+   104→  handlingCost: 20,
+   105→  otherCosts: 15,
+   106→  returnRatePercent: 2.0,
+   107→  damageRatePercent: 1.2,
+   108→  customDutyPercent: 0,
+   109→  freightPercent: 0,
+   110→
+   111→  currentSellingPrice: 3499,
+   112→  competitorPrices: [
+   113→    { name: 'SafeEye', price: 3600, dateChecked: '2024-11-14' },
+   114→    { name: 'VisionTech', price: 3300, dateChecked: '2024-11-11' },
+   115→  ],
+   116→  salesChannel: 'online-marketplace' as SalesChannel,
+   117→  taxRatePercent: 18,
+   118→  taxTreatment: 'inclusive' as TaxTreatment,
+   119→
+   120→  marketplaceFeePercent: 8,
+   121→  marketplaceFeeFixed: 25,
+   122→  paymentFeePercent: 2.5,
+   123→  paymentFeeFixed: 3,
+   124→  shippingChargeToCustomer: 0,
+   125→  otherFeesPercent: 0,
+   126→  otherFeesFixed: 0,
+   127→
+   128→  calculatedBaseCost: 0,
+   129→  calculatedExpectedReturnCost: 0,
+   130→  calculatedExpectedDamageCost: 0,
+   131→  calculatedTotalLandedCost: 0,
+   132→  calculatedBreakEvenPrice: 0,
+   133→  calculatedMarkupPercent: 0,
+   134→  calculatedMarginPercent: 0,
+   135→  calculatedProfitPerUnit: 0,
+   136→  calculatedTotalPercentageFees: 0,
+   137→  calculatedTotalFixedFees: 0,
+   138→  calculatedPricingStatus: 'missing-data',
+   139→  calculatedProfitabilityMeter: 'loss',
+   140→  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+   141→
+   142→  createdAt: '2024-10-02T10:00:00Z',
+   143→  updatedAt: '2024-12-01T10:00:00Z',
+   144→  isApproved: false,
+   145→  notes: 'Fictional product. Entry-level bullet camera for outdoor use.',
+   146→};
+   147→
+   148→const cctvCamera3: Product = {
+   149→  id: generateId(3),
+   150→  sku: 'CCTV-PTZ-4K',
+   151→  name: 'OmniWatch 4K PTZ Camera',
+   152→  category: 'CCTV Cameras',
+   153→  brand: 'OmniWatch',
+   154→  description: 'Fictional 4K PTZ (Pan-Tilt-Zoom) security camera with 25x optical zoom, auto-tracking, and enterprise-grade video analytics.',
+   155→  tags: ['cctv', 'camera', 'ptz', '4k', 'enterprise', 'security'],
+   156→
+   157→  purchaseCost: 12000,
+   158→  shippingCost: 350,
+   159→  packagingCost: 120,
+   160→  handlingCost: 80,
+   161→  otherCosts: 50,
+   162→  returnRatePercent: 1.5,
+   163→  damageRatePercent: 0.5,
+   164→  customDutyPercent: 5,
+   165→  freightPercent: 0,
+   166→
+   167→  currentSellingPrice: 24999,
+   168→  competitorPrices: [
+   169→    { name: 'ProSecure', price: 26500, dateChecked: '2024-11-15' },
+   170→    { name: 'WatchGuard Pro', price: 23000, dateChecked: '2024-11-10' },
+   171→    { name: 'SafeEye', price: 25500, dateChecked: '2024-11-12' },
+   172→    { name: 'DigiSecure', price: 24000, dateChecked: '2024-11-13' },
+   173→  ],
+   174→  salesChannel: 'online-marketplace' as SalesChannel,
+   175→  taxRatePercent: 18,
+   176→  taxTreatment: 'inclusive' as TaxTreatment,
+   177→
+   178→  marketplaceFeePercent: 5,
+   179→  marketplaceFeeFixed: 50,
+   180→  paymentFeePercent: 2,
+   181→  paymentFeeFixed: 5,
+   182→  shippingChargeToCustomer: 0,
+   183→  otherFeesPercent: 0,
+   184→  otherFeesFixed: 0,
+   185→
+   186→  calculatedBaseCost: 0,
+   187→  calculatedExpectedReturnCost: 0,
+   188→  calculatedExpectedDamageCost: 0,
+   189→  calculatedTotalLandedCost: 0,
+   190→  calculatedBreakEvenPrice: 0,
+   191→  calculatedMarkupPercent: 0,
+   192→  calculatedMarginPercent: 0,
+   193→  calculatedProfitPerUnit: 0,
+   194→  calculatedTotalPercentageFees: 0,
+   195→  calculatedTotalFixedFees: 0,
+   196→  calculatedPricingStatus: 'missing-data',
+   197→  calculatedProfitabilityMeter: 'loss',
+   198→  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+   199→
+   200→  createdAt: '2024-10-03T10:00:00Z',
+   201→  updatedAt: '2024-12-01T10:00:00Z',
+   202→  isApproved: false,
+   203→  notes: 'Fictional product. High-end PTZ camera for enterprise use. Includes 5% custom duty.',
+   204→};
+   205→
+   206→// ============================================================
+   207→// Biometric Devices
+   208→// ============================================================
+   209→
+   210→const biometric1: Product = {
+   211→  id: generateId(4),
+   212→  sku: 'BIO-FP-PRO',
+   213→  name: 'IdentiTouch Pro Fingerprint Scanner',
+   214→  category: 'Biometric Devices',
+   215→  brand: 'IdentiTouch',
+   216→  description: 'Fictional high-precision fingerprint biometric scanner with live finger detection, USB connectivity, and SDK for integration.',
+   217→  tags: ['biometric', 'fingerprint', 'scanner', 'access-control', 'security'],
+   218→
+   219→  purchaseCost: 4500,
+   220→  shippingCost: 150,
+   221→  packagingCost: 80,
+   222→  handlingCost: 45,
+   223→  otherCosts: 30,
+   224→  returnRatePercent: 1.5,
+   225→  damageRatePercent: 0.5,
+   226→  customDutyPercent: 0,
+   227→  freightPercent: 0,
+   228→
+   229→  currentSellingPrice: 8999,
+   230→  competitorPrices: [
+   231→    { name: 'BioScan', price: 8500, dateChecked: '2024-11-15' },
+   232→    { name: 'SecurePrint', price: 9200, dateChecked: '2024-11-10' },
+   233→  ],
+   234→  salesChannel: 'online-marketplace' as SalesChannel,
+   235→  taxRatePercent: 18,
+   236→  taxTreatment: 'inclusive' as TaxTreatment,
+   237→
+   238→  marketplaceFeePercent: 6,
+   239→  marketplaceFeeFixed: 30,
+   240→  paymentFeePercent: 2.5,
+   241→  paymentFeeFixed: 3,
+   242→  shippingChargeToCustomer: 0,
+   243→  otherFeesPercent: 0,
+   244→  otherFeesFixed: 0,
+   245→
+   246→  calculatedBaseCost: 0,
+   247→  calculatedExpectedReturnCost: 0,
+   248→  calculatedExpectedDamageCost: 0,
+   249→  calculatedTotalLandedCost: 0,
+   250→  calculatedBreakEvenPrice: 0,
+   251→  calculatedMarkupPercent: 0,
+   252→  calculatedMarginPercent: 0,
+   253→  calculatedProfitPerUnit: 0,
+   254→  calculatedTotalPercentageFees: 0,
+   255→  calculatedTotalFixedFees: 0,
+   256→  calculatedPricingStatus: 'missing-data',
+   257→  calculatedProfitabilityMeter: 'loss',
+   258→  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+   259→
+   260→  createdAt: '2024-10-04T10:00:00Z',
+   261→  updatedAt: '2024-12-01T10:00:00Z',
+   262→  isApproved: false,
+   263→  notes: 'Fictional product. Professional fingerprint scanner for office security.',
+   264→};
+   265→
+   266→const biometric2: Product = {
+   267→  id: generateId(5),
+   268→  sku: 'BIO-FACE-ULTRA',
+   269→  name: 'FaceGate Ultra Facial Recognition Terminal',
+   270→  category: 'Biometric Devices',
+   271→  brand: 'FaceGate',
+   272→  description: 'Fictional AI-powered facial recognition terminal with dual-camera 3D depth sensing, mask detection, and temperature screening.',
+   273→  tags: ['biometric', 'facial-recognition', 'terminal', 'access-control', 'ai'],
+   274→
+   275→  purchaseCost: 18500,
+   276→  shippingCost: 400,
+   277→  packagingCost: 150,
+   278→  handlingCost: 100,
+   279→  otherCosts: 75,
+   280→  returnRatePercent: 1.0,
+   281→  damageRatePercent: 0.3,
+   282→  customDutyPercent: 10,
+   283→  freightPercent: 0,
+   284→
+   285→  currentSellingPrice: 34999,
+   286→  competitorPrices: [
+   287→    { name: 'BioScan', price: 36000, dateChecked: '2024-11-15' },
+   288→    { name: 'SecurePrint', price: 33000, dateChecked: '2024-11-10' },
+   289→    { name: 'FaceAuth', price: 34500, dateChecked: '2024-11-12' },
+   290→  ],
+   291→  salesChannel: 'online-marketplace' as SalesChannel,
+   292→  taxRatePercent: 18,
+   293→  taxTreatment: 'inclusive' as TaxTreatment,
+   294→
+   295→  marketplaceFeePercent: 4,
+   296→  marketplaceFeeFixed: 75,
+   297→  paymentFeePercent: 2,
+   298→  paymentFeeFixed: 5,
+   299→  shippingChargeToCustomer: 0,
+   300→  otherFeesPercent: 0,
+   301→  otherFeesFixed: 0,
+   302→
+   303→  calculatedBaseCost: 0,
+   304→  calculatedExpectedReturnCost: 0,
+   305→  calculatedExpectedDamageCost: 0,
+   306→  calculatedTotalLandedCost: 0,
+   307→  calculatedBreakEvenPrice: 0,
+   308→  calculatedMarkupPercent: 0,
+   309→  calculatedMarginPercent: 0,
+   310→  calculatedProfitPerUnit: 0,
+   311→  calculatedTotalPercentageFees: 0,
+   312→  calculatedTotalFixedFees: 0,
+   313→  calculatedPricingStatus: 'missing-data',
+   314→  calculatedProfitabilityMeter: 'loss',
+   315→  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+   316→
+   317→  createdAt: '2024-10-05T10:00:00Z',
+   318→  updatedAt: '2024-12-01T10:00:00Z',
+   319→  isApproved: false,
+   320→  notes: 'Fictional product. Advanced facial recognition with 10% custom duty (imported component).',
+   321→};
+   322→
+   323→// ============================================================
+   324→// Headsets
+   325→// ============================================================
+   326→
+   327→const headset1: Product = {
+   328→  id: generateId(6),
+   329→  sku: 'HS-NC-500',
+   330→  name: 'CallPro 500 Noise-Cancelling Headset',
+   331→  category: 'Headsets',
+   332→  brand: 'CallPro',
+   333→  description: 'Fictional over-ear noise-cancelling headset designed for call centres and office use. USB + Bluetooth dual connectivity.',
+   334→  tags: ['headset', 'noise-cancelling', 'bluetooth', 'usb', 'call-centre', 'office'],
+   335→
+   336→  purchaseCost: 2200,
+   337→  shippingCost: 85,
+   338→  packagingCost: 60,
+   339→  handlingCost: 35,
+   340→  otherCosts: 20,
+   341→  returnRatePercent: 4.0,
+   342→  damageRatePercent: 1.5,
+   343→  customDutyPercent: 0,
+   344→  freightPercent: 0,
+   345→
+   346→  currentSellingPrice: 4499,
+   347→  competitorPrices: [
+   348→    { name: 'ClearVoice', price: 4200, dateChecked: '2024-11-14' },
+   349→    { name: 'SoundWork', price: 4700, dateChecked: '2024-11-11' },
+   350→    { name: 'TalkEase', price: 4350, dateChecked: '2024-11-12' },
+   351→  ],
+   352→  salesChannel: 'online-marketplace' as SalesChannel,
+   353→  taxRatePercent: 18,
+   354→  taxTreatment: 'inclusive' as TaxTreatment,
+   355→
+   356→  marketplaceFeePercent: 8,
+   357→  marketplaceFeeFixed: 25,
+   358→  paymentFeePercent: 2.5,
+   359→  paymentFeeFixed: 3,
+   360→  shippingChargeToCustomer: 0,
+   361→  otherFeesPercent: 0,
+   362→  otherFeesFixed: 0,
+   363→
+   364→  calculatedBaseCost: 0,
+   365→  calculatedExpectedReturnCost: 0,
+   366→  calculatedExpectedDamageCost: 0,
+   367→  calculatedTotalLandedCost: 0,
+   368→  calculatedBreakEvenPrice: 0,
+   369→  calculatedMarkupPercent: 0,
+   370→  calculatedMarginPercent: 0,
+   371→  calculatedProfitPerUnit: 0,
+   372→  calculatedTotalPercentageFees: 0,
+   373→  calculatedTotalFixedFees: 0,
+   374→  calculatedPricingStatus: 'missing-data',
+   375→  calculatedProfitabilityMeter: 'loss',
+   376→  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+   377→
+   378→  createdAt: '2024-10-06T10:00:00Z',
+   379→  updatedAt: '2024-12-01T10:00:00Z',
+   380→  isApproved: false,
+   381→  notes: 'Fictional product. Popular call-centre headset with higher return rate (sizing issues).',
+   382→};
+   383→
+   384→const headset2: Product = {
+   385→  id: generateId(7),
+   386→  sku: 'HS-BT-LITE',
+   387→  name: 'EchoLite Bluetooth Earhook Headset',
+   388→  category: 'Headsets',
+   389→  brand: 'EchoLite',
+   390→  description: 'Fictional lightweight single-ear Bluetooth headset for mobile professionals. 12-hour battery, echo cancellation.',
+   391→  tags: ['headset', 'bluetooth', 'earhook', 'mobile', 'lightweight'],
+   392→
+   393→  purchaseCost: 850,
+   394→  shippingCost: 45,
+   395→  packagingCost: 25,
+   396→  handlingCost: 15,
+   397→  otherCosts: 10,
+   398→  returnRatePercent: 5.0,
+   399→  damageRatePercent: 2.0,
+   400→  customDutyPercent: 0,
+   401→  freightPercent: 0,
+   402→
+   403→  currentSellingPrice: 1999,
+   404→  competitorPrices: [
+   405→    { name: 'ClearVoice', price: 1800, dateChecked: '2024-11-14' },
+   406→    { name: 'TalkEase', price: 2100, dateChecked: '2024-11-11' },
+   407→  ],
+   408→  salesChannel: 'online-marketplace' as SalesChannel,
+   409→  taxRatePercent: 18,
+   410→  taxTreatment: 'inclusive' as TaxTreatment,
+   411→
+   412→  marketplaceFeePercent: 10,
+   413→  marketplaceFeeFixed: 15,
+   414→  paymentFeePercent: 3,
+   415→  paymentFeeFixed: 3,
+   416→  shippingChargeToCustomer: 0,
+   417→  otherFeesPercent: 0,
+   418→  otherFeesFixed: 0,
+   419→
+   420→  calculatedBaseCost: 0,
+   421→  calculatedExpectedReturnCost: 0,
+   422→  calculatedExpectedDamageCost: 0,
+   423→  calculatedTotalLandedCost: 0,
+   424→  calculatedBreakEvenPrice: 0,
+   425→  calculatedMarkupPercent: 0,
+   426→  calculatedMarginPercent: 0,
+   427→  calculatedProfitPerUnit: 0,
+   428→  calculatedTotalPercentageFees: 0,
+   429→  calculatedTotalFixedFees: 0,
+   430→  calculatedPricingStatus: 'missing-data',
+   431→  calculatedProfitabilityMeter: 'loss',
+   432→  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+   433→
+   434→  createdAt: '2024-10-07T10:00:00Z',
+   435→  updatedAt: '2024-12-01T10:00:00Z',
+   436→  isApproved: false,
+   437→  notes: 'Fictional product. Budget earhook headset. Higher return and damage rates typical for low-cost electronics.',
+   438→};
+   439→
+   440→// ============================================================
+   441→// Network Equipment
+   442→// ============================================================
+   443→
+   444→const network1: Product = {
+   445→  id: generateId(8),
+   446→  sku: 'NET-SW-24P',
+   447→  name: 'LinkForge 24-Port Managed Switch',
+   448→  category: 'Network Equipment',
+   449→  brand: 'LinkForge',
+   450→  description: 'Fictional 24-port Gigabit managed network switch with VLAN support, QoS, and web-based management interface.',
+   451→  tags: ['network', 'switch', 'managed', '24-port', 'gigabit', 'vlan'],
+   452→
+   453→  purchaseCost: 5500,
+   454→  shippingCost: 200,
+   455→  packagingCost: 100,
+   456→  handlingCost: 60,
+   457→  otherCosts: 40,
+   458→  returnRatePercent: 1.0,
+   459→  damageRatePercent: 0.3,
+   460→  customDutyPercent: 0,
+   461→  freightPercent: 2,
+   462→
+   463→  currentSellingPrice: 11999,
+   464→  competitorPrices: [
+   465→    { name: 'NetBridge', price: 11500, dateChecked: '2024-11-15' },
+   466→    { name: 'DataLink Pro', price: 12500, dateChecked: '2024-11-10' },
+   467→  ],
+   468→  salesChannel: 'online-marketplace' as SalesChannel,
+   469→  taxRatePercent: 18,
+   470→  taxTreatment: 'inclusive' as TaxTreatment,
+   471→
+   472→  marketplaceFeePercent: 5,
+   473→  marketplaceFeeFixed: 35,
+   474→  paymentFeePercent: 2,
+   475→  paymentFeeFixed: 5,
+   476→  shippingChargeToCustomer: 0,
+   477→  otherFeesPercent: 0,
+   478→  otherFeesFixed: 0,
+   479→
+   480→  calculatedBaseCost: 0,
+   481→  calculatedExpectedReturnCost: 0,
+   482→  calculatedExpectedDamageCost: 0,
+   483→  calculatedTotalLandedCost: 0,
+   484→  calculatedBreakEvenPrice: 0,
+   485→  calculatedMarkupPercent: 0,
+   486→  calculatedMarginPercent: 0,
+   487→  calculatedProfitPerUnit: 0,
+   488→  calculatedTotalPercentageFees: 0,
+   489→  calculatedTotalFixedFees: 0,
+   490→  calculatedPricingStatus: 'missing-data',
+   491→  calculatedProfitabilityMeter: 'loss',
+   492→  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+   493→
+   494→  createdAt: '2024-10-08T10:00:00Z',
+   495→  updatedAt: '2024-12-01T10:00:00Z',
+   496→  isApproved: false,
+   497→  notes: 'Fictional product. Enterprise-grade managed switch. 2% freight on purchase cost.',
+   498→};
+   499→
+   500→const network2: Product = {
+   501→  id: generateId(9),
+   502→  sku: 'NET-AP-W6',
+   503→  name: 'AirWave Wi-Fi 6 Access Point',
+   504→  category: 'Network Equipment',
+   505→  brand: 'AirWave',
+   506→  description: 'Fictional Wi-Fi 6 (802.11ax) dual-band access point with MU-MIMO, OFDMA, and PoE support. Ceiling-mount design.',
+   507→  tags: ['network', 'wifi', 'access-point', 'wifi-6', 'poe', 'enterprise'],
+   508→
+   509→  purchaseCost: 3800,
+   510→  shippingCost: 120,
+   511→  packagingCost: 65,
+   512→  handlingCost: 40,
+   513→  otherCosts: 25,
+   514→  returnRatePercent: 1.5,
+   515→  damageRatePercent: 0.5,
+   516→  customDutyPercent: 0,
+   517→  freightPercent: 1.5,
+   518→
+   519→  currentSellingPrice: 7999,
+   520→  competitorPrices: [
+   521→    { name: 'NetBridge', price: 7500, dateChecked: '2024-11-15' },
+   522→    { name: 'SignalMax', price: 8200, dateChecked: '2024-11-10' },
+   523→    { name: 'DataLink Pro', price: 7800, dateChecked: '2024-11-12' },
+   524→  ],
+   525→  salesChannel: 'online-marketplace' as SalesChannel,
+   526→  taxRatePercent: 18,
+   527→  taxTreatment: 'inclusive' as TaxTreatment,
+   528→
+   529→  marketplaceFeePercent: 5,
+   530→  marketplaceFeeFixed: 30,
+   531→  paymentFeePercent: 2.5,
+   532→  paymentFeeFixed: 3,
+   533→  shippingChargeToCustomer: 0,
+   534→  otherFeesPercent: 0,
+   535→  otherFeesFixed: 0,
+   536→
+   537→  calculatedBaseCost: 0,
+   538→  calculatedExpectedReturnCost: 0,
+   539→  calculatedExpectedDamageCost: 0,
+   540→  calculatedTotalLandedCost: 0,
+   541→  calculatedBreakEvenPrice: 0,
+   542→  calculatedMarkupPercent: 0,
+   543→  calculatedMarginPercent: 0,
+   544→  calculatedProfitPerUnit: 0,
+   545→  calculatedTotalPercentageFees: 0,
+   546→  calculatedTotalFixedFees: 0,
+   547→  calculatedPricingStatus: 'missing-data',
+   548→  calculatedProfitabilityMeter: 'loss',
+   549→  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+   550→
+   551→  createdAt: '2024-10-09T10:00:00Z',
+   552→  updatedAt: '2024-12-01T10:00:00Z',
+   553→  isApproved: false,
+   554→  notes: 'Fictional product. Wi-Fi 6 AP with 1.5% freight on purchase cost.',
+   555→};
+   556→
+   557→const network3: Product = {
+   558→  id: generateId(10),
+   559→  sku: 'NET-RTR-BIZ',
+   560→  name: 'LinkForge Business VPN Router',
+   561→  category: 'Network Equipment',
+   562→  brand: 'LinkForge',
+   563→  description: 'Fictional business-grade VPN router with dual-WAN, firewall, IPS/IDS, and 10G SFP+ uplink. Designed for SMEs.',
+   564→  tags: ['network', 'router', 'vpn', 'dual-wan', 'firewall', 'business'],
+   565→
+   566→  purchaseCost: 8000,
+   567→  shippingCost: 300,
+   568→  packagingCost: 150,
+   569→  handlingCost: 80,
+   570→  otherCosts: 60,
+   571→  returnRatePercent: 0.8,
+   572→  damageRatePercent: 0.2,
+   573→  customDutyPercent: 0,
+   574→  freightPercent: 2.5,
+   575→
+   576→  currentSellingPrice: 15999,
+   577→  competitorPrices: [
+   578→    { name: 'NetBridge', price: 16000, dateChecked: '2024-11-15' },
+   579→    { name: 'SecureRoute', price: 14500, dateChecked: '2024-11-10' },
+   580→  ],
+   581→  salesChannel: 'online-marketplace' as SalesChannel,
+   582→  taxRatePercent: 18,
+   583→  taxTreatment: 'inclusive' as TaxTreatment,
+   584→
+   585→  marketplaceFeePercent: 4,
+   586→  marketplaceFeeFixed: 50,
+   587→  paymentFeePercent: 2,
+   588→  paymentFeeFixed: 5,
+   589→  shippingChargeToCustomer: 0,
+   590→  otherFeesPercent: 0,
+   591→  otherFeesFixed: 0,
+   592→
+   593→  calculatedBaseCost: 0,
+   594→  calculatedExpectedReturnCost: 0,
+   595→  calculatedExpectedDamageCost: 0,
+   596→  calculatedTotalLandedCost: 0,
+   597→  calculatedBreakEvenPrice: 0,
+   598→  calculatedMarkupPercent: 0,
+   599→  calculatedMarginPercent: 0,
+   600→  calculatedProfitPerUnit: 0,
+   601→  calculatedTotalPercentageFees: 0,
+   602→  calculatedTotalFixedFees: 0,
+   603→  calculatedPricingStatus: 'missing-data',
+   604→  calculatedProfitabilityMeter: 'loss',
+   605→  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+   606→
+   607→  createdAt: '2024-10-10T10:00:00Z',
+   608→  updatedAt: '2024-12-01T10:00:00Z',
+   609→  isApproved: false,
+   610→  notes: 'Fictional product. Business VPN router with 2.5% freight on purchase cost.',
+   611→};
+   612→
+   613→// ============================================================
+   614→// Office Electronics
+   615→// ============================================================
+   616→
+   617→const office1: Product = {
+   618→  id: generateId(11),
+   619→  sku: 'OFC-PRN-MFP',
+   620→  name: 'DocuPrint 4-in-1 MFP Printer',
+   621→  category: 'Office Electronics',
+   622→  brand: 'DocuPrint',
+   623→  description: 'Fictional multifunction printer (print, scan, copy, fax) with A3 support, auto-duplex, and network connectivity.',
+   624→  tags: ['printer', 'mfp', 'scanner', 'copier', 'a3', 'office'],
+   625→
+   626→  purchaseCost: 15000,
+   627→  shippingCost: 500,
+   628→  packagingCost: 200,
+   629→  handlingCost: 150,
+   630→  otherCosts: 100,
+   631→  returnRatePercent: 2.0,
+   632→  damageRatePercent: 0.8,
+   633→  customDutyPercent: 0,
+   634→  freightPercent: 3,
+   635→
+   636→  currentSellingPrice: 29999,
+   637→  competitorPrices: [
+   638→    { name: 'PrintMax', price: 32000, dateChecked: '2024-11-15' },
+   639→    { name: 'PaperFlow', price: 28000, dateChecked: '2024-11-10' },
+   640→    { name: 'OfficePro', price: 30500, dateChecked: '2024-11-12' },
+   641→  ],
+   642→  salesChannel: 'own-website' as SalesChannel,
+   643→  taxRatePercent: 18,
+   644→  taxTreatment: 'inclusive' as TaxTreatment,
+   645→
+   646→  marketplaceFeePercent: 0,
+   647→  marketplaceFeeFixed: 0,
+   648→  paymentFeePercent: 2.5,
+   649→  paymentFeeFixed: 5,
+   650→  shippingChargeToCustomer: 500,
+   651→  otherFeesPercent: 0,
+   652→  otherFeesFixed: 0,
+   653→
+   654→  calculatedBaseCost: 0,
+   655→  calculatedExpectedReturnCost: 0,
+   656→  calculatedExpectedDamageCost: 0,
+   657→  calculatedTotalLandedCost: 0,
+   658→  calculatedBreakEvenPrice: 0,
+   659→  calculatedMarkupPercent: 0,
+   660→  calculatedMarginPercent: 0,
+   661→  calculatedProfitPerUnit: 0,
+   662→  calculatedTotalPercentageFees: 0,
+   663→  calculatedTotalFixedFees: 0,
+   664→  calculatedPricingStatus: 'missing-data',
+   665→  calculatedProfitabilityMeter: 'loss',
+   666→  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+   667→
+   668→  createdAt: '2024-10-11T10:00:00Z',
+   669→  updatedAt: '2024-12-01T10:00:00Z',
+   670→  isApproved: false,
+   671→  notes: 'Fictional product. Sold on own website (no marketplace fee). Customer pays ₹500 shipping. 3% freight on purchase.',
+   672→};
+   673→
+   674→const office2: Product = {
+   675→  id: generateId(12),
+   676→  sku: 'OFC-PB-SHRED',
+   677→  name: 'ShredGuard Auto Paper Shredder',
+   678→  category: 'Office Electronics',
+   679→  brand: 'ShredGuard',
+   680→  description: 'Fictional cross-cut paper shredder with auto-feed, 20-sheet capacity, CD/credit card slot, and auto-reverse anti-jam.',
+   681→  tags: ['shredder', 'paper', 'cross-cut', 'office', 'security'],
+   682→
+   683→  purchaseCost: 6500,
+   684→  shippingCost: 250,
+   685→  packagingCost: 120,
+   686→  handlingCost: 80,
+   687→  otherCosts: 50,
+   688→  returnRatePercent: 1.5,
+   689→  damageRatePercent: 0.5,
+   690→  customDutyPercent: 0,
+   691→  freightPercent: 1,
+   692→
+   693→  currentSellingPrice: 12999,
+   694→  competitorPrices: [
+   695→    { name: 'CutPro', price: 13500, dateChecked: '2024-11-15' },
+   696→    { name: 'SafeShred', price: 12000, dateChecked: '2024-11-10' },
+   697→  ],
+   698→  salesChannel: 'online-marketplace' as SalesChannel,
+   699→  taxRatePercent: 18,
+   700→  taxTreatment: 'inclusive' as TaxTreatment,
+   701→
+   702→  marketplaceFeePercent: 7,
+   703→  marketplaceFeeFixed: 40,
+   704→  paymentFeePercent: 2.5,
+   705→  paymentFeeFixed: 3,
+   706→  shippingChargeToCustomer: 0,
+   707→  otherFeesPercent: 0,
+   708→  otherFeesFixed: 0,
+   709→
+   710→  calculatedBaseCost: 0,
+   711→  calculatedExpectedReturnCost: 0,
+   712→  calculatedExpectedDamageCost: 0,
+   713→  calculatedTotalLandedCost: 0,
+   714→  calculatedBreakEvenPrice: 0,
+   715→  calculatedMarkupPercent: 0,
+   716→  calculatedMarginPercent: 0,
+   717→  calculatedProfitPerUnit: 0,
+   718→  calculatedTotalPercentageFees: 0,
+   719→  calculatedTotalFixedFees: 0,
+   720→  calculatedPricingStatus: 'missing-data',
+   721→  calculatedProfitabilityMeter: 'loss',
+   722→  recommendedPrices: { minimum: 0, competitive: 0, balanced: 0, premium: 0 },
+   723→
+   724→  createdAt: '2024-10-12T10:00:00Z',
+   725→  updatedAt: '2024-12-01T10:00:00Z',
+   726→  isApproved: false,
+   727→  notes: 'Fictional product. Cross-cut shredder with 1% freight on purchase cost.',
+   728→};
+   729→
+   730→// ============================================================
+   731→// All Sample Products
+   732→// ============================================================
+   733→
+   734→export const SAMPLE_PRODUCTS: Product[] = [
+   735→  cctvCamera1,
+   736→  cctvCamera2,
+   737→  cctvCamera3,
+   738→  biometric1,
+   739→  biometric2,
+   740→  headset1,
+   741→  headset2,
+   742→  network1,
+   743→  network2,
+   744→  network3,
+   745→  office1,
+   746→  office2,
+   747→];
+   748→
+   749→/**
+   750→ * Sample pricing rules for demonstration.
+   751→ */
+   752→export const SAMPLE_PRICING_RULES: PricingRule[] = [
+   753→  {
+   754→    id: 'sample-rule-global',
+   755→    name: 'Global Default Rule',
+   756→    level: 'global',
+   757→    targetMarginPercent: 25,
+   758→    minimumMarginPercent: 10,
+   759→    maximumMarginPercent: 60,
+   760→    targetMarkupPercent: 33,
+   761→    roundingRule: 'end-in-99-whole',
+   762→    competitorStrategy: {
+   763→      mode: 'match-average',
+   764→      weightPercent: 30,
+   765→    },
+   766→    priority: 0,
+   767→    isActive: true,
+   768→    createdAt: '2024-10-01T10:00:00Z',
+   769→    updatedAt: '2024-12-01T10:00:00Z',
+   770→    notes: 'Fictional. Default global rule with end-in-99 rounding.',
+   771→  },
+   772→  {
+   773→    id: 'sample-rule-cctv',
+   774→    name: 'CCTV Camera Category Rule',
+   775→    level: 'category',
+   776→    targetCategory: 'CCTV Cameras',
+   777→    targetMarginPercent: 30,
+   778→    minimumMarginPercent: 15,
+   779→    maximumMarginPercent: 55,
+   780→    targetMarkupPercent: 43,
+   781→    roundingRule: 'end-in-99-whole',
+   782→    competitorStrategy: {
+   783→      mode: 'match-average',
+   784→      weightPercent: 40,
+   785→    },
+   786→    priority: 5,
+   787→    isActive: true,
+   788→    createdAt: '2024-10-02T10:00:00Z',
+   789→    updatedAt: '2024-12-01T10:00:00Z',
+   790→    notes: 'Fictional. CCTV cameras have higher margin targets due to longer sales cycles.',
+   791→  },
+   792→  {
+   793→    id: 'sample-rule-headset',
+   794→    name: 'Headset Category Rule',
+   795→    level: 'category',
+   796→    targetCategory: 'Headsets',
+   797→    targetMarginPercent: 20,
+   798→    minimumMarginPercent: 8,
+   799→    maximumMarginPercent: 45,
+   800→    targetMarkupPercent: 25,
+   801→    roundingRule: 'end-in-99',
+   802→    competitorStrategy: {
+   803→      mode: 'below-average',
+   804→      offsetPercent: 3,
+   805→      weightPercent: 50,
+   806→    },
+   807→    priority: 5,
+   808→    isActive: true,
+   809→    createdAt: '2024-10-03T10:00:00Z',
+   810→    updatedAt: '2024-12-01T10:00:00Z',
+   811→    notes: 'Fictional. Headsets are competitive market; price slightly below average.',
+   812→  },
+   813→  {
+   814→    id: 'sample-rule-linkforge',
+   815→    name: 'LinkForge Brand Rule',
+   816→    level: 'brand',
+   817→    targetBrand: 'LinkForge',
+   818→    targetMarginPercent: 35,
+   819→    minimumMarginPercent: 18,
+   820→    maximumMarginPercent: 65,
+   821→    targetMarkupPercent: 54,
+   822→    roundingRule: 'nearest-10',
+   823→    competitorStrategy: {
+   824→      mode: 'above-average',
+   825→      offsetPercent: 5,
+   826→      weightPercent: 25,
+   827→    },
+   828→    priority: 10,
+   829→    isActive: true,
+   830→    createdAt: '2024-10-04T10:00:00Z',
+   831→    updatedAt: '2024-12-01T10:00:00Z',
+   832→    notes: 'Fictional. LinkForge is positioned as premium brand; price slightly above competitors.',
+   833→  },
+   834→];
+   835→
+   836→
+   837→

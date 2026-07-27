@@ -1,0 +1,321 @@
+'use client';
+
+import { useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import { usePricePilotStore } from '@/store/pricepilot-store';
+import { SUPPORTED_CURRENCIES, RoundingRule, TaxTreatment } from '@/lib/pricepilot/types';
+import { ArrowLeft, ArrowRight, SkipForward, Building2, Store, Coins } from 'lucide-react';
+
+const COUNTRIES = [
+  { code: 'IN', name: 'India' },
+  { code: 'GB', name: 'United Kingdom' },
+  { code: 'US', name: 'United States' },
+  { code: 'DE', name: 'Germany' },
+  { code: 'AE', name: 'United Arab Emirates' },
+  { code: 'AU', name: 'Australia' },
+  { code: 'CA', name: 'Canada' },
+  { code: 'SG', name: 'Singapore' },
+];
+
+const ROUNDING_RULES: { value: RoundingRule; label: string }[] = [
+  { value: 'no-rounding', label: 'No rounding' },
+  { value: 'nearest-whole', label: 'Nearest whole number' },
+  { value: 'nearest-5', label: 'Nearest 5' },
+  { value: 'nearest-10', label: 'Nearest 10' },
+  { value: 'end-in-99', label: 'End in .99' },
+  { value: 'end-in-95', label: 'End in .95' },
+  { value: 'end-in-9', label: 'End in .9' },
+  { value: 'end-in-49', label: 'End in .49' },
+  { value: 'end-in-99-whole', label: 'End in 99 (whole)' },
+];
+
+const TAX_TREATMENTS: { value: TaxTreatment; label: string; desc: string }[] = [
+  { value: 'inclusive', label: 'Tax inclusive (GST/VAT in price)', desc: 'Tax is already included in your selling price' },
+  { value: 'exclusive', label: 'Tax exclusive (add tax on top)', desc: 'Tax is added on top of the selling price' },
+  { value: 'exempt', label: 'Tax exempt', desc: 'No tax applies to your products' },
+  { value: 'composite', label: 'Composite (multi-component GST)', desc: 'GST with CGST + SGST components' },
+];
+
+const CHANNELS = [
+  { id: 'direct-offline', label: 'Direct / Offline', desc: 'In-store, direct sales' },
+  { id: 'own-ecommerce', label: 'Own E-commerce', desc: 'Your own website/shop' },
+  { id: 'amazon', label: 'Amazon', desc: 'Amazon marketplace' },
+  { id: 'flipkart', label: 'Flipkart', desc: 'Flipkart marketplace' },
+  { id: 'meesho', label: 'Meesho', desc: 'Meesho marketplace' },
+  { id: 'wholesale', label: 'Wholesale', desc: 'Bulk/wholesale channels' },
+  { id: 'multiple', label: 'Multiple channels', desc: 'Selling on multiple platforms' },
+];
+
+export function OnboardingFlow() {
+  const { businessSettings, completeOnboarding } = usePricePilotStore();
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState({
+    businessName: businessSettings.businessName || '',
+    currencyCode: businessSettings.currencyCode || 'INR',
+    country: businessSettings.country || 'IN',
+    taxTreatment: businessSettings.taxTreatment || 'inclusive',
+    taxRate: businessSettings.defaultTaxRatePercent || 18,
+    targetMargin: businessSettings.defaultTargetMarginPercent || 25,
+    minimumMargin: businessSettings.defaultMinimumMarginPercent || 10,
+    roundingRule: businessSettings.defaultRoundingRule || 'no-rounding',
+    channels: [] as string[],
+    packagingCost: businessSettings.defaultPackagingCost || 0,
+    shippingCost: businessSettings.defaultShippingCost || 0,
+    paymentFeePercent: businessSettings.defaultPaymentFeePercent || 2,
+    marketplaceFeePercent: businessSettings.defaultMarketplaceFeePercent || 5,
+    returnRate: businessSettings.defaultReturnRatePercent || 2,
+    returnHandlingCost: businessSettings.defaultHandlingCost || 0,
+    advertisingCost: businessSettings.defaultOtherCosts || 0,
+    otherVariableCost: 0,
+    minimumProfitPerProduct: 0,
+  });
+
+  const totalSteps = 3;
+  const progress = (step / totalSteps) * 100;
+
+  const handleNext = () => {
+    if (step < totalSteps) {
+      setStep(step + 1);
+    } else {
+      completeOnboarding({
+        businessName: form.businessName,
+        currencyCode: form.currencyCode,
+        country: form.country,
+        taxTreatment: form.taxTreatment,
+        defaultTaxRatePercent: form.taxRate,
+        defaultTargetMarginPercent: form.targetMargin,
+        defaultMinimumMarginPercent: form.minimumMargin,
+        defaultRoundingRule: form.roundingRule,
+        defaultPackagingCost: form.packagingCost,
+        defaultShippingCost: form.shippingCost,
+        defaultPaymentFeePercent: form.paymentFeePercent,
+        defaultMarketplaceFeePercent: form.marketplaceFeePercent,
+        defaultReturnRatePercent: form.returnRate,
+        defaultHandlingCost: form.returnHandlingCost,
+        defaultOtherCosts: form.advertisingCost + form.otherVariableCost,
+      });
+    }
+  };
+
+  const handleSkip = () => {
+    completeOnboarding({});
+  };
+
+  const updateForm = (key: string, value: unknown) => {
+    setForm(prev => ({ ...prev, [key]: value }));
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-slate-50 to-white p-4">
+      <div className="w-full max-w-xl">
+        <div className="mb-8 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <div className="h-10 w-10 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-lg">P</div>
+            <h1 className="text-2xl font-bold text-slate-900">PricePilot</h1>
+          </div>
+          <p className="text-muted-foreground text-sm">Product Pricing & Profit Optimiser</p>
+        </div>
+
+        <Progress value={progress} className="mb-4" />
+        <div className="flex items-center justify-between text-xs text-muted-foreground mb-6">
+          <span>Step {step} of {totalSteps}</span>
+          <span>
+            {step === 1 && 'Business Details'}
+            {step === 2 && 'Selling Channels'}
+            {step === 3 && 'Cost Defaults'}
+          </span>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              {step === 1 && <Building2 className="h-5 w-5" />}
+              {step === 2 && <Store className="h-5 w-5" />}
+              {step === 3 && <Coins className="h-5 w-5" />}
+              {step === 1 && 'Business Details'}
+              {step === 2 && 'Where do you sell?'}
+              {step === 3 && 'Default Costs & Fees'}
+            </CardTitle>
+            <CardDescription>
+              {step === 1 && 'Tell us about your business to set up pricing defaults'}
+              {step === 2 && 'Select all selling channels you use — this affects fee calculations'}
+              {step === 3 && 'Set default costs that apply to most of your products'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {step === 1 && (
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="businessName">Business Name</Label>
+                  <Input id="businessName" value={form.businessName} onChange={e => updateForm('businessName', e.target.value)} placeholder="Your business name" />
+                </div>
+                <div>
+                  <Label htmlFor="currency">Default Currency</Label>
+                  <Select value={form.currencyCode} onValueChange={v => updateForm('currencyCode', v)}>
+                    <SelectTrigger id="currency"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {SUPPORTED_CURRENCIES.map(c => (
+                        <SelectItem key={c.code} value={c.code}>{c.symbol} {c.name} ({c.code})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="country">Country</Label>
+                  <Select value={form.country} onValueChange={v => updateForm('country', v)}>
+                    <SelectTrigger id="country"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {COUNTRIES.map(c => (
+                        <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="taxTreatment">Tax Treatment</Label>
+                  <Select value={form.taxTreatment} onValueChange={v => updateForm('taxTreatment', v)}>
+                    <SelectTrigger id="taxTreatment"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TAX_TREATMENTS.map(t => (
+                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="taxRate">Default Tax Rate (%)</Label>
+                  <Input id="taxRate" type="number" value={form.taxRate} onChange={e => updateForm('taxRate', parseFloat(e.target.value) || 0)} />
+                </div>
+                <Separator />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="targetMargin">Target Margin (%)</Label>
+                    <Input id="targetMargin" type="number" value={form.targetMargin} onChange={e => updateForm('targetMargin', parseFloat(e.target.value) || 0)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="minimumMargin">Minimum Margin (%)</Label>
+                    <Input id="minimumMargin" type="number" value={form.minimumMargin} onChange={e => updateForm('minimumMargin', parseFloat(e.target.value) || 0)} />
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="roundingRule">Price Rounding Rule</Label>
+                  <Select value={form.roundingRule} onValueChange={v => updateForm('roundingRule', v)}>
+                    <SelectTrigger id="roundingRule"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {ROUNDING_RULES.map(r => (
+                        <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
+            {step === 2 && (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">Select all channels where you sell products:</p>
+                <div className="space-y-3">
+                  {CHANNELS.map(channel => (
+                    <div key={channel.id} className="flex items-start space-x-3 p-3 rounded-lg border hover:bg-slate-50 transition-colors">
+                      <Checkbox
+                        id={channel.id}
+                        checked={form.channels.includes(channel.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            updateForm('channels', [...form.channels, channel.id]);
+                          } else {
+                            updateForm('channels', form.channels.filter(c => c !== channel.id));
+                          }
+                        }}
+                      />
+                      <div className="space-y-0.5">
+                        <Label htmlFor={channel.id} className="font-medium">{channel.label}</Label>
+                        <p className="text-xs text-muted-foreground">{channel.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {step === 3 && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="packagingCost">Packaging Cost</Label>
+                    <Input id="packagingCost" type="number" value={form.packagingCost} onChange={e => updateForm('packagingCost', parseFloat(e.target.value) || 0)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="shippingCost">Shipping Cost</Label>
+                    <Input id="shippingCost" type="number" value={form.shippingCost} onChange={e => updateForm('shippingCost', parseFloat(e.target.value) || 0)} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="paymentFee">Payment Gateway Fee (%)</Label>
+                    <Input id="paymentFee" type="number" value={form.paymentFeePercent} onChange={e => updateForm('paymentFeePercent', parseFloat(e.target.value) || 0)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="marketplaceFee">Marketplace Commission (%)</Label>
+                    <Input id="marketplaceFee" type="number" value={form.marketplaceFeePercent} onChange={e => updateForm('marketplaceFeePercent', parseFloat(e.target.value) || 0)} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="returnRate">Expected Return Rate (%)</Label>
+                    <Input id="returnRate" type="number" value={form.returnRate} onChange={e => updateForm('returnRate', parseFloat(e.target.value) || 0)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="returnHandling">Return Handling Cost</Label>
+                    <Input id="returnHandling" type="number" value={form.returnHandlingCost} onChange={e => updateForm('returnHandlingCost', parseFloat(e.target.value) || 0)} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="advertisingCost">Advertising Cost</Label>
+                    <Input id="advertisingCost" type="number" value={form.advertisingCost} onChange={e => updateForm('advertisingCost', parseFloat(e.target.value) || 0)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="otherVariableCost">Other Variable Cost</Label>
+                    <Input id="otherVariableCost" type="number" value={form.otherVariableCost} onChange={e => updateForm('otherVariableCost', parseFloat(e.target.value) || 0)} />
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="minimumProfit">Minimum Profit per Product</Label>
+                  <Input id="minimumProfit" type="number" value={form.minimumProfitPerProduct} onChange={e => updateForm('minimumProfitPerProduct', parseFloat(e.target.value) || 0)} />
+                </div>
+              </div>
+            )}
+
+            <Separator className="my-4" />
+
+            <div className="flex items-center justify-between">
+              {step > 1 ? (
+                <Button variant="outline" onClick={() => setStep(step - 1)}>
+                  <ArrowLeft className="h-4 w-4 mr-1" /> Back
+                </Button>
+              ) : (
+                <Button variant="ghost" onClick={handleSkip}>
+                  <SkipForward className="h-4 w-4 mr-1" /> Skip setup
+                </Button>
+              )}
+              <Button onClick={handleNext}>
+                {step === totalSteps ? 'Complete Setup' : 'Continue'}
+                {step < totalSteps && <ArrowRight className="h-4 w-4 ml-1" />}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+export default OnboardingFlow;
