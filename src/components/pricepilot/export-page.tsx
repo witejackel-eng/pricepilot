@@ -6,15 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { ExportPreset } from '@/lib/pricepilot/types';
-import { Download, FileSpreadsheet, FileText, TableIcon, AlertTriangle } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, AlertTriangle } from 'lucide-react';
 
 const PRESETS: { value: ExportPreset; label: string; desc: string; columns: string[] }[] = [
   {
@@ -212,7 +210,7 @@ export function ExportPage() {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <FileSpreadsheet className="h-16 w-16 text-muted-foreground mb-4" />
-        <h2 className="text-xl font-semibold mb-2">No products to export</h2>
+        <h2 className="text-xl font-bold text-slate-800 mb-2">No products to export</h2>
         <p className="text-muted-foreground">Import products first to be able to export pricing data.</p>
       </div>
     );
@@ -225,36 +223,36 @@ export function ExportPage() {
     <div className="space-y-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Export Data</h2>
+          <h2 className="text-xl font-bold text-slate-800">Export Data</h2>
           <p className="text-sm text-muted-foreground">Download your pricing analysis as a spreadsheet</p>
         </div>
       </div>
 
       {/* Export Scope */}
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">Export Scope</CardTitle></CardHeader>
+      <Card className="shadow-md border-0 rounded-xl">
+        <CardHeader className="pb-2"><CardTitle className="text-base font-semibold text-slate-700">Export Scope</CardTitle></CardHeader>
         <CardContent>
-          <RadioGroup value={scope} onValueChange={v => setScope(v as typeof scope)} className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            <div className="flex items-center space-x-2 p-2 border rounded hover:bg-slate-50">
+          <RadioGroup value={scope} onValueChange={v => setScope(v as typeof scope)} className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className={`flex items-center space-x-2 bg-white shadow-sm rounded-lg p-3 border cursor-pointer transition-all duration-200 ${scope === 'all' ? 'border-emerald-500 bg-emerald-50/30' : 'border-slate-100 hover:border-slate-200 hover:shadow'}`}>
               <RadioGroupItem value="all" id="all" />
-              <Label htmlFor="all">All Products ({products.length})</Label>
+              <Label htmlFor="all" className="cursor-pointer">All Products ({products.length})</Label>
             </div>
-            <div className="flex items-center space-x-2 p-2 border rounded hover:bg-slate-50">
+            <div className={`flex items-center space-x-2 bg-white shadow-sm rounded-lg p-3 border cursor-pointer transition-all duration-200 ${scope === 'selected' ? 'border-emerald-500 bg-emerald-50/30' : 'border-slate-100 hover:border-slate-200 hover:shadow'}`}>
               <RadioGroupItem value="selected" id="selected" />
-              <Label htmlFor="selected">Selected ({selectedProducts.length})</Label>
+              <Label htmlFor="selected" className="cursor-pointer">Selected ({selectedProducts.length})</Label>
             </div>
-            <div className="flex items-center space-x-2 p-2 border rounded hover:bg-slate-50">
+            <div className={`flex items-center space-x-2 bg-white shadow-sm rounded-lg p-3 border cursor-pointer transition-all duration-200 ${scope === 'review' ? 'border-emerald-500 bg-emerald-50/30' : 'border-slate-100 hover:border-slate-200 hover:shadow'}`}>
               <RadioGroupItem value="review" id="review" />
-              <Label htmlFor="review">Needs Review ({products.filter(p => p.calculatedPricingStatus === 'needs-review').length})</Label>
+              <Label htmlFor="review" className="cursor-pointer">Needs Review ({products.filter(p => p.calculatedPricingStatus === 'needs-review').length})</Label>
             </div>
-            <div className="flex items-center space-x-2 p-2 border rounded hover:bg-slate-50">
+            <div className={`flex items-center space-x-2 bg-white shadow-sm rounded-lg p-3 border cursor-pointer transition-all duration-200 ${scope === 'approved' ? 'border-emerald-500 bg-emerald-50/30' : 'border-slate-100 hover:border-slate-200 hover:shadow'}`}>
               <RadioGroupItem value="approved" id="approved" />
-              <Label htmlFor="approved">Approved ({products.filter(p => p.isApproved).length})</Label>
+              <Label htmlFor="approved" className="cursor-pointer">Approved ({products.filter(p => p.isApproved).length})</Label>
             </div>
           </RadioGroup>
 
           {scope === 'selected' && selectedProducts.length === 0 && (
-            <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700 flex items-center gap-2">
+            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" /> No products selected. Go to Products page and select some products first.
             </div>
           )}
@@ -262,22 +260,22 @@ export function ExportPage() {
       </Card>
 
       {/* Format */}
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">Export Format</CardTitle></CardHeader>
+      <Card className="shadow-md border-0 rounded-xl">
+        <CardHeader className="pb-2"><CardTitle className="text-base font-semibold text-slate-700">Export Format</CardTitle></CardHeader>
         <CardContent>
           <RadioGroup value={format} onValueChange={v => setFormat(v as 'xlsx' | 'csv')} className="flex gap-4">
-            <div className="flex items-center space-x-2 p-3 border rounded hover:bg-slate-50 flex-1">
+            <div className={`flex items-center space-x-3 bg-white shadow-sm rounded-lg p-3 border cursor-pointer transition-all duration-200 flex-1 ${format === 'xlsx' ? 'border-emerald-500 bg-emerald-50/30' : 'border-slate-100 hover:border-slate-200 hover:shadow'}`}>
               <RadioGroupItem value="xlsx" id="xlsx" />
-              <Label htmlFor="xlsx" className="flex items-center gap-2">
-                <FileSpreadsheet className="h-5 w-5" />
+              <Label htmlFor="xlsx" className="flex items-center gap-2 cursor-pointer">
+                <FileSpreadsheet className="h-5 w-5 text-emerald-600" />
                 <span className="font-medium">Excel (.xlsx)</span>
                 <span className="text-xs text-muted-foreground">Multi-sheet workbook with summary</span>
               </Label>
             </div>
-            <div className="flex items-center space-x-2 p-3 border rounded hover:bg-slate-50 flex-1">
+            <div className={`flex items-center space-x-3 bg-white shadow-sm rounded-lg p-3 border cursor-pointer transition-all duration-200 flex-1 ${format === 'csv' ? 'border-emerald-500 bg-emerald-50/30' : 'border-slate-100 hover:border-slate-200 hover:shadow'}`}>
               <RadioGroupItem value="csv" id="csv" />
-              <Label htmlFor="csv" className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
+              <Label htmlFor="csv" className="flex items-center gap-2 cursor-pointer">
+                <FileText className="h-5 w-5 text-emerald-600" />
                 <span className="font-medium">CSV (.csv)</span>
                 <span className="text-xs text-muted-foreground">Simple comma-separated values</span>
               </Label>
@@ -287,45 +285,51 @@ export function ExportPage() {
       </Card>
 
       {/* Preset */}
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">Export Preset</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      <Card className="shadow-md border-0 rounded-xl">
+        <CardHeader className="pb-2"><CardTitle className="text-base font-semibold text-slate-700">Export Preset</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {PRESETS.map(p => (
-              <Button
+              <button
                 key={p.value}
-                variant={preset === p.value ? 'default' : 'outline'}
-                className="h-auto py-3 flex flex-col items-start text-left"
+                className={`rounded-lg p-4 bg-white shadow-sm border text-left transition-all duration-200 cursor-pointer ${preset === p.value ? 'bg-emerald-50 border-emerald-300 shadow-md' : 'border-slate-100 hover:border-slate-200 hover:shadow'}`}
                 onClick={() => handlePresetChange(p.value)}
               >
-                <span className="font-medium">{p.label}</span>
-                <span className="text-xs text-muted-foreground">{p.desc}</span>
-                <Badge variant="secondary" className="mt-1 text-xs">{p.columns.length} columns</Badge>
-              </Button>
+                <span className="font-medium text-slate-800">{p.label}</span>
+                <span className="block text-xs text-muted-foreground mt-0.5">{p.desc}</span>
+                <Badge variant="secondary" className="mt-2 text-xs">{p.columns.length} columns</Badge>
+              </button>
             ))}
           </div>
 
           <Separator />
 
           <div>
-            <Label className="text-sm font-medium mb-2">Column Selection</Label>
-            <div className="space-y-2">
+            <Label className="text-sm font-medium mb-3 block">Column Selection</Label>
+            <div className="space-y-3">
               {['Basic', 'Costs', 'Selling', 'Calculated', 'Market'].map(group => {
                 const groupCols = ALL_COLUMNS.filter(c => c.group === group);
+                if (groupCols.length === 0) return null;
                 return (
                   <div key={group}>
-                    <div className="text-xs font-semibold text-muted-foreground mb-1">{group}</div>
-                    <div className="flex flex-wrap gap-2">
-                      {groupCols.map(col => (
-                        <div key={col.id} className="flex items-center space-x-1">
-                          <Checkbox
-                            id={col.id}
-                            checked={selectedColumns.includes(col.id)}
-                            onCheckedChange={() => toggleColumn(col.id)}
-                          />
-                          <Label htmlFor={col.id} className="text-xs">{col.label}</Label>
-                        </div>
-                      ))}
+                    <div className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">{group}</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                      {groupCols.map(col => {
+                        const isSelected = selectedColumns.includes(col.id);
+                        return (
+                          <div
+                            key={col.id}
+                            className={`flex items-center space-x-2 bg-white rounded-lg shadow-sm border px-3 py-2 transition-all duration-200 ${isSelected ? 'border-emerald-300 bg-emerald-50/30' : 'border-slate-100'}`}
+                          >
+                            <Checkbox
+                              id={col.id}
+                              checked={isSelected}
+                              onCheckedChange={() => toggleColumn(col.id)}
+                            />
+                            <Label htmlFor={col.id} className="text-xs cursor-pointer">{col.label}</Label>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -336,19 +340,19 @@ export function ExportPage() {
       </Card>
 
       {/* Preview */}
-      <Card>
+      <Card className="shadow-md border-0 rounded-xl">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Preview</CardTitle>
+          <CardTitle className="text-base font-semibold text-slate-700">Preview</CardTitle>
           <CardDescription>First {previewRows.length} of {exportProducts.length} products</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto max-h-64 overflow-y-auto border rounded">
+          <div className="overflow-x-auto max-h-72 overflow-y-auto border border-slate-100 rounded-lg">
             <Table>
               <TableHeader>
-                <TableRow>
+                <TableRow className="bg-slate-50/80">
                   {selectedColumns.map(col => {
                     const colDef = ALL_COLUMNS.find(c => c.id === col);
-                    return <TableHead key={col} className="text-xs whitespace-nowrap">{colDef?.label || col}</TableHead>;
+                    return <TableHead key={col} className="text-xs whitespace-nowrap font-semibold text-slate-600">{colDef?.label || col}</TableHead>;
                   })}
                 </TableRow>
               </TableHeader>
@@ -370,8 +374,12 @@ export function ExportPage() {
 
       {/* Download */}
       <div className="flex justify-end">
-        <Button onClick={handleExport} disabled={exportProducts.length === 0 || selectedColumns.length === 0}>
-          <Download className="h-4 w-4 mr-2" /> Download {format === 'xlsx' ? 'Excel' : 'CSV'} ({exportProducts.length} products)
+        <Button
+          onClick={handleExport}
+          disabled={exportProducts.length === 0 || selectedColumns.length === 0}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-lg font-semibold text-lg px-6 py-3 transition-all duration-200"
+        >
+          <Download className="h-5 w-5 mr-2" /> Download {format === 'xlsx' ? 'Excel' : 'CSV'} ({exportProducts.length} products)
         </Button>
       </div>
     </div>

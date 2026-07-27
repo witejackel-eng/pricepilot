@@ -114,17 +114,22 @@ export function ProductsPage() {
   if (products.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
-        <Package className="h-16 w-16 text-muted-foreground mb-4" />
-        <h2 className="text-xl font-semibold mb-2">No products yet</h2>
-        <p className="text-muted-foreground mb-6">Import your product spreadsheet or add your first product to get started.</p>
+        <div className="bg-slate-100 rounded-full p-6 mb-6">
+          <Package className="h-20 w-20 text-slate-400" />
+        </div>
+        <h2 className="text-2xl font-bold text-slate-800 mb-2">No products yet</h2>
+        <p className="text-slate-500 mb-8 text-center max-w-md">Import your product spreadsheet or add your first product to get started.</p>
         <div className="flex gap-3">
-          <Button onClick={() => setCurrentView('import')}>
+          <Button
+            onClick={() => setCurrentView('import')}
+            className="rounded-lg shadow-sm hover:shadow-md bg-emerald-600 hover:bg-emerald-700 transition-all duration-200"
+          >
             <FileUp className="h-4 w-4 mr-2" /> Import Products
           </Button>
-          <Button variant="outline" onClick={() => { /* TODO: add product dialog */ }}>
+          <Button variant="outline" onClick={() => { /* TODO: add product dialog */ }} className="rounded-lg shadow-sm hover:shadow-md transition-all duration-200">
             <Plus className="h-4 w-4 mr-2" /> Add Product
           </Button>
-          <Button variant="outline" onClick={() => loadSampleData()}>
+          <Button variant="outline" onClick={() => loadSampleData()} className="rounded-lg shadow-sm hover:shadow-md transition-all duration-200">
             <MoreHorizontal className="h-4 w-4 mr-2" /> Try Sample Data
           </Button>
         </div>
@@ -145,19 +150,21 @@ export function ProductsPage() {
     <div className="space-y-4">
       {/* Bulk actions toolbar */}
       {hasSelection && (
-        <Card className="bg-emerald-50 border-emerald-200">
-          <CardContent className="p-3 flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium">{selectedProducts.length} selected</span>
-            <Button size="sm" variant="outline" onClick={() => approveSelectedProducts()}>
+        <Card className="shadow-md bg-emerald-50 border border-emerald-200">
+          <CardContent className="p-3 flex items-center gap-3 flex-wrap">
+            <Badge className="bg-emerald-600 text-white rounded-lg px-2.5 py-0.5 text-sm font-semibold">
+              {selectedProducts.length} selected
+            </Badge>
+            <Button size="sm" variant="outline" onClick={() => approveSelectedProducts()} className="rounded-lg border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-colors duration-150">
               <CheckCircle className="h-3 w-3 mr-1" /> Approve Prices
             </Button>
-            <Button size="sm" variant="outline" onClick={() => markSelectedForReview()}>
+            <Button size="sm" variant="outline" onClick={() => markSelectedForReview()} className="rounded-lg border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-colors duration-150">
               <Eye className="h-3 w-3 mr-1" /> Mark for Review
             </Button>
-            <Button size="sm" variant="outline" className="text-destructive" onClick={() => deleteSelectedProducts()}>
+            <Button size="sm" variant="outline" className="text-destructive rounded-lg border-emerald-200 hover:bg-red-50 hover:border-red-200 transition-colors duration-150" onClick={() => deleteSelectedProducts()}>
               <Trash2 className="h-3 w-3 mr-1" /> Delete
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setSelectedProducts([])}>
+            <Button size="sm" variant="outline" onClick={() => setSelectedProducts([])} className="rounded-lg border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300 transition-colors duration-150">
               Clear selection
             </Button>
           </CardContent>
@@ -168,25 +175,36 @@ export function ProductsPage() {
       <div className="space-y-3">
         <div className="flex items-center gap-3">
           <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search products..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input
+              placeholder="Search products..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9 bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all duration-200"
+            />
           </div>
           <Select value={filterCategory} onValueChange={setFilterCategory}>
-            <SelectTrigger className="w-[140px]"><SelectValue placeholder="Category" /></SelectTrigger>
+            <SelectTrigger className="w-[140px] bg-white shadow-sm border-slate-200 hover:border-slate-300 transition-colors duration-150">
+              <SelectValue placeholder="Category" />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
               {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={filterBrand} onValueChange={setFilterBrand}>
-            <SelectTrigger className="w-[140px]"><SelectValue placeholder="Brand" /></SelectTrigger>
+            <SelectTrigger className="w-[140px] bg-white shadow-sm border-slate-200 hover:border-slate-300 transition-colors duration-150">
+              <SelectValue placeholder="Brand" />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Brands</SelectItem>
               {brands.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={filterChannel} onValueChange={setFilterChannel}>
-            <SelectTrigger className="w-[140px]"><SelectValue placeholder="Channel" /></SelectTrigger>
+            <SelectTrigger className="w-[140px] bg-white shadow-sm border-slate-200 hover:border-slate-300 transition-colors duration-150">
+              <SelectValue placeholder="Channel" />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Channels</SelectItem>
               {channels.map(ch => <SelectItem key={ch} value={ch}>{ch}</SelectItem>)}
@@ -197,60 +215,77 @@ export function ProductsPage() {
         {/* Filter tabs */}
         <div className="flex gap-2 flex-wrap">
           {(['all', 'profitable', 'low-margin', 'loss-making', 'missing-cost', 'needs-review'] as FilterTab).map(tab => (
-            <Button key={tab} variant={filterTab === tab ? 'default' : 'outline'} size="sm" onClick={() => setFilterTab(tab)} className="gap-1">
+            <Button
+              key={tab}
+              size="sm"
+              onClick={() => setFilterTab(tab)}
+              className={`rounded-lg transition-all duration-200 gap-1 ${
+                filterTab === tab
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+              }`}
+            >
               {tab === 'all' ? 'All' : tab === 'profitable' ? 'Profitable' : tab === 'low-margin' ? 'Low Margin' : tab === 'loss-making' ? 'Loss-making' : tab === 'missing-cost' ? 'Missing Cost' : 'Needs Review'}
-              <Badge variant="secondary" className="text-xs ml-1">{tabCounts[tab]}</Badge>
+              <Badge variant="secondary" className={`text-xs ml-1 ${
+                filterTab === tab
+                  ? 'bg-emerald-500/30 text-white hover:bg-emerald-500/30'
+                  : ''
+              }`}>{tabCounts[tab]}</Badge>
             </Button>
           ))}
         </div>
       </div>
 
       {/* Data Table */}
-      <Card>
+      <Card className="shadow-md border-0 overflow-hidden">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[40px]">
+                <TableRow className="bg-slate-50 hover:bg-slate-50">
+                  <TableHead className="w-[40px] sticky top-0 bg-slate-50">
                     <Checkbox checked={selectedProducts.length === pageData.length && pageData.length > 0} onCheckedChange={toggleSelectAll} />
                   </TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => toggleSort('name')}>Product {sortIcon('name', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => toggleSort('sku')}>SKU {sortIcon('sku', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => toggleSort('category')}>Category {sortIcon('category', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer text-right" onClick={() => toggleSort('purchaseCost')}>Cost {sortIcon('purchaseCost', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer text-right" onClick={() => toggleSort('existingPrice')}>Existing Price {sortIcon('existingPrice', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer text-right" onClick={() => toggleSort('recommendedPrice')}>Recommended {sortIcon('recommendedPrice', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer text-right" onClick={() => toggleSort('profit')}>Profit {sortIcon('profit', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer text-right" onClick={() => toggleSort('margin')}>Margin {sortIcon('margin', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer text-right" onClick={() => toggleSort('markup')}>Markup {sortIcon('markup', sortBy, sortDir)}</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('name')}>Product {sortIcon('name', sortBy, sortDir)}</TableHead>
+                  <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('sku')}>SKU {sortIcon('sku', sortBy, sortDir)}</TableHead>
+                  <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('category')}>Category {sortIcon('category', sortBy, sortDir)}</TableHead>
+                  <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('purchaseCost')}>Cost {sortIcon('purchaseCost', sortBy, sortDir)}</TableHead>
+                  <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('existingPrice')}>Existing Price {sortIcon('existingPrice', sortBy, sortDir)}</TableHead>
+                  <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('recommendedPrice')}>Recommended {sortIcon('recommendedPrice', sortBy, sortDir)}</TableHead>
+                  <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('profit')}>Profit {sortIcon('profit', sortBy, sortDir)}</TableHead>
+                  <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('margin')}>Margin {sortIcon('margin', sortBy, sortDir)}</TableHead>
+                  <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('markup')}>Markup {sortIcon('markup', sortBy, sortDir)}</TableHead>
+                  <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {pageData.length === 0 ? (
-                  <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">No products match your filters</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={11} className="text-center py-8 text-slate-400">No products match your filters</TableCell></TableRow>
                 ) : (
                   pageData.map(p => (
                     <TableRow
                       key={p.id}
-                      className={`cursor-pointer hover:bg-slate-50 ${selectedProducts.includes(p.id) ? 'bg-emerald-50' : ''}`}
+                      className={`cursor-pointer transition-colors duration-150 ${
+                        selectedProducts.includes(p.id)
+                          ? 'bg-emerald-50/50 border-l-2 border-l-emerald-500'
+                          : 'hover:bg-emerald-50/20 border-l-2 border-l-transparent'
+                      }`}
                       onClick={() => setSelectedProduct(p.id)}
                     >
                       <TableCell>
                         <Checkbox checked={selectedProducts.includes(p.id)} onCheckedChange={() => toggleSelect(p.id)} onClick={e => e.stopPropagation()} />
                       </TableCell>
-                      <TableCell className="font-medium max-w-[200px] truncate">{p.name}</TableCell>
-                      <TableCell className="text-xs">{p.sku}</TableCell>
-                      <TableCell className="text-xs">{p.category}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(p.purchaseCost, businessSettings.currencyCode)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(p.currentSellingPrice, businessSettings.currencyCode)}</TableCell>
-                      <TableCell className="text-right font-semibold text-emerald-700">{formatCurrency(p.recommendedPrices.balanced, businessSettings.currencyCode)}</TableCell>
-                      <TableCell className={`text-right ${p.calculatedProfitPerUnit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      <TableCell className="font-semibold text-slate-800 max-w-[200px] truncate">{p.name}</TableCell>
+                      <TableCell className="text-xs text-slate-500">{p.sku}</TableCell>
+                      <TableCell className="text-xs text-slate-600">{p.category}</TableCell>
+                      <TableCell className="text-right text-slate-600">{formatCurrency(p.purchaseCost, businessSettings.currencyCode)}</TableCell>
+                      <TableCell className="text-right text-slate-600">{formatCurrency(p.currentSellingPrice, businessSettings.currencyCode)}</TableCell>
+                      <TableCell className="text-right font-bold text-emerald-700">{formatCurrency(p.recommendedPrices.balanced, businessSettings.currencyCode)}</TableCell>
+                      <TableCell className={`text-right font-semibold ${p.calculatedProfitPerUnit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                         {formatCurrency(p.calculatedProfitPerUnit, businessSettings.currencyCode)}
                       </TableCell>
-                      <TableCell className="text-right">{formatPercentage(p.calculatedMarginPercent)}</TableCell>
-                      <TableCell className="text-right">{formatPercentage(p.calculatedMarkupPercent)}</TableCell>
+                      <TableCell className="text-right text-slate-600 tabular-nums">{formatPercentage(p.calculatedMarginPercent)}</TableCell>
+                      <TableCell className="text-right text-slate-600 tabular-nums">{formatPercentage(p.calculatedMarkupPercent)}</TableCell>
                       <TableCell><StatusBadge status={p.calculatedPricingStatus} /></TableCell>
                     </TableRow>
                   ))
@@ -261,24 +296,39 @@ export function ProductsPage() {
 
           {/* Pagination */}
           {filtered.length > pageSize && (
-            <div className="flex items-center justify-between px-4 py-3 border-t">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center justify-between px-4 py-3 bg-white border-t border-slate-100">
+              <div className="flex items-center gap-2 text-sm text-slate-500">
                 <span>Showing {page * pageSize + 1}-{Math.min((page + 1) * pageSize, filtered.length)} of {filtered.length}</span>
                 <Select value={String(pageSize)} onValueChange={v => { setPageSize(Number(v)); setPage(0); }}>
-                  <SelectTrigger className="w-[70px] h-7 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-[80px] h-8 text-xs bg-white border-slate-200 rounded-lg shadow-sm">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     {[10, 20, 50, 100].map(s => <SelectItem key={s} value={String(s)}>{s}/page</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="flex items-center gap-1">
-                <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>Prev</Button>
+                <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)} className="rounded-lg hover:bg-slate-50 transition-all duration-150 disabled:opacity-40">Prev</Button>
                 {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
                   const p = Math.max(0, Math.min(totalPages - 5, page - 2)) + i;
                   if (p >= totalPages) return null;
-                  return <Button key={p} variant={page === p ? 'default' : 'outline'} size="sm" onClick={() => setPage(p)}>{p + 1}</Button>;
+                  return (
+                    <Button
+                      key={p}
+                      size="sm"
+                      onClick={() => setPage(p)}
+                      className={`rounded-lg transition-all duration-150 ${
+                        page === p
+                          ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm'
+                          : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      {p + 1}
+                    </Button>
+                  );
                 })}
-                <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>Next</Button>
+                <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)} className="rounded-lg hover:bg-slate-50 transition-all duration-150 disabled:opacity-40">Next</Button>
               </div>
             </div>
           )}
@@ -292,8 +342,12 @@ export function ProductsPage() {
 }
 
 function sortIcon(col: string, sortBy: string, sortDir: 'asc' | 'desc') {
-  if (sortBy !== col) return '';
-  return sortDir === 'asc' ? '↑' : '↓';
+  if (sortBy !== col) return null;
+  return (
+    <span className="text-emerald-600 ml-0.5 font-bold">
+      {sortDir === 'asc' ? '↑' : '↓'}
+    </span>
+  );
 }
 
 export default ProductsPage;

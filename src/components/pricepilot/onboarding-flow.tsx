@@ -53,6 +53,9 @@ const CHANNELS = [
   { id: 'multiple', label: 'Multiple channels', desc: 'Selling on multiple platforms' },
 ];
 
+const inputClass = 'bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500';
+const labelClass = 'text-sm font-medium text-slate-600';
+
 export function OnboardingFlow() {
   const { businessSettings, completeOnboarding } = usePricePilotStore();
   const [step, setStep] = useState(1);
@@ -113,18 +116,18 @@ export function OnboardingFlow() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-slate-50 to-white p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-emerald-50/30 via-white to-slate-50 p-4">
       <div className="w-full max-w-xl">
         <div className="mb-8 text-center">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <div className="h-10 w-10 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-lg">P</div>
-            <h1 className="text-2xl font-bold text-slate-900">PricePilot</h1>
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-lg flex items-center justify-center text-white font-bold text-xl">P</div>
+            <h1 className="text-3xl font-bold text-slate-900">PricePilot</h1>
           </div>
-          <p className="text-muted-foreground text-sm">Product Pricing & Profit Optimiser</p>
+          <p className="text-slate-500 text-base">Product Pricing & Profit Optimiser</p>
         </div>
 
-        <Progress value={progress} className="mb-4" />
-        <div className="flex items-center justify-between text-xs text-muted-foreground mb-6">
+        <Progress value={progress} className="h-2 rounded-full mb-4" />
+        <div className="flex items-center justify-between text-sm font-medium text-slate-600 mb-6">
           <span>Step {step} of {totalSteps}</span>
           <span>
             {step === 1 && 'Business Details'}
@@ -133,12 +136,12 @@ export function OnboardingFlow() {
           </span>
         </div>
 
-        <Card>
+        <Card className="shadow-lg border-0 rounded-xl">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              {step === 1 && <Building2 className="h-5 w-5" />}
-              {step === 2 && <Store className="h-5 w-5" />}
-              {step === 3 && <Coins className="h-5 w-5" />}
+            <CardTitle className="flex items-center gap-3">
+              {step === 1 && <span className="h-8 w-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center"><Building2 className="h-4 w-4" /></span>}
+              {step === 2 && <span className="h-8 w-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center"><Store className="h-4 w-4" /></span>}
+              {step === 3 && <span className="h-8 w-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center"><Coins className="h-4 w-4" /></span>}
               {step === 1 && 'Business Details'}
               {step === 2 && 'Where do you sell?'}
               {step === 3 && 'Default Costs & Fees'}
@@ -153,13 +156,13 @@ export function OnboardingFlow() {
             {step === 1 && (
               <div className="space-y-4">
                 <div>
-                  <Label htmlFor="businessName">Business Name</Label>
-                  <Input id="businessName" value={form.businessName} onChange={e => updateForm('businessName', e.target.value)} placeholder="Your business name" />
+                  <Label htmlFor="businessName" className={labelClass}>Business Name</Label>
+                  <Input id="businessName" value={form.businessName} onChange={e => updateForm('businessName', e.target.value)} placeholder="Your business name" className={inputClass} />
                 </div>
                 <div>
-                  <Label htmlFor="currency">Default Currency</Label>
+                  <Label htmlFor="currency" className={labelClass}>Default Currency</Label>
                   <Select value={form.currencyCode} onValueChange={v => updateForm('currencyCode', v)}>
-                    <SelectTrigger id="currency"><SelectValue /></SelectTrigger>
+                    <SelectTrigger id="currency" className={inputClass}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {SUPPORTED_CURRENCIES.map(c => (
                         <SelectItem key={c.code} value={c.code}>{c.symbol} {c.name} ({c.code})</SelectItem>
@@ -168,9 +171,9 @@ export function OnboardingFlow() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="country">Country</Label>
+                  <Label htmlFor="country" className={labelClass}>Country</Label>
                   <Select value={form.country} onValueChange={v => updateForm('country', v)}>
-                    <SelectTrigger id="country"><SelectValue /></SelectTrigger>
+                    <SelectTrigger id="country" className={inputClass}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {COUNTRIES.map(c => (
                         <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>
@@ -179,9 +182,9 @@ export function OnboardingFlow() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="taxTreatment">Tax Treatment</Label>
+                  <Label htmlFor="taxTreatment" className={labelClass}>Tax Treatment</Label>
                   <Select value={form.taxTreatment} onValueChange={v => updateForm('taxTreatment', v)}>
-                    <SelectTrigger id="taxTreatment"><SelectValue /></SelectTrigger>
+                    <SelectTrigger id="taxTreatment" className={inputClass}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {TAX_TREATMENTS.map(t => (
                         <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
@@ -190,24 +193,24 @@ export function OnboardingFlow() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="taxRate">Default Tax Rate (%)</Label>
-                  <Input id="taxRate" type="number" value={form.taxRate} onChange={e => updateForm('taxRate', parseFloat(e.target.value) || 0)} />
+                  <Label htmlFor="taxRate" className={labelClass}>Default Tax Rate (%)</Label>
+                  <Input id="taxRate" type="number" value={form.taxRate} onChange={e => updateForm('taxRate', parseFloat(e.target.value) || 0)} className={inputClass} />
                 </div>
                 <Separator />
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="targetMargin">Target Margin (%)</Label>
-                    <Input id="targetMargin" type="number" value={form.targetMargin} onChange={e => updateForm('targetMargin', parseFloat(e.target.value) || 0)} />
+                    <Label htmlFor="targetMargin" className={labelClass}>Target Margin (%)</Label>
+                    <Input id="targetMargin" type="number" value={form.targetMargin} onChange={e => updateForm('targetMargin', parseFloat(e.target.value) || 0)} className={inputClass} />
                   </div>
                   <div>
-                    <Label htmlFor="minimumMargin">Minimum Margin (%)</Label>
-                    <Input id="minimumMargin" type="number" value={form.minimumMargin} onChange={e => updateForm('minimumMargin', parseFloat(e.target.value) || 0)} />
+                    <Label htmlFor="minimumMargin" className={labelClass}>Minimum Margin (%)</Label>
+                    <Input id="minimumMargin" type="number" value={form.minimumMargin} onChange={e => updateForm('minimumMargin', parseFloat(e.target.value) || 0)} className={inputClass} />
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="roundingRule">Price Rounding Rule</Label>
+                  <Label htmlFor="roundingRule" className={labelClass}>Price Rounding Rule</Label>
                   <Select value={form.roundingRule} onValueChange={v => updateForm('roundingRule', v)}>
-                    <SelectTrigger id="roundingRule"><SelectValue /></SelectTrigger>
+                    <SelectTrigger id="roundingRule" className={inputClass}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {ROUNDING_RULES.map(r => (
                         <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
@@ -223,7 +226,7 @@ export function OnboardingFlow() {
                 <p className="text-sm text-muted-foreground">Select all channels where you sell products:</p>
                 <div className="space-y-3">
                   {CHANNELS.map(channel => (
-                    <div key={channel.id} className="flex items-start space-x-3 p-3 rounded-lg border hover:bg-slate-50 transition-colors">
+                    <div key={channel.id} className="bg-white rounded-lg shadow-sm border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/20 transition-all flex items-start space-x-3 p-3">
                       <Checkbox
                         id={channel.id}
                         checked={form.channels.includes(channel.id)}
@@ -249,47 +252,47 @@ export function OnboardingFlow() {
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="packagingCost">Packaging Cost</Label>
-                    <Input id="packagingCost" type="number" value={form.packagingCost} onChange={e => updateForm('packagingCost', parseFloat(e.target.value) || 0)} />
+                    <Label htmlFor="packagingCost" className={labelClass}>Packaging Cost</Label>
+                    <Input id="packagingCost" type="number" value={form.packagingCost} onChange={e => updateForm('packagingCost', parseFloat(e.target.value) || 0)} className={inputClass} />
                   </div>
                   <div>
-                    <Label htmlFor="shippingCost">Shipping Cost</Label>
-                    <Input id="shippingCost" type="number" value={form.shippingCost} onChange={e => updateForm('shippingCost', parseFloat(e.target.value) || 0)} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="paymentFee">Payment Gateway Fee (%)</Label>
-                    <Input id="paymentFee" type="number" value={form.paymentFeePercent} onChange={e => updateForm('paymentFeePercent', parseFloat(e.target.value) || 0)} />
-                  </div>
-                  <div>
-                    <Label htmlFor="marketplaceFee">Marketplace Commission (%)</Label>
-                    <Input id="marketplaceFee" type="number" value={form.marketplaceFeePercent} onChange={e => updateForm('marketplaceFeePercent', parseFloat(e.target.value) || 0)} />
+                    <Label htmlFor="shippingCost" className={labelClass}>Shipping Cost</Label>
+                    <Input id="shippingCost" type="number" value={form.shippingCost} onChange={e => updateForm('shippingCost', parseFloat(e.target.value) || 0)} className={inputClass} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="returnRate">Expected Return Rate (%)</Label>
-                    <Input id="returnRate" type="number" value={form.returnRate} onChange={e => updateForm('returnRate', parseFloat(e.target.value) || 0)} />
+                    <Label htmlFor="paymentFee" className={labelClass}>Payment Gateway Fee (%)</Label>
+                    <Input id="paymentFee" type="number" value={form.paymentFeePercent} onChange={e => updateForm('paymentFeePercent', parseFloat(e.target.value) || 0)} className={inputClass} />
                   </div>
                   <div>
-                    <Label htmlFor="returnHandling">Return Handling Cost</Label>
-                    <Input id="returnHandling" type="number" value={form.returnHandlingCost} onChange={e => updateForm('returnHandlingCost', parseFloat(e.target.value) || 0)} />
+                    <Label htmlFor="marketplaceFee" className={labelClass}>Marketplace Commission (%)</Label>
+                    <Input id="marketplaceFee" type="number" value={form.marketplaceFeePercent} onChange={e => updateForm('marketplaceFeePercent', parseFloat(e.target.value) || 0)} className={inputClass} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="advertisingCost">Advertising Cost</Label>
-                    <Input id="advertisingCost" type="number" value={form.advertisingCost} onChange={e => updateForm('advertisingCost', parseFloat(e.target.value) || 0)} />
+                    <Label htmlFor="returnRate" className={labelClass}>Expected Return Rate (%)</Label>
+                    <Input id="returnRate" type="number" value={form.returnRate} onChange={e => updateForm('returnRate', parseFloat(e.target.value) || 0)} className={inputClass} />
                   </div>
                   <div>
-                    <Label htmlFor="otherVariableCost">Other Variable Cost</Label>
-                    <Input id="otherVariableCost" type="number" value={form.otherVariableCost} onChange={e => updateForm('otherVariableCost', parseFloat(e.target.value) || 0)} />
+                    <Label htmlFor="returnHandling" className={labelClass}>Return Handling Cost</Label>
+                    <Input id="returnHandling" type="number" value={form.returnHandlingCost} onChange={e => updateForm('returnHandlingCost', parseFloat(e.target.value) || 0)} className={inputClass} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="advertisingCost" className={labelClass}>Advertising Cost</Label>
+                    <Input id="advertisingCost" type="number" value={form.advertisingCost} onChange={e => updateForm('advertisingCost', parseFloat(e.target.value) || 0)} className={inputClass} />
+                  </div>
+                  <div>
+                    <Label htmlFor="otherVariableCost" className={labelClass}>Other Variable Cost</Label>
+                    <Input id="otherVariableCost" type="number" value={form.otherVariableCost} onChange={e => updateForm('otherVariableCost', parseFloat(e.target.value) || 0)} className={inputClass} />
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="minimumProfit">Minimum Profit per Product</Label>
-                  <Input id="minimumProfit" type="number" value={form.minimumProfitPerProduct} onChange={e => updateForm('minimumProfitPerProduct', parseFloat(e.target.value) || 0)} />
+                  <Label htmlFor="minimumProfit" className={labelClass}>Minimum Profit per Product</Label>
+                  <Input id="minimumProfit" type="number" value={form.minimumProfitPerProduct} onChange={e => updateForm('minimumProfitPerProduct', parseFloat(e.target.value) || 0)} className={inputClass} />
                 </div>
               </div>
             )}
@@ -298,15 +301,15 @@ export function OnboardingFlow() {
 
             <div className="flex items-center justify-between">
               {step > 1 ? (
-                <Button variant="outline" onClick={() => setStep(step - 1)}>
+                <Button variant="outline" onClick={() => setStep(step - 1)} className="bg-white border-slate-200 shadow-sm rounded-lg hover:bg-slate-50">
                   <ArrowLeft className="h-4 w-4 mr-1" /> Back
                 </Button>
               ) : (
-                <Button variant="ghost" onClick={handleSkip}>
+                <Button variant="ghost" onClick={handleSkip} className="text-slate-500 hover:text-slate-700 rounded-lg">
                   <SkipForward className="h-4 w-4 mr-1" /> Skip setup
                 </Button>
               )}
-              <Button onClick={handleNext}>
+              <Button onClick={handleNext} className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-lg">
                 {step === totalSteps ? 'Complete Setup' : 'Continue'}
                 {step < totalSteps && <ArrowRight className="h-4 w-4 ml-1" />}
               </Button>

@@ -80,26 +80,44 @@ export function ScenariosPage() {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Saved Scenarios</h2>
-          <Button onClick={() => setNewDialogOpen(true)}><Plus className="h-4 w-4 mr-2" /> Save Current State</Button>
+          <h2 className="text-xl font-bold text-slate-800">Saved Scenarios</h2>
+          <Button
+            onClick={() => setNewDialogOpen(true)}
+            className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors duration-150"
+          >
+            <Plus className="h-4 w-4 mr-2" /> Save Current State
+          </Button>
         </div>
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            <Bookmark className="h-12 w-12 mx-auto mb-3 text-muted-foreground" />
-            <p>No saved scenarios yet. Save your current state to create a snapshot you can restore later.</p>
+          <CardContent className="py-16 text-center">
+            <div className="flex flex-col items-center gap-4">
+              <div className="bg-slate-100 rounded-full p-6">
+                <Bookmark className="h-20 w-20 text-slate-400" />
+              </div>
+              <div className="space-y-2">
+                <p className="text-lg font-semibold text-slate-700">No saved scenarios yet</p>
+                <p className="text-slate-500 max-w-md">Save your current state to create a snapshot you can restore later.</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
         <Dialog open={newDialogOpen} onOpenChange={setNewDialogOpen}>
-          <DialogContent>
+          <DialogContent className="space-y-4">
             <DialogHeader><DialogTitle>Save Current State as Scenario</DialogTitle></DialogHeader>
-            <div className="space-y-3">
-              <div><Label>Name</Label><Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Scenario name" /></div>
-              <div><Label>Description</Label><Input value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Optional description" /></div>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-slate-600">Name</Label>
+                <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Scenario name" className="bg-white shadow-sm border-slate-200" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-slate-600">Description</Label>
+                <Input value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Optional description" className="bg-white shadow-sm border-slate-200" />
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setNewDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleCreate}>Save Scenario</Button>
+              <Button onClick={handleCreate} className="bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">Save Scenario</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -116,44 +134,54 @@ export function ScenariosPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Saved Scenarios</h2>
+        <h2 className="text-xl font-bold text-slate-800">Saved Scenarios</h2>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleCompare} disabled={scenarios.length < 2}>
+          <Button
+            variant="outline"
+            onClick={handleCompare}
+            disabled={scenarios.length < 2}
+            className="rounded-lg bg-white border-slate-200 shadow-sm hover:bg-slate-50 transition-colors duration-150"
+          >
             <ArrowLeftRight className="h-4 w-4 mr-2" /> Compare
           </Button>
-          <Button onClick={() => setNewDialogOpen(true)}><Plus className="h-4 w-4 mr-2" /> Save Current State</Button>
+          <Button
+            onClick={() => setNewDialogOpen(true)}
+            className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors duration-150"
+          >
+            <Plus className="h-4 w-4 mr-2" /> Save Current State
+          </Button>
         </div>
       </div>
 
-      <Card>
+      <Card className="shadow-md border-0 overflow-hidden rounded-xl">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead className="text-right">Products</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+              <TableRow className="bg-slate-50 sticky top-0">
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Name</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Date</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Products</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Description</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {scenarios.map(s => (
-                <TableRow key={s.id}>
-                  <TableCell className="font-medium">
+                <TableRow key={s.id} className="hover:bg-emerald-50/20 transition-colors duration-150">
+                  <TableCell className="font-semibold text-slate-800">
                     {s.name}
                     {s.isBaseline && <Badge variant="secondary" className="ml-2">Baseline</Badge>}
                   </TableCell>
-                  <TableCell className="text-xs">{new Date(s.createdAt).toLocaleDateString()}</TableCell>
+                  <TableCell className="text-xs text-slate-500">{new Date(s.createdAt).toLocaleDateString()}</TableCell>
                   <TableCell className="text-right">{s.snapshotProducts.length}</TableCell>
-                  <TableCell className="text-sm max-w-[200px] truncate">{s.description}</TableCell>
+                  <TableCell className="text-sm max-w-[200px] truncate text-slate-600">{s.description}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center gap-1 justify-end">
-                      <Button variant="ghost" size="icon" onClick={() => handleDuplicate(s.id)}><Copy className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleExport(s.id)}><Download className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" className="rounded-lg hover:bg-slate-100 transition-colors duration-150" onClick={() => handleDuplicate(s.id)}><Copy className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" className="rounded-lg hover:bg-slate-100 transition-colors duration-150" onClick={() => handleExport(s.id)}><Download className="h-4 w-4" /></Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="outline" size="sm"><RotateCcw className="h-4 w-4 mr-1" /> Restore</Button>
+                          <Button size="sm" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 shadow-sm rounded-lg transition-colors duration-150"><RotateCcw className="h-4 w-4 mr-1" /> Restore</Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
@@ -168,7 +196,7 @@ export function ScenariosPage() {
                       </AlertDialog>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                          <Button variant="ghost" size="icon" className="rounded-lg text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors duration-150"><Trash2 className="h-4 w-4" /></Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
@@ -192,7 +220,7 @@ export function ScenariosPage() {
 
       {/* Comparison */}
       {comparison && compareIds && (
-        <Card>
+        <Card className="shadow-md border-0 rounded-xl">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <ArrowLeftRight className="h-5 w-5" /> Scenario Comparison
@@ -211,16 +239,16 @@ export function ScenariosPage() {
             <Separator className="my-3" />
 
             <div className="flex items-center gap-3">
-              <Label className="text-sm">Compare:</Label>
+              <Label className="text-sm font-semibold text-slate-700">Compare:</Label>
               <Select value={compareIds[0]} onValueChange={v => setCompareIds([v, compareIds[1]])}>
-                <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-[150px] bg-white shadow-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {scenarios.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <span className="text-sm">vs</span>
+              <span className="text-sm text-slate-500">vs</span>
               <Select value={compareIds[1]} onValueChange={v => setCompareIds([compareIds[0], v])}>
-                <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-[150px] bg-white shadow-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {scenarios.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                 </SelectContent>
@@ -232,15 +260,21 @@ export function ScenariosPage() {
 
       {/* New Scenario Dialog */}
       <Dialog open={newDialogOpen} onOpenChange={setNewDialogOpen}>
-        <DialogContent>
+        <DialogContent className="space-y-4">
           <DialogHeader><DialogTitle>Save Current State as Scenario</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div><Label>Name</Label><Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Scenario name" /></div>
-            <div><Label>Description</Label><Input value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Optional description" /></div>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-600">Name</Label>
+              <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Scenario name" className="bg-white shadow-sm border-slate-200" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-600">Description</Label>
+              <Input value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Optional description" className="bg-white shadow-sm border-slate-200" />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setNewDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate}>Save Scenario</Button>
+            <Button onClick={handleCreate} className="bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">Save Scenario</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -249,13 +283,25 @@ export function ScenariosPage() {
 }
 
 function ComparisonItem({ label, valueA, valueB, diff }: { label: string; valueA: string; valueB: string; diff: string }) {
+  const diffNum = parseFloat(diff.replace(/[^0-9.\-]/g, ''));
+  const diffColor = diffNum > 0 ? 'text-emerald-600' : diffNum < 0 ? 'text-red-600' : 'text-slate-500';
+
   return (
-    <div className="p-3 rounded border">
-      <div className="text-sm font-medium mb-1">{label}</div>
-      <div className="flex items-center gap-4 text-sm">
-        <span className="text-muted-foreground">A: {valueA}</span>
-        <span className="text-muted-foreground">B: {valueB}</span>
-        <span className={`font-semibold ${diff.startsWith('+') ? 'text-emerald-600' : diff.startsWith('-') ? 'text-red-600' : ''}`}>Diff: {diff}</span>
+    <div className="bg-white shadow-sm rounded-lg p-4 border border-slate-100">
+      <div className="text-sm font-semibold text-slate-700 mb-2">{label}</div>
+      <div className="flex items-center gap-4">
+        <div className="flex-1">
+          <div className="text-xs text-slate-500 mb-0.5">Scenario A</div>
+          <div className="text-lg font-bold text-slate-800">{valueA}</div>
+        </div>
+        <div className="flex-1">
+          <div className="text-xs text-slate-500 mb-0.5">Scenario B</div>
+          <div className="text-lg font-bold text-slate-800">{valueB}</div>
+        </div>
+        <div className="flex-1">
+          <div className="text-xs text-slate-500 mb-0.5">Diff</div>
+          <div className={`text-lg font-bold ${diffColor}`}>{diff}</div>
+        </div>
       </div>
     </div>
   );

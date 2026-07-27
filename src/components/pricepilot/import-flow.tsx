@@ -143,35 +143,37 @@ export function ImportFlow() {
 
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
-      <Progress value={progress} className="mb-2" />
-      <div className="flex items-center justify-between text-xs text-muted-foreground mb-4">
+      <Progress value={progress} className="h-2 rounded-full mb-2" />
+      <div className="flex items-center justify-between text-sm font-medium text-slate-600 mb-4">
         <span>Step {stepIndex + 1} of {STEPS.length}: {STEP_LABELS[stepIndex]}</span>
-        <Button variant="ghost" size="sm" onClick={() => setCurrentView('products')}>
+        <Button variant="ghost" size="sm" onClick={() => setCurrentView('products')} className="rounded-lg">
           <X className="h-4 w-4 mr-1" /> Cancel Import
         </Button>
       </div>
 
       {error && (
-        <div className="p-3 rounded bg-red-50 border border-red-200 text-sm text-red-700 flex items-center gap-2">
+        <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-center gap-2">
           <AlertCircle className="h-4 w-4" /> {error}
         </div>
       )}
 
       {/* Step 1: Upload */}
       {step === 'upload' && (
-        <Card>
+        <Card className="shadow-md border-0 rounded-xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5" /> Upload File</CardTitle>
             <CardDescription>Upload an Excel (.xlsx) or CSV file containing your product data</CardDescription>
           </CardHeader>
           <CardContent>
             <div
-              className="border-2 border-dashed rounded-lg p-10 text-center hover:border-emerald-400 hover:bg-emerald-50/50 transition-colors cursor-pointer"
+              className="bg-gradient-to-b from-slate-50 to-white rounded-xl border-2 border-dashed border-emerald-300 hover:border-emerald-500 hover:bg-emerald-50/20 transition-all p-12 text-center cursor-pointer"
               onDrop={handleDrop}
               onDragOver={e => e.preventDefault()}
               onClick={() => document.getElementById('file-upload')?.click()}
             >
-              <FileSpreadsheet className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+              <span className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                <FileSpreadsheet className="h-7 w-7 text-emerald-600" />
+              </span>
               <p className="text-sm font-medium">Drag & drop your file here, or click to browse</p>
               <p className="text-xs text-muted-foreground mt-1">Supports .xlsx, .xls, .csv, .tsv files</p>
               <input id="file-upload" type="file" accept=".xlsx,.xls,.csv,.tsv" className="hidden" onChange={handleFileInput} />
@@ -182,7 +184,7 @@ export function ImportFlow() {
 
       {/* Step 2: Preview */}
       {step === 'preview' && (
-        <Card>
+        <Card className="shadow-md border-0 rounded-xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Eye className="h-5 w-5" /> Data Preview</CardTitle>
             <CardDescription>Preview the first rows of your imported data</CardDescription>
@@ -204,26 +206,28 @@ export function ImportFlow() {
               )}
             </div>
 
-            <div className="overflow-x-auto max-h-64 overflow-y-auto border rounded">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    {fileData.headers.map(h => <TableHead key={h} className="text-xs whitespace-nowrap">{h}</TableHead>)}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {fileData.rows.slice(0, 15).map((row, i) => (
-                    <TableRow key={i}>
-                      {fileData.headers.map(h => <TableCell key={h} className="text-xs max-w-[120px] truncate">{String(row[h] || '')}</TableCell>)}
+            <Card className="shadow-md border-0 rounded-xl overflow-hidden">
+              <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {fileData.headers.map(h => <TableHead key={h} className="text-xs whitespace-nowrap">{h}</TableHead>)}
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {fileData.rows.slice(0, 15).map((row, i) => (
+                      <TableRow key={i}>
+                        {fileData.headers.map(h => <TableCell key={h} className="text-xs max-w-[120px] truncate">{String(row[h] || '')}</TableCell>)}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </Card>
 
             <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep('upload')}><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
-              <Button onClick={() => setStep('mapping')}>Map Columns <ArrowRight className="h-4 w-4 ml-1" /></Button>
+              <Button variant="outline" onClick={() => setStep('upload')} className="rounded-lg shadow-sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
+              <Button onClick={() => setStep('mapping')} className="rounded-lg shadow-md">Map Columns <ArrowRight className="h-4 w-4 ml-1" /></Button>
             </div>
           </CardContent>
         </Card>
@@ -231,7 +235,7 @@ export function ImportFlow() {
 
       {/* Step 3: Mapping */}
       {step === 'mapping' && (
-        <Card>
+        <Card className="shadow-md border-0 rounded-xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Columns3 className="h-5 w-5" /> Column Mapping</CardTitle>
             <CardDescription>Map each column from your file to the corresponding product field</CardDescription>
@@ -243,7 +247,7 @@ export function ImportFlow() {
               const isRequired = FIELD_OPTIONS.find(f => f.value === currentTarget)?.required;
 
               return (
-                <div key={header} className="flex items-center gap-3 p-2 border rounded">
+                <div key={header} className="bg-white rounded-lg p-3 shadow-sm border border-slate-100 hover:bg-slate-50 transition-colors flex items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <span className="text-sm font-medium truncate">{header}</span>
                     <span className="text-xs text-muted-foreground ml-2">
@@ -262,8 +266,8 @@ export function ImportFlow() {
             })}
 
             <div className="flex justify-between mt-4">
-              <Button variant="outline" onClick={() => setStep('preview')}><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
-              <Button onClick={() => setStep('cleaning')}>Clean Data <ArrowRight className="h-4 w-4 ml-1" /></Button>
+              <Button variant="outline" onClick={() => setStep('preview')} className="rounded-lg shadow-sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
+              <Button onClick={() => setStep('cleaning')} className="rounded-lg shadow-md">Clean Data <ArrowRight className="h-4 w-4 ml-1" /></Button>
             </div>
           </CardContent>
         </Card>
@@ -271,38 +275,38 @@ export function ImportFlow() {
 
       {/* Step 4: Cleaning */}
       {step === 'cleaning' && (
-        <Card>
+        <Card className="shadow-md border-0 rounded-xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Brush className="h-5 w-5" /> Data Cleaning</CardTitle>
             <CardDescription>Configure how to handle data issues before importing</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="p-4 rounded bg-slate-50 space-y-3">
-              <div className="flex items-center space-x-2">
+            <div className="space-y-3">
+              <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
                 <Checkbox id="stripCurrency" defaultChecked />
                 <Label htmlFor="stripCurrency" className="text-sm">Strip currency symbols (₹, $, £, €)</Label>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
                 <Checkbox id="stripCommas" defaultChecked />
                 <Label htmlFor="stripCommas" className="text-sm">Remove commas from numbers</Label>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
                 <Checkbox id="stripPercent" defaultChecked />
                 <Label htmlFor="stripPercent" className="text-sm">Strip % signs from percentage fields</Label>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
                 <Checkbox id="skipBlanks" defaultChecked />
                 <Label htmlFor="skipBlanks" className="text-sm">Skip rows with blank required fields</Label>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
                 <Checkbox id="skipDuplicates" defaultChecked />
                 <Label htmlFor="skipDuplicates" className="text-sm">Skip duplicate SKU rows</Label>
               </div>
             </div>
 
             <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep('mapping')}><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
-              <Button onClick={handleCleanAndConfirm}>Process Data <ArrowRight className="h-4 w-4 ml-1" /></Button>
+              <Button variant="outline" onClick={() => setStep('mapping')} className="rounded-lg shadow-sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
+              <Button onClick={handleCleanAndConfirm} className="rounded-lg shadow-md">Process Data <ArrowRight className="h-4 w-4 ml-1" /></Button>
             </div>
           </CardContent>
         </Card>
@@ -310,28 +314,28 @@ export function ImportFlow() {
 
       {/* Step 5: Confirmation */}
       {step === 'confirmation' && (
-        <Card>
+        <Card className="shadow-md border-0 rounded-xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><CheckCircle className="h-5 w-5" /> Import Confirmation</CardTitle>
             <CardDescription>Review the summary before importing</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="p-3 rounded bg-emerald-50 border border-emerald-200">
-                <div className="text-xs text-emerald-600">Valid Products</div>
-                <div className="text-lg font-bold">{previewProducts.length}</div>
+              <div className="shadow-sm rounded-lg p-4 bg-emerald-50 border border-emerald-200">
+                <div className="text-xs text-emerald-600 font-medium">Valid Products</div>
+                <div className="text-lg font-bold text-emerald-700">{previewProducts.length}</div>
               </div>
-              <div className="p-3 rounded bg-amber-50 border border-amber-200">
-                <div className="text-xs text-amber-600">Skipped Rows</div>
-                <div className="text-lg font-bold">{skippedRows}</div>
+              <div className="shadow-sm rounded-lg p-4 bg-amber-50 border border-amber-200">
+                <div className="text-xs text-amber-600 font-medium">Skipped Rows</div>
+                <div className="text-lg font-bold text-amber-700">{skippedRows}</div>
               </div>
-              <div className="p-3 rounded bg-amber-50 border border-amber-200">
-                <div className="text-xs text-amber-600">Duplicates</div>
-                <div className="text-lg font-bold">{duplicateCount}</div>
+              <div className="shadow-sm rounded-lg p-4 bg-amber-50 border border-amber-200">
+                <div className="text-xs text-amber-600 font-medium">Duplicates</div>
+                <div className="text-lg font-bold text-amber-700">{duplicateCount}</div>
               </div>
-              <div className="p-3 rounded bg-slate-50">
-                <div className="text-xs text-muted-foreground">Total Rows</div>
-                <div className="text-lg font-bold">{totalRows}</div>
+              <div className="shadow-sm rounded-lg p-4 bg-slate-50 border border-slate-200">
+                <div className="text-xs text-slate-500 font-medium">Total Rows</div>
+                <div className="text-lg font-bold text-slate-700">{totalRows}</div>
               </div>
             </div>
 
@@ -350,8 +354,8 @@ export function ImportFlow() {
             <Separator />
 
             <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep('cleaning')}><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
-              <Button onClick={handleImport} disabled={previewProducts.length === 0}>
+              <Button variant="outline" onClick={() => setStep('cleaning')} className="rounded-lg shadow-sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
+              <Button onClick={handleImport} disabled={previewProducts.length === 0} className="rounded-lg shadow-md">
                 Import {previewProducts.length} Products
               </Button>
             </div>

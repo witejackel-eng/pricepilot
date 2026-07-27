@@ -42,6 +42,9 @@ const ROUNDING_OPTIONS: { value: RoundingRule; label: string }[] = [
   { value: 'end-in-99-whole', label: 'End in 99 (whole)' },
 ];
 
+const inputClass = 'bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500';
+const labelClass = 'text-sm font-medium text-slate-600';
+
 export function SettingsPage() {
   const { businessSettings, updateBusinessSettings, appSettings, updateAppSettings, exportData, importData, clearAllProducts, resetApplication, products } = usePricePilotStore();
   const [importText, setImportText] = useState('');
@@ -68,30 +71,33 @@ export function SettingsPage() {
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
       {/* Business Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5" /> Business Settings</CardTitle>
+      <Card className="shadow-md border-0 rounded-xl">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-3">
+            <span className="h-8 w-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center"><Building2 className="h-4 w-4" /></span>
+            Business Settings
+          </CardTitle>
           <CardDescription>Core business information that affects all pricing calculations</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label htmlFor="businessName">Business Name</Label>
-            <Input id="businessName" value={businessSettings.businessName} onChange={e => updateBusinessSettings({ businessName: e.target.value })} />
+            <Label htmlFor="businessName" className={labelClass}>Business Name</Label>
+            <Input id="businessName" value={businessSettings.businessName} onChange={e => updateBusinessSettings({ businessName: e.target.value })} className={inputClass} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="currency">Default Currency</Label>
+              <Label htmlFor="currency" className={labelClass}>Default Currency</Label>
               <Select value={businessSettings.currencyCode} onValueChange={v => updateBusinessSettings({ currencyCode: v })}>
-                <SelectTrigger id="currency"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="currency" className={inputClass}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {SUPPORTED_CURRENCIES.map(c => <SelectItem key={c.code} value={c.code}>{c.symbol} {c.name} ({c.code})</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label htmlFor="country">Country</Label>
+              <Label htmlFor="country" className={labelClass}>Country</Label>
               <Select value={businessSettings.country} onValueChange={v => updateBusinessSettings({ country: v })}>
-                <SelectTrigger id="country"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="country" className={inputClass}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {COUNTRIES.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}
                 </SelectContent>
@@ -100,23 +106,23 @@ export function SettingsPage() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="taxTreatment">Tax Treatment</Label>
+              <Label htmlFor="taxTreatment" className={labelClass}>Tax Treatment</Label>
               <Select value={businessSettings.taxTreatment} onValueChange={v => updateBusinessSettings({ taxTreatment: v as TaxTreatment })}>
-                <SelectTrigger id="taxTreatment"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="taxTreatment" className={inputClass}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {TAX_TREATMENTS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label htmlFor="taxRate">Default Tax Rate (%)</Label>
-              <Input id="taxRate" type="number" value={businessSettings.defaultTaxRatePercent} onChange={e => updateBusinessSettings({ defaultTaxRatePercent: parseFloat(e.target.value) || 0 })} />
+              <Label htmlFor="taxRate" className={labelClass}>Default Tax Rate (%)</Label>
+              <Input id="taxRate" type="number" value={businessSettings.defaultTaxRatePercent} onChange={e => updateBusinessSettings({ defaultTaxRatePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
           </div>
           <div>
-            <Label htmlFor="roundingRule">Default Rounding Rule</Label>
+            <Label htmlFor="roundingRule" className={labelClass}>Default Rounding Rule</Label>
             <Select value={businessSettings.defaultRoundingRule} onValueChange={v => updateBusinessSettings({ defaultRoundingRule: v as RoundingRule })}>
-              <SelectTrigger id="roundingRule"><SelectValue /></SelectTrigger>
+              <SelectTrigger id="roundingRule" className={inputClass}><SelectValue /></SelectTrigger>
               <SelectContent>
                 {ROUNDING_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
               </SelectContent>
@@ -126,107 +132,113 @@ export function SettingsPage() {
       </Card>
 
       {/* Pricing Defaults */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Coins className="h-5 w-5" /> Pricing Defaults</CardTitle>
+      <Card className="shadow-md border-0 rounded-xl">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-3">
+            <span className="h-8 w-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center"><Coins className="h-4 w-4" /></span>
+            Pricing Defaults
+          </CardTitle>
           <CardDescription>Default margin targets, costs, and fees applied to all products</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="targetMargin">Target Margin (%)</Label>
-              <Input id="targetMargin" type="number" value={businessSettings.defaultTargetMarginPercent} onChange={e => updateBusinessSettings({ defaultTargetMarginPercent: parseFloat(e.target.value) || 0 })} />
+              <Label htmlFor="targetMargin" className={labelClass}>Target Margin (%)</Label>
+              <Input id="targetMargin" type="number" value={businessSettings.defaultTargetMarginPercent} onChange={e => updateBusinessSettings({ defaultTargetMarginPercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
             <div>
-              <Label htmlFor="minimumMargin">Minimum Margin (%)</Label>
-              <Input id="minimumMargin" type="number" value={businessSettings.defaultMinimumMarginPercent} onChange={e => updateBusinessSettings({ defaultMinimumMarginPercent: parseFloat(e.target.value) || 0 })} />
+              <Label htmlFor="minimumMargin" className={labelClass}>Minimum Margin (%)</Label>
+              <Input id="minimumMargin" type="number" value={businessSettings.defaultMinimumMarginPercent} onChange={e => updateBusinessSettings({ defaultMinimumMarginPercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="premiumMargin">Premium Margin (%)</Label>
-              <Input id="premiumMargin" type="number" value={businessSettings.defaultMaximumMarginPercent} onChange={e => updateBusinessSettings({ defaultMaximumMarginPercent: parseFloat(e.target.value) || 0 })} />
+              <Label htmlFor="premiumMargin" className={labelClass}>Premium Margin (%)</Label>
+              <Input id="premiumMargin" type="number" value={businessSettings.defaultMaximumMarginPercent} onChange={e => updateBusinessSettings({ defaultMaximumMarginPercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
             <div>
-              <Label htmlFor="targetMarkup">Target Markup (%)</Label>
-              <Input id="targetMarkup" type="number" value={businessSettings.defaultTargetMarginPercent * 100 / (100 - businessSettings.defaultTargetMarginPercent)} readOnly className="bg-slate-50" />
+              <Label htmlFor="targetMarkup" className={labelClass}>Target Markup (%)</Label>
+              <Input id="targetMarkup" type="number" value={businessSettings.defaultTargetMarginPercent * 100 / (100 - businessSettings.defaultTargetMarginPercent)} readOnly className="bg-slate-50 shadow-sm border-slate-200" />
               <p className="text-xs text-muted-foreground mt-1">Auto-calculated from target margin</p>
             </div>
           </div>
           <Separator />
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="defaultShipping">Default Shipping Cost</Label>
-              <Input id="defaultShipping" type="number" value={businessSettings.defaultShippingCost} onChange={e => updateBusinessSettings({ defaultShippingCost: parseFloat(e.target.value) || 0 })} />
+              <Label htmlFor="defaultShipping" className={labelClass}>Default Shipping Cost</Label>
+              <Input id="defaultShipping" type="number" value={businessSettings.defaultShippingCost} onChange={e => updateBusinessSettings({ defaultShippingCost: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
             <div>
-              <Label htmlFor="defaultPackaging">Default Packaging Cost</Label>
-              <Input id="defaultPackaging" type="number" value={businessSettings.defaultPackagingCost} onChange={e => updateBusinessSettings({ defaultPackagingCost: parseFloat(e.target.value) || 0 })} />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="defaultMarketplaceFee">Default Marketplace Fee (%)</Label>
-              <Input id="defaultMarketplaceFee" type="number" value={businessSettings.defaultMarketplaceFeePercent} onChange={e => updateBusinessSettings({ defaultMarketplaceFeePercent: parseFloat(e.target.value) || 0 })} />
-            </div>
-            <div>
-              <Label htmlFor="defaultPaymentFee">Default Payment Gateway (%)</Label>
-              <Input id="defaultPaymentFee" type="number" value={businessSettings.defaultPaymentFeePercent} onChange={e => updateBusinessSettings({ defaultPaymentFeePercent: parseFloat(e.target.value) || 0 })} />
+              <Label htmlFor="defaultPackaging" className={labelClass}>Default Packaging Cost</Label>
+              <Input id="defaultPackaging" type="number" value={businessSettings.defaultPackagingCost} onChange={e => updateBusinessSettings({ defaultPackagingCost: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="defaultReturnRate">Default Return Rate (%)</Label>
-              <Input id="defaultReturnRate" type="number" value={businessSettings.defaultReturnRatePercent} onChange={e => updateBusinessSettings({ defaultReturnRatePercent: parseFloat(e.target.value) || 0 })} />
+              <Label htmlFor="defaultMarketplaceFee" className={labelClass}>Default Marketplace Fee (%)</Label>
+              <Input id="defaultMarketplaceFee" type="number" value={businessSettings.defaultMarketplaceFeePercent} onChange={e => updateBusinessSettings({ defaultMarketplaceFeePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
             <div>
-              <Label htmlFor="defaultDamageRate">Default Damage Rate (%)</Label>
-              <Input id="defaultDamageRate" type="number" value={businessSettings.defaultDamageRatePercent} onChange={e => updateBusinessSettings({ defaultDamageRatePercent: parseFloat(e.target.value) || 0 })} />
+              <Label htmlFor="defaultPaymentFee" className={labelClass}>Default Payment Gateway (%)</Label>
+              <Input id="defaultPaymentFee" type="number" value={businessSettings.defaultPaymentFeePercent} onChange={e => updateBusinessSettings({ defaultPaymentFeePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="defaultReturnRate" className={labelClass}>Default Return Rate (%)</Label>
+              <Input id="defaultReturnRate" type="number" value={businessSettings.defaultReturnRatePercent} onChange={e => updateBusinessSettings({ defaultReturnRatePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
+            </div>
+            <div>
+              <Label htmlFor="defaultDamageRate" className={labelClass}>Default Damage Rate (%)</Label>
+              <Input id="defaultDamageRate" type="number" value={businessSettings.defaultDamageRatePercent} onChange={e => updateBusinessSettings({ defaultDamageRatePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Display Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Palette className="h-5 w-5" /> Display Settings</CardTitle>
+      <Card className="shadow-md border-0 rounded-xl">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-3">
+            <span className="h-8 w-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center"><Palette className="h-4 w-4" /></span>
+            Display Settings
+          </CardTitle>
           <CardDescription>How the application looks and behaves</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label>Theme</Label>
+            <Label className={labelClass}>Theme</Label>
             <RadioGroup value={appSettings.theme} onValueChange={v => updateAppSettings({ theme: v as 'light' | 'dark' | 'system' })} className="flex gap-4 mt-2">
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer">
                 <RadioGroupItem value="light" id="light" />
-                <Label htmlFor="light">Light</Label>
+                <Label htmlFor="light" className="cursor-pointer">Light</Label>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer">
                 <RadioGroupItem value="dark" id="dark" />
-                <Label htmlFor="dark">Dark</Label>
+                <Label htmlFor="dark" className="cursor-pointer">Dark</Label>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer">
                 <RadioGroupItem value="system" id="system" />
-                <Label htmlFor="system">System</Label>
+                <Label htmlFor="system" className="cursor-pointer">System</Label>
               </div>
             </RadioGroup>
           </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="compactMode">Compact Mode</Label>
+          <div className="flex items-center justify-between py-2">
+            <Label htmlFor="compactMode" className={labelClass}>Compact Mode</Label>
             <Switch id="compactMode" checked={appSettings.compactMode} onCheckedChange={checked => updateAppSettings({ compactMode: checked })} />
           </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="autoRecalculate">Auto Recalculate</Label>
+          <div className="flex items-center justify-between py-2">
+            <Label htmlFor="autoRecalculate" className={labelClass}>Auto Recalculate</Label>
             <Switch id="autoRecalculate" checked={appSettings.autoRecalculate} onCheckedChange={checked => updateAppSettings({ autoRecalculate: checked })} />
           </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="confirmDelete">Confirm Before Delete</Label>
+          <div className="flex items-center justify-between py-2">
+            <Label htmlFor="confirmDelete" className={labelClass}>Confirm Before Delete</Label>
             <Switch id="confirmDelete" checked={appSettings.confirmBeforeDelete} onCheckedChange={checked => updateAppSettings({ confirmBeforeDelete: checked })} />
           </div>
           <div>
-            <Label htmlFor="pageSize">Table Page Size</Label>
+            <Label htmlFor="pageSize" className={labelClass}>Table Page Size</Label>
             <Select value={String(appSettings.pageSize)} onValueChange={v => updateAppSettings({ pageSize: Number(v) })}>
-              <SelectTrigger id="pageSize"><SelectValue /></SelectTrigger>
+              <SelectTrigger id="pageSize" className={inputClass}><SelectValue /></SelectTrigger>
               <SelectContent>
                 {[10, 20, 50, 100].map(s => <SelectItem key={s} value={String(s)}>{s} per page</SelectItem>)}
               </SelectContent>
@@ -236,26 +248,29 @@ export function SettingsPage() {
       </Card>
 
       {/* Data Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Database className="h-5 w-5" /> Data Management</CardTitle>
+      <Card className="shadow-md border-0 rounded-xl">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-3">
+            <span className="h-8 w-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center"><Database className="h-4 w-4" /></span>
+            Data Management
+          </CardTitle>
           <CardDescription>Backup, restore, or clear your application data</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="p-3 rounded bg-emerald-50 border border-emerald-200 flex items-center gap-2">
+        <CardContent className="space-y-5">
+          <div className="bg-emerald-50/50 rounded-lg p-3 border border-emerald-200 flex items-center gap-2">
             <Shield className="h-4 w-4 text-emerald-600" />
             <span className="text-sm text-emerald-700">Your data is stored locally in your browser and is never sent to any server.</span>
           </div>
 
           <Separator />
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium text-sm">Export Application Data</p>
                 <p className="text-xs text-muted-foreground">Download a backup of all your settings, products, rules, and scenarios</p>
               </div>
-              <Button variant="outline" size="sm" onClick={handleExportData}>
+              <Button variant="outline" size="sm" onClick={handleExportData} className="rounded-lg shadow-sm">
                 <Download className="h-4 w-4 mr-1" /> Export
               </Button>
             </div>
@@ -267,9 +282,9 @@ export function SettingsPage() {
                 placeholder="Paste exported JSON data here..."
                 value={importText}
                 onChange={e => setImportText(e.target.value)}
-                className="mb-2"
+                className={`mb-2 ${inputClass}`}
               />
-              <Button variant="outline" size="sm" onClick={handleImportData} disabled={!importText}>
+              <Button variant="outline" size="sm" onClick={handleImportData} disabled={!importText} className="rounded-lg shadow-sm">
                 <Upload className="h-4 w-4 mr-1" /> Import
               </Button>
             </div>
@@ -277,7 +292,7 @@ export function SettingsPage() {
 
           <Separator />
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <div className="flex items-center justify-between">
@@ -285,7 +300,7 @@ export function SettingsPage() {
                     <p className="font-medium text-sm">Clear Product Data</p>
                     <p className="text-xs text-muted-foreground">Remove all products ({products.length}) but keep settings and rules</p>
                   </div>
-                  <Button variant="outline" size="sm" className="text-destructive">
+                  <Button variant="outline" size="sm" className="text-destructive rounded-lg hover:bg-red-50 hover:text-red-600">
                     <Trash2 className="h-4 w-4 mr-1" /> Clear
                   </Button>
                 </div>
@@ -309,7 +324,7 @@ export function SettingsPage() {
                     <p className="font-medium text-sm">Reset Entire Application</p>
                     <p className="text-xs text-muted-foreground">Remove everything and start fresh</p>
                   </div>
-                  <Button variant="outline" size="sm" className="text-destructive">
+                  <Button variant="outline" size="sm" className="text-destructive rounded-lg hover:bg-red-50 hover:text-red-600">
                     <RefreshCw className="h-4 w-4 mr-1" /> Reset
                   </Button>
                 </div>

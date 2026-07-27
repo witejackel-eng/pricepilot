@@ -120,11 +120,11 @@ export function PriceSimulator() {
 
   const meterColor = (level: ProfitabilityMeter) => {
     switch (level) {
-      case 'loss': return 'bg-red-500';
-      case 'break-even': return 'bg-orange-500';
-      case 'low-margin': return 'bg-amber-500';
-      case 'healthy': return 'bg-emerald-500';
-      case 'strong-margin': return 'bg-emerald-600';
+      case 'loss': return 'bg-[#ef4444]';
+      case 'break-even': return 'bg-[#f97316]';
+      case 'low-margin': return 'bg-[#f59e0b]';
+      case 'healthy': return 'bg-[#10b981]';
+      case 'strong-margin': return 'bg-[#059669]';
     }
   };
 
@@ -206,68 +206,75 @@ export function PriceSimulator() {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Input Panel */}
       <div className="space-y-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2"><Calculator className="h-5 w-5" /> Price Simulator</CardTitle>
+        <Card className="shadow-md border-0 rounded-xl">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-white">
+                <Calculator className="h-4 w-4" />
+              </span>
+              Price Simulator
+            </CardTitle>
             <CardDescription>Calculate prices and profitability for a hypothetical product</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+          <CardContent className="space-y-0">
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-sm">Purchase Cost</Label>
-                <Input type="number" value={inputs.purchaseCost} onChange={e => updateInput('purchaseCost', parseFloat(e.target.value) || 0)} />
+                <Label className="text-sm font-medium text-slate-600">Purchase Cost</Label>
+                <Input type="number" value={inputs.purchaseCost} onChange={e => updateInput('purchaseCost', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
               </div>
               <div>
-                <Label className="text-sm">Shipping Cost</Label>
-                <Input type="number" value={inputs.shippingCost} onChange={e => updateInput('shippingCost', parseFloat(e.target.value) || 0)} />
+                <Label className="text-sm font-medium text-slate-600">Shipping Cost</Label>
+                <Input type="number" value={inputs.shippingCost} onChange={e => updateInput('shippingCost', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
               </div>
               <div>
-                <Label className="text-sm">Packaging Cost</Label>
-                <Input type="number" value={inputs.packagingCost} onChange={e => updateInput('packagingCost', parseFloat(e.target.value) || 0)} />
+                <Label className="text-sm font-medium text-slate-600">Packaging Cost</Label>
+                <Input type="number" value={inputs.packagingCost} onChange={e => updateInput('packagingCost', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
               </div>
               <div>
-                <Label className="text-sm">Other Fixed Cost</Label>
-                <Input type="number" value={inputs.otherFixedCost} onChange={e => updateInput('otherFixedCost', parseFloat(e.target.value) || 0)} />
-              </div>
-            </div>
-
-            <Separator />
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-sm">Marketplace Commission (%)</Label>
-                <Input type="number" value={inputs.marketplaceFeePercent} onChange={e => updateInput('marketplaceFeePercent', parseFloat(e.target.value) || 0)} />
-              </div>
-              <div>
-                <Label className="text-sm">Payment Gateway (%)</Label>
-                <Input type="number" value={inputs.paymentFeePercent} onChange={e => updateInput('paymentFeePercent', parseFloat(e.target.value) || 0)} />
-              </div>
-              <div>
-                <Label className="text-sm">Tax (%)</Label>
-                <Input type="number" value={inputs.taxPercent} onChange={e => updateInput('taxPercent', parseFloat(e.target.value) || 0)} />
-              </div>
-              <div>
-                <Label className="text-sm">Return Rate (%)</Label>
-                <Input type="number" value={inputs.returnRatePercent} onChange={e => updateInput('returnRatePercent', parseFloat(e.target.value) || 0)} />
+                <Label className="text-sm font-medium text-slate-600">Other Fixed Cost</Label>
+                <Input type="number" value={inputs.otherFixedCost} onChange={e => updateInput('otherFixedCost', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
               </div>
             </div>
 
-            <Separator />
+            <Separator className="my-4 bg-slate-100" />
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-sm">Target Margin (%)</Label>
-                <Input type="number" value={inputs.targetMarginPercent} onChange={e => updateInput('targetMarginPercent', parseFloat(e.target.value) || 0)} />
+                <Label className="text-sm font-medium text-slate-600">Marketplace Commission (%)</Label>
+                <Input type="number" value={inputs.marketplaceFeePercent} onChange={e => updateInput('marketplaceFeePercent', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
               </div>
               <div>
-                <Label className="text-sm">Competitor Price</Label>
-                <Input type="number" value={inputs.competitorPrice} onChange={e => updateInput('competitorPrice', parseFloat(e.target.value) || 0)} />
+                <Label className="text-sm font-medium text-slate-600">Payment Gateway (%)</Label>
+                <Input type="number" value={inputs.paymentFeePercent} onChange={e => updateInput('paymentFeePercent', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-slate-600">Tax (%)</Label>
+                <Input type="number" value={inputs.taxPercent} onChange={e => updateInput('taxPercent', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-slate-600">Return Rate (%)</Label>
+                <Input type="number" value={inputs.returnRatePercent} onChange={e => updateInput('returnRatePercent', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
               </div>
             </div>
+
+            <Separator className="my-4 bg-slate-100" />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm font-medium text-slate-600">Target Margin (%)</Label>
+                <Input type="number" value={inputs.targetMarginPercent} onChange={e => updateInput('targetMarginPercent', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-slate-600">Competitor Price</Label>
+                <Input type="number" value={inputs.competitorPrice} onChange={e => updateInput('competitorPrice', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
+              </div>
+            </div>
+
+            <Separator className="my-4 bg-slate-100" />
 
             <div>
-              <Label className="text-sm">Proposed Selling Price</Label>
-              <Input type="number" value={inputs.proposedPrice} onChange={e => updateInput('proposedPrice', parseFloat(e.target.value) || 0)} />
+              <Label className="text-sm font-medium text-slate-600">Proposed Selling Price</Label>
+              <Input type="number" value={inputs.proposedPrice} onChange={e => updateInput('proposedPrice', parseFloat(e.target.value) || 0)} className="bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20" />
               {inputs.proposedPrice > 0 && (
                 <Slider
                   min={Math.max(0, Math.floor(results.breakEvenPrice * 0.5))}
@@ -285,9 +292,9 @@ export function PriceSimulator() {
 
       {/* Results Panel */}
       <div className="space-y-4">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Live Results</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
+        <Card className="shadow-md border-0 rounded-xl">
+          <CardHeader className="pb-3"><CardTitle className="text-base">Live Results</CardTitle></CardHeader>
+          <CardContent className="space-y-0">
             <div className="grid grid-cols-2 gap-3">
               <ResultItem label="Total Landed Cost" value={formatCurrency(results.totalLandedCost, cc)} />
               <ResultItem label="Break-even Price" value={formatCurrency(results.breakEvenPrice, cc)} />
@@ -298,10 +305,10 @@ export function PriceSimulator() {
               <ResultItem label="Tax Amount" value={formatCurrency(results.taxAmount, cc)} />
             </div>
 
-            <Separator />
+            <Separator className="my-4 bg-slate-100" />
 
-            <div>
-              <Label className="text-sm font-medium">Recommended Prices</Label>
+            <div className="bg-emerald-50/30 rounded-lg p-4">
+              <Label className="text-sm font-medium text-slate-700">Recommended Prices</Label>
               <div className="grid grid-cols-2 gap-3 mt-2">
                 <ResultItem label="Minimum Safe" value={formatCurrency(results.minPrice, cc)} />
                 <ResultItem label="Balanced" value={formatCurrency(results.balancedPrice, cc)} highlight="positive" />
@@ -313,14 +320,18 @@ export function PriceSimulator() {
         </Card>
 
         {/* Profitability Meter */}
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Profitability Meter</CardTitle></CardHeader>
+        <Card className="shadow-md border-0 rounded-xl">
+          <CardHeader className="pb-3"><CardTitle className="text-base">Profitability Meter</CardTitle></CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
               {(['loss', 'break-even', 'low-margin', 'healthy', 'strong-margin'] as ProfitabilityMeter[]).map(level => (
                 <div
                   key={level}
-                  className={`h-8 flex-1 rounded ${results.meterLevel === level ? meterColor(level) : 'bg-slate-200'} flex items-center justify-center text-xs font-medium text-white transition-colors`}
+                  className={`h-10 flex-1 rounded-lg transition-all duration-300 ${
+                    results.meterLevel === level
+                      ? `${meterColor(level)} shadow-md text-sm font-semibold text-white`
+                      : 'bg-slate-100 text-xs font-medium text-slate-400'
+                  } flex items-center justify-center`}
                 >
                   {results.meterLevel === level ? meterLabel(level) : ''}
                 </div>
@@ -330,11 +341,11 @@ export function PriceSimulator() {
         </Card>
 
         {/* Actions */}
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleSaveScenario}>
+        <div className="flex gap-3">
+          <Button onClick={handleSaveScenario} className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm rounded-lg">
             <Bookmark className="h-4 w-4 mr-2" /> Save as Scenario
           </Button>
-          <Button variant="outline" onClick={handleCreateProduct}>
+          <Button variant="outline" onClick={handleCreateProduct} className="bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50 shadow-sm rounded-lg">
             <Package className="h-4 w-4 mr-2" /> Create Product
           </Button>
         </div>
@@ -346,9 +357,9 @@ export function PriceSimulator() {
 function ResultItem({ label, value, highlight }: { label: string; value: string; highlight?: 'positive' | 'negative' }) {
   const colorClass = highlight === 'positive' ? 'text-emerald-600' : highlight === 'negative' ? 'text-red-600' : '';
   return (
-    <div className="p-2 rounded border">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`text-sm font-semibold ${colorClass}`}>{value}</div>
+    <div className="rounded-lg p-3 bg-white shadow-sm border border-slate-100 bg-gradient-to-b from-white to-slate-50/30">
+      <div className="text-sm font-medium text-slate-500">{label}</div>
+      <div className={`text-lg font-bold ${colorClass}`}>{value}</div>
     </div>
   );
 }

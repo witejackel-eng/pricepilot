@@ -8,8 +8,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { StatusBadge } from './status-badge';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
-import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp } from 'lucide-react';
-import { PieChart as RechartsPie, Pie, Cell, BarChart as RechartsBar, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target } from 'lucide-react';
+import {
+  PieChart as RechartsPie,
+  Pie,
+  Cell,
+  BarChart as RechartsBar,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  CartesianGrid,
+} from 'recharts';
 
 const COLORS = {
   lossMaking: '#ef4444',
@@ -26,6 +38,38 @@ const COLORS = {
   decrease: '#ef4444',
   review: '#8b5cf6',
 };
+
+// Custom tooltip component for charts
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) {
+  if (!active || !payload || payload.length === 0) return null;
+  return (
+    <div className="bg-white shadow-lg rounded-lg border border-slate-100 px-4 py-3">
+      {label && <p className="text-xs font-semibold text-slate-500 mb-1.5">{label}</p>}
+      {payload.map((entry, index) => (
+        <div key={index} className="flex items-center gap-2 text-sm">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+          <span className="text-slate-600">{entry.name}:</span>
+          <span className="font-semibold text-slate-800">{typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Custom legend renderer
+function CustomLegend({ payload }: { payload?: Array<{ value: string; color: string }> }) {
+  if (!payload) return null;
+  return (
+    <div className="flex items-center justify-center gap-4 pt-2 pb-1">
+      {payload.map((entry, index) => (
+        <div key={index} className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+          <span className="text-xs font-medium text-slate-500">{entry.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function DashboardPage() {
   const { products, businessSettings, setCurrentView, loadSampleData } = usePricePilotStore();
@@ -127,155 +171,214 @@ export function DashboardPage() {
     .slice(0, 5);
 
   return (
-    <div className="space-y-6">
-      {/* Filters */}
-      <div className="flex items-center gap-3">
-        <Select value={filterCategory} onValueChange={setFilterCategory}>
-          <SelectTrigger className="w-[160px]"><SelectValue placeholder="All categories" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All categories</SelectItem>
-            {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={filterBrand} onValueChange={setFilterBrand}>
-          <SelectTrigger className="w-[160px]"><SelectValue placeholder="All brands" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All brands</SelectItem>
-            {brands.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
-          </SelectContent>
-        </Select>
+    <div className="space-y-8 bg-gradient-to-b from-slate-50/50 to-white min-h-screen p-1">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Dashboard</h1>
+          <p className="text-sm text-slate-500 mt-1">Overview of your pricing performance and optimization opportunities</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Select value={filterCategory} onValueChange={setFilterCategory}>
+            <SelectTrigger className="w-[160px] bg-white"><SelectValue placeholder="All categories" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All categories</SelectItem>
+              {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={filterBrand} onValueChange={setFilterBrand}>
+            <SelectTrigger className="w-[160px] bg-white"><SelectValue placeholder="All brands" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All brands</SelectItem>
+              {brands.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      {/* Summary Cards */}
+      {/* KPI Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <SummaryCard title="Total Products" value={String(totalProducts)} icon={Package} color="slate" />
         <SummaryCard title="Products Analysed" value={String(productsAnalysed)} icon={BarChart3} color="emerald" />
         <SummaryCard title="Avg Existing Margin" value={formatPercentage(avgExistingMargin)} icon={TrendingUp} color={avgExistingMargin >= 0 ? 'emerald' : 'red'} />
-        <SummaryCard title="Avg Recommended Margin" value={formatPercentage(avgRecommendedMargin)} icon={TrendingUp} color="emerald" />
-        <SummaryCard title="Current Est. Profit" value={formatCurrency(currentEstimatedProfit, businessSettings.currencyCode, { compact: true })} icon={TrendingUp} color={currentEstimatedProfit >= 0 ? 'emerald' : 'red'} />
-        <SummaryCard title="Recommended Est. Profit" value={formatCurrency(recommendedEstimatedProfit, businessSettings.currencyCode, { compact: true })} icon={ArrowUpRight} color="emerald" />
+        <SummaryCard title="Avg Recommended Margin" value={formatPercentage(avgRecommendedMargin)} icon={Target} color="emerald" />
+        <SummaryCard title="Current Est. Profit" value={formatCurrency(currentEstimatedProfit, businessSettings.currencyCode, { compact: true })} icon={DollarSign} color={currentEstimatedProfit >= 0 ? 'emerald' : 'red'} />
+        <SummaryCard title="Recommended Est. Profit" value={formatCurrency(recommendedEstimatedProfit, businessSettings.currencyCode, { compact: true })} icon={TrendingUp} color="emerald" />
         <SummaryCard title="Potential Improvement" value={formatCurrency(potentialImprovement, businessSettings.currencyCode, { compact: true })} icon={potentialImprovement >= 0 ? ArrowUpRight : ArrowDownRight} color={potentialImprovement >= 0 ? 'emerald' : 'red'} />
-        <SummaryCard title="Loss-making Products" value={String(lossMaking)} icon={AlertTriangle} color={lossMaking > 0 ? 'red' : 'emerald'} />
+        <SummaryCard title="Loss-making Products" value={String(lossMaking)} icon={ShieldAlert} color={lossMaking > 0 ? 'red' : 'emerald'} />
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Profitability distribution pie */}
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Profitability Distribution</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={280}>
-              <RechartsPie>
-                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, value }) => `${name}: ${value}`}>
-                  {pieData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
-                </Pie>
-                <Tooltip />
-              </RechartsPie>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+      {/* Charts Section */}
+      <div>
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-slate-800">Analytics</h2>
+          <p className="text-sm text-slate-500">Visual breakdown of profitability and pricing recommendations</p>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Profitability distribution pie */}
+          <Card className="shadow-md border-0 overflow-hidden">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold text-slate-700">Profitability Distribution</CardTitle>
+              <CardDescription className="text-xs text-slate-400">Product count by pricing status</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" minHeight={280}>
+                <RechartsPie>
+                  <Pie
+                    data={pieData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={3}
+                    animationBegin={0}
+                    animationDuration={800}
+                    label={({ name, value }) => `${name}: ${value}`}
+                    labelLine={{ stroke: '#94a3b8', strokeWidth: 1 }}
+                  >
+                    {pieData.map((entry, index) => <Cell key={index} fill={entry.color} strokeWidth={1} stroke="#fff" />)}
+                  </Pie>
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend content={<CustomLegend />} />
+                </RechartsPie>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
 
-        {/* Margin comparison by category */}
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Existing vs Recommended Margin</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={280}>
-              <RechartsBar data={categoryMargins}>
-                <XAxis dataKey="category" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="existing" name="Existing %" fill="#64748b" />
-                <Bar dataKey="recommended" name="Recommended %" fill="#10b981" />
-              </RechartsBar>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          {/* Margin comparison by category */}
+          <Card className="shadow-md border-0 overflow-hidden">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold text-slate-700">Existing vs Recommended Margin</CardTitle>
+              <CardDescription className="text-xs text-slate-400">Average margin comparison by category</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" minHeight={280}>
+                <RechartsBar data={categoryMargins} barSize={40} animationBegin={0} animationDuration={800}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="category" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
+                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={45} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend content={<CustomLegend />} />
+                  <Bar dataKey="existing" name="Existing %" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="recommended" name="Recommended %" fill="#059669" radius={[4, 4, 0, 0]} />
+                </RechartsBar>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
 
-        {/* Price recommendation distribution */}
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Price Recommendation Distribution</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={280}>
-              <RechartsBar data={recBarData}>
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Bar dataKey="value" name="Products">
-                  {recBarData.map((entry, index) => <Cell key={index} fill={entry.fill} />)}
-                </Bar>
-              </RechartsBar>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          {/* Price recommendation distribution */}
+          <Card className="shadow-md border-0 overflow-hidden">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold text-slate-700">Price Recommendation Distribution</CardTitle>
+              <CardDescription className="text-xs text-slate-400">How many products need price adjustments</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" minHeight={280}>
+                <RechartsBar data={recBarData} barSize={40} animationBegin={0} animationDuration={800}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
+                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={45} allowDecimals={false} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar dataKey="value" name="Products" radius={[4, 4, 0, 0]}>
+                    {recBarData.map((entry, index) => <Cell key={index} fill={entry.fill} />)}
+                  </Bar>
+                </RechartsBar>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* Top Improvement Opportunities */}
       {improvementOpps.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Highest Improvement Opportunities</CardTitle>
-            <CardDescription>Top products with the largest profit improvement potential</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead className="text-right">Current Profit</TableHead>
-                  <TableHead className="text-right">Recommended Profit</TableHead>
-                  <TableHead className="text-right">Improvement</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {improvementOpps.map(item => (
-                  <TableRow key={item.sku}>
-                    <TableCell className="font-medium">{item.name}</TableCell>
-                    <TableCell>{item.sku}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(item.currentProfit, businessSettings.currencyCode)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(item.recommendedProfit, businessSettings.currencyCode)}</TableCell>
-                    <TableCell className="text-right font-semibold text-emerald-600">{formatCurrency(item.improvement, businessSettings.currencyCode)}</TableCell>
+        <div>
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-slate-800">Highest Improvement Opportunities</h2>
+            <p className="text-sm text-slate-500">Top products with the largest profit improvement potential</p>
+          </div>
+          <Card className="shadow-md border-0 overflow-hidden">
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 hover:bg-slate-50">
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Product</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">SKU</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Current Profit</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Recommended Profit</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Improvement</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                </TableHeader>
+                <TableBody>
+                  {improvementOpps.map(item => (
+                    <TableRow key={item.sku} className="hover:bg-emerald-50/30 transition-colors">
+                      <TableCell className="font-medium text-slate-800">{item.name}</TableCell>
+                      <TableCell className="text-slate-500">{item.sku}</TableCell>
+                      <TableCell className="text-right text-slate-700">{formatCurrency(item.currentProfit, businessSettings.currencyCode)}</TableCell>
+                      <TableCell className="text-right text-slate-700">{formatCurrency(item.recommendedProfit, businessSettings.currencyCode)}</TableCell>
+                      <TableCell className="text-right font-semibold text-emerald-600">
+                        <span className="inline-flex items-center gap-1">
+                          <ArrowUpRight className="h-3.5 w-3.5" />
+                          {formatCurrency(item.improvement, businessSettings.currencyCode)}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Highest Risk Products */}
       {riskProducts.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Highest-risk Products</CardTitle>
-            <CardDescription>Products with negative profit, low margins, or high fees</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead className="text-right">Margin</TableHead>
-                  <TableHead className="text-right">Profit</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {riskProducts.map(p => (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-medium">{p.name}</TableCell>
-                    <TableCell>{p.sku}</TableCell>
-                    <TableCell className="text-right">{formatPercentage(p.calculatedMarginPercent)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(p.calculatedProfitPerUnit, businessSettings.currencyCode)}</TableCell>
-                    <TableCell><StatusBadge status={p.calculatedPricingStatus} /></TableCell>
+        <div>
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-slate-800">Highest-risk Products</h2>
+            <p className="text-sm text-slate-500">Products with negative profit, low margins, or high fees</p>
+          </div>
+          <Card className="shadow-md border-0 overflow-hidden">
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 hover:bg-slate-50">
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Product</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">SKU</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Margin</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Profit</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Status</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                </TableHeader>
+                <TableBody>
+                  {riskProducts.map(p => (
+                    <TableRow
+                      key={p.id}
+                      className={`transition-colors ${
+                        p.calculatedMarginPercent < 0
+                          ? 'bg-red-50/40 hover:bg-red-50/60'
+                          : p.calculatedMarginPercent < 10
+                            ? 'bg-amber-50/30 hover:bg-amber-50/50'
+                            : 'hover:bg-emerald-50/30'
+                      }`}
+                    >
+                      <TableCell className="font-medium text-slate-800">{p.name}</TableCell>
+                      <TableCell className="text-slate-500">{p.sku}</TableCell>
+                      <TableCell className={`text-right font-semibold ${p.calculatedMarginPercent < 0 ? 'text-red-600' : p.calculatedMarginPercent < 10 ? 'text-amber-600' : 'text-slate-700'}`}>
+                        {formatPercentage(p.calculatedMarginPercent)}
+                      </TableCell>
+                      <TableCell className={`text-right font-semibold ${p.calculatedProfitPerUnit < 0 ? 'text-red-600' : 'text-slate-700'}`}>
+                        {formatCurrency(p.calculatedProfitPerUnit, businessSettings.currencyCode)}
+                      </TableCell>
+                      <TableCell><StatusBadge status={p.calculatedPricingStatus} /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );
@@ -283,20 +386,63 @@ export function DashboardPage() {
 
 function SummaryCard({ title, value, icon, color }: { title: string; value: string; icon: React.ElementType; color: string }) {
   const Icon = icon;
-  const colorMap: Record<string, string> = {
-    emerald: 'text-emerald-600',
-    red: 'text-red-600',
-    amber: 'text-amber-600',
-    slate: 'text-slate-600',
+
+  const themeConfig: Record<string, {
+    bg: string;
+    iconBg: string;
+    iconColor: string;
+    accent: string;
+    valueColor: string;
+    gradient: string;
+  }> = {
+    emerald: {
+      bg: 'bg-gradient-to-b from-emerald-50 to-white',
+      iconBg: 'bg-emerald-100',
+      iconColor: 'text-emerald-600',
+      accent: 'bg-gradient-to-r from-emerald-500 to-emerald-400',
+      valueColor: 'text-emerald-700',
+      gradient: 'from-emerald-50 to-white',
+    },
+    red: {
+      bg: 'bg-gradient-to-b from-red-50 to-white',
+      iconBg: 'bg-red-100',
+      iconColor: 'text-red-600',
+      accent: 'bg-gradient-to-r from-red-500 to-red-400',
+      valueColor: 'text-red-600',
+      gradient: 'from-red-50 to-white',
+    },
+    amber: {
+      bg: 'bg-gradient-to-b from-amber-50 to-white',
+      iconBg: 'bg-amber-100',
+      iconColor: 'text-amber-600',
+      accent: 'bg-gradient-to-r from-amber-500 to-amber-400',
+      valueColor: 'text-amber-700',
+      gradient: 'from-amber-50 to-white',
+    },
+    slate: {
+      bg: 'bg-gradient-to-b from-slate-50 to-white',
+      iconBg: 'bg-slate-100',
+      iconColor: 'text-slate-600',
+      accent: 'bg-gradient-to-r from-slate-400 to-slate-300',
+      valueColor: 'text-slate-800',
+      gradient: 'from-slate-50 to-white',
+    },
   };
+
+  const theme = themeConfig[color] || themeConfig.slate;
+
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Icon className={`h-4 w-4 ${colorMap[color] || colorMap.slate}`} />
-          <span className="text-xs text-muted-foreground">{title}</span>
+    <Card className={`shadow-md border-0 overflow-hidden transition-all hover:shadow-xl hover:-translate-y-0.5 ${theme.bg}`}>
+      {/* Accent strip */}
+      <div className={`h-1 ${theme.accent}`} />
+      <CardContent className="p-4 pt-3">
+        <div className="flex items-center gap-3 mb-2">
+          <div className={`h-10 w-10 rounded-full ${theme.iconBg} flex items-center justify-center`}>
+            <Icon className={`h-5 w-5 ${theme.iconColor}`} />
+          </div>
+          <span className="text-sm font-medium text-slate-500">{title}</span>
         </div>
-        <p className="text-lg font-semibold">{value}</p>
+        <p className={`text-2xl font-bold ${theme.valueColor}`}>{value}</p>
       </CardContent>
     </Card>
   );
