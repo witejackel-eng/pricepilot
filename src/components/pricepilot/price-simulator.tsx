@@ -110,6 +110,7 @@ export function PriceSimulator() {
     lifecycleStatus: 'active' as const,
     calculatedPricingStatus: 'missing-data',
     calculatedProfitabilityMeter: 'loss',
+    calculatedHealthScore: 0,
     recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' },
     selectedRecommendationMode: 'balanced',
     customRecommendedPrice: 0,
