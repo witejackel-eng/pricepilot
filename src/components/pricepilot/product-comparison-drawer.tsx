@@ -87,10 +87,6 @@ export function ProductComparisonDrawer({ productIds, onClose }: ProductComparis
       if (row.label.includes('Cost')) {
         return a > b ? 'text-red-600 font-bold' : 'text-emerald-600 font-bold';
       }
-      // For margins/percentages, higher is generally better
-      if (row.type === 'percent') {
-        return a > b ? 'text-emerald-600 font-bold' : 'text-red-600 font-bold';
-      }
     }
     if (row.type === 'percent') {
       const a = row.valueA as number;
