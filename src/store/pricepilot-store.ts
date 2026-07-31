@@ -88,6 +88,13 @@ import {
   retryableError,
   invalidInputError,
 } from '@/lib/pricepilot/operation-result';
+import {
+  buildBackup,
+  serializeBackup,
+  downloadBackupFile,
+  downloadRecoveryPayload,
+  PricePilotBackup,
+} from '@/lib/pricepilot/backup-service';
 
 /**
  * Helper: Calculate product using the new recommendations engine.
@@ -485,27 +492,12 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   downloadExistingData: () => {
-    // Best-effort: read canonical state from IndexedDB and offer it as
-    // a recovery download. This must never throw into the UI.
-    (async () => {
-      try {
-        const data = await exportAllDataFromDb();
-        const payload = {
-          format: 'pricepilot-recovery',
-          exportedAt: new Date().toISOString(),
-          ...data,
-        };
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `pricepilot-recovery-${new Date().toISOString().slice(0, 10)}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-      } catch (err) {
-        console.error('[PricePilot] Could not download existing data.', err);
-      }
-    })();
+    // Best-effort: read canonical state from IndexedDB (and capture
+    // leftover legacy localStorage) and offer it as a recovery
+    // download. This must never throw into the UI.
+    downloadRecoveryPayload().catch((err) => {
+      console.error('[PricePilot] Could not download existing data.', err);
+    });
   },
 
   // Navigation
@@ -1188,8 +1180,12 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     // surface a warning to the user and DO NOT continue with any
     // destructive action that depended on the backup.
     try {
-      const dataString = get().exportData();
-      const backup: AutoBackup = {
+      // Phase 5: build the backup from canonical IndexedDB state via
+      // the backup-service. The legacy exportAllData() is no longer
+      // used.
+      const { backup } = await buildBackup();
+      const dataString = serializeBackup(backup);
+      const autoBackup: AutoBackup = {
         id: `backup-${Date.now()}`,
         timestamp: new Date().toISOString(),
         trigger,
@@ -1198,7 +1194,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       };
       const { autoBackups } = get();
       // Keep the latest 10.
-      const newBackups = [backup, ...autoBackups].slice(0, MAX_AUTO_BACKUPS);
+      const newBackups = [autoBackup, ...autoBackups].slice(0, MAX_AUTO_BACKUPS);
       // Persist to IndexedDB.
       await saveBackupsToDb(newBackups);
       set({ autoBackups: newBackups });
@@ -1211,14 +1207,11 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   downloadBackup: () => {
-    const data = get().exportData();
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `pricepilot-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // Phase 5: download the canonical backup file. Best-effort —
+    // never throws into the UI.
+    downloadBackupFile().catch((err) => {
+      console.error('[PricePilot] Could not download backup.', err);
+    });
   },
 
   restoreBackup: async (dataString) => {
@@ -1258,11 +1251,15 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   // Data management
   exportData: () => {
-    // Synchronous read from in-memory state. The async canonical
-    // `exportAllDataFromDb()` is used by `downloadBackup` /
-    // `downloadExistingData` for the on-disk truth.
+    // Synchronous read from in-memory state. The canonical async path
+    // is `downloadBackup()` which uses `buildBackup()` from
+    // `backup-service.ts` — that one reads from IndexedDB inside a
+    // transaction, normalizes products, validates finite numbers, and
+    // computes a content hash. This sync helper is kept for callers
+    // that need an immediate in-memory snapshot (e.g. error-boundary
+    // recovery download).
     const { businessSettings, products, pricingRules, scenarios } = get();
-    const payload = {
+    const payload: PricePilotBackup = {
       format: 'pricepilot-backup',
       backupVersion: 1,
       schemaVersion: 1,

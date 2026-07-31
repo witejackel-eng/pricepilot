@@ -207,3 +207,30 @@ Each phase records the actual command output below.
 **Commit**: `feat: complete legacy storage migration cleanup`
 
 ---
+
+## Phase 5 — fix: build backups from canonical application state
+
+- Created `src/lib/pricepilot/backup-service.ts`:
+  - `PricePilotBackup` interface: `format: 'pricepilot-backup'`, `backupVersion: 1`, `schemaVersion: 1`, `appVersion`, `createdAt`, `businessSettings`, `products`, `pricingRules`, `scenarios`, optional `contentHash`.
+  - `buildBackup()` — reads canonical state from IndexedDB inside a single read transaction via `exportAllDataFromDb()`. Normalizes every product (rejects those with no name AND no sku). Validates finite numbers on every numeric field (`purchaseCost`, `shippingCost`, `packagingCost`, `handlingCost`, `otherCosts`, `currentSellingPrice`, `finalApprovedPrice`, `taxRatePercent`, fees, rates, nested `recommendedPrices`). Computes a deterministic SHA-256 content hash (with FNV-1a fallback for non-secure contexts). Returns a `BackupBuildResult` with `normalizedCount`, `needsReviewCount`, `rejectedCount`, and `issues` array.
+  - `serializeBackup()` — pretty-printed JSON.
+  - `computeBackupContentHash()` — deterministic SHA-256 over canonical JSON (sorted keys, no whitespace); excludes `contentHash`, `createdAt`, `appVersion` so two backups of the same state produce the same hash.
+  - `downloadBackupFile()` — triggers browser download of the canonical backup.
+  - `buildRecoveryDownload()` — builds the "Download Existing Data" payload: canonical IndexedDB state + migration metadata + raw legacy localStorage entries (when still present) + app version + timestamp. Both sources are clearly labelled.
+  - `downloadRecoveryPayload()` — triggers browser download of the recovery payload.
+- Updated the store:
+  - `createAutoBackup` now calls `buildBackup()` instead of the sync `exportData()`. The backup `dataString` is the canonical serialized `PricePilotBackup`.
+  - `downloadBackup` now calls `downloadBackupFile()` (canonical backup-service path).
+  - `downloadExistingData` now calls `downloadRecoveryPayload()` (includes IndexedDB + migration state + legacy localStorage).
+  - `exportData` (sync) still exists for callers that need an immediate in-memory snapshot, but its output is now typed as `PricePilotBackup` so the shape is enforced.
+- The legacy `exportAllData()` from `legacy-storage.ts` is no longer called by any production code path.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (0 errors, 0 warnings)
+- `bun run test` — PASS (115 tests, ~6.4s)
+- `bun run build` — PASS
+
+**Commit**: `fix: build backups from canonical application state`
+
+---
