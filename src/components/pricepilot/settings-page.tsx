@@ -19,7 +19,7 @@ import { AutoBackup } from '@/store/pricepilot-store';
 import { HelpSection } from './help-section';
 import { RestartTourButton } from './guided-tour';
 import { LegacyDataCleanupCard } from './legacy-data-cleanup-card';
-import { Building2, Coins, Palette, Database, Download, Upload, Trash2, RefreshCw, Shield, ChevronDown, ChevronRight, AlertTriangle, FileDown, Eye, Clock, Info, Stethoscope } from 'lucide-react';
+import { Building2, Coins, Palette, Database, Download, Upload, Trash2, RefreshCw, Shield, ChevronDown, ChevronRight, AlertTriangle, FileDown, Eye, Clock, Info, Stethoscope, Monitor, Sun, Moon } from 'lucide-react';
 import { toast } from 'sonner';
 import { downloadDiagnosticReport } from '@/lib/pricepilot/error-reporter';
 
@@ -50,8 +50,24 @@ const ROUNDING_OPTIONS: { value: RoundingRule; label: string }[] = [
   { value: 'end-in-99-whole', label: 'End in 99 (whole)' },
 ];
 
-const inputClass = 'bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500';
+const inputClass = 'bg-white shadow-sm border-slate-200 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all duration-200';
 const labelClass = 'text-sm font-medium text-slate-600';
+
+/** Section header icon wrapper */
+function SectionIcon({ children, tone = 'emerald' }: { children: React.ReactNode; tone?: 'emerald' | 'amber' | 'purple' | 'red' }) {
+  const bgMap = {
+    emerald: 'bg-gradient-to-br from-emerald-200 to-emerald-100 text-emerald-600 dark:from-emerald-900/50 dark:to-emerald-800/30 dark:text-emerald-400',
+    amber: 'bg-gradient-to-br from-amber-200 to-amber-100 text-amber-600 dark:from-amber-900/50 dark:to-amber-800/30 dark:text-amber-400',
+    purple: 'bg-gradient-to-br from-purple-200 to-purple-100 text-purple-600 dark:from-purple-900/50 dark:to-purple-800/30 dark:text-purple-400',
+    red: 'bg-gradient-to-br from-red-200 to-red-100 text-red-600 dark:from-red-900/50 dark:to-red-800/30 dark:text-red-400',
+  }[tone];
+
+  return (
+    <span className={`h-9 w-9 rounded-xl ${bgMap} flex items-center justify-center shadow-sm shrink-0`}>
+      {children}
+    </span>
+  );
+}
 
 /** Amber "Estimate" pill with tooltip explaining the value is a pre-filled estimate. */
 function EstimateBadge({ channel }: { channel: string }) {
@@ -61,14 +77,14 @@ function EstimateBadge({ channel }: { channel: string }) {
         <TooltipTrigger asChild>
           <Badge
             variant="outline"
-            className="text-amber-700 border-amber-300 bg-amber-50 text-[10px] font-medium uppercase tracking-wide flex items-center gap-1 cursor-help"
+            className="text-amber-700 border-amber-300 bg-amber-50 text-[10px] font-medium uppercase tracking-wide flex items-center gap-1 cursor-help hover:bg-amber-100 transition-colors duration-200"
           >
             <Info className="h-3 w-3" />
             Estimate
           </Badge>
         </TooltipTrigger>
         <TooltipContent className="max-w-[220px] leading-relaxed">
-          Typical {channel} fee. Actual fees vary by category and tier. Verify on the official {channel} seller portal.
+          Typical {channel} fee. Actual fees vary by category and tier. Verify with each marketplace&apos;s official documentation.
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -92,7 +108,6 @@ export function SettingsPage() {
 
   const handleImportData = () => {
     if (!importText) return;
-    // Create backup before import
     createAutoBackup('manual', 'Before manual data import');
     const success = importData(importText);
     if (success) {
@@ -133,20 +148,20 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
-      {/* Interface Mode */}
-      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200">
+    <div className="space-y-6 max-w-3xl mx-auto animate-fade-in">
+      {/* ───────── Interface Mode ───────── */}
+      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-3">
-            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-200 to-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm"><Palette className="h-4 w-4" /></span>
+            <SectionIcon><Palette className="h-4 w-4" /></SectionIcon>
             Interface Mode
           </CardTitle>
           <CardDescription>Choose how PricePilot presents its features</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <RadioGroup value={applicationMode} onValueChange={v => handleModeSwitch(v as ApplicationMode)} className="space-y-3">
-            <div className={`flex items-start space-x-3 p-3 rounded-lg border transition-all duration-200 cursor-pointer shadow-sm ${
-              applicationMode === 'owner' ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 hover:bg-emerald-50/50'
+            <div className={`flex items-start space-x-3 p-4 rounded-xl border transition-all duration-200 cursor-pointer shadow-sm ${
+              applicationMode === 'owner' ? 'border-emerald-300 bg-emerald-50/80 dark:bg-emerald-950/30 ring-1 ring-emerald-200/50' : 'border-slate-200 hover:bg-emerald-50/50 dark:border-slate-700 dark:hover:bg-emerald-950/20'
             }`}>
               <RadioGroupItem value="owner" id="owner" className="mt-1" />
               <div>
@@ -154,8 +169,8 @@ export function SettingsPage() {
                 <p className="text-xs text-muted-foreground mt-0.5">Recommended for everyday pricing work. Simplified navigation, plain-language labels, and focused workflows for importing, reviewing, approving, and exporting prices.</p>
               </div>
             </div>
-            <div className={`flex items-start space-x-3 p-3 rounded-lg border transition-all duration-200 cursor-pointer shadow-sm ${
-              applicationMode === 'advanced' ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 hover:bg-emerald-50/50'
+            <div className={`flex items-start space-x-3 p-4 rounded-xl border transition-all duration-200 cursor-pointer shadow-sm ${
+              applicationMode === 'advanced' ? 'border-emerald-300 bg-emerald-50/80 dark:bg-emerald-950/30 ring-1 ring-emerald-200/50' : 'border-slate-200 hover:bg-emerald-50/50 dark:border-slate-700 dark:hover:bg-emerald-950/20'
             }`}>
               <RadioGroupItem value="advanced" id="advanced" className="mt-1" />
               <div>
@@ -164,10 +179,10 @@ export function SettingsPage() {
               </div>
             </div>
           </RadioGroup>
-          <div className="pt-3 border-t border-slate-100">
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-700">Guided Tour</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Guided Tour</p>
                 <p className="text-xs text-muted-foreground">Replay the 5-step introduction to PricePilot</p>
               </div>
               <RestartTourButton />
@@ -176,11 +191,11 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Business Settings */}
-      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200">
+      {/* ───────── Business Settings ───────── */}
+      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-3">
-            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-200 to-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm"><Building2 className="h-4 w-4" /></span>
+            <SectionIcon><Building2 className="h-4 w-4" /></SectionIcon>
             Business Settings
           </CardTitle>
           <CardDescription>Core business information that affects all pricing calculations</CardDescription>
@@ -188,13 +203,13 @@ export function SettingsPage() {
         <CardContent className="space-y-4">
           <div>
             <Label htmlFor="businessName" className={labelClass}>Business Name</Label>
-            <Input id="businessName" value={businessSettings.businessName} onChange={e => updateBusinessSettings({ businessName: e.target.value })} className={inputClass} />
+            <Input id="businessName" value={businessSettings.businessName} onChange={e => updateBusinessSettings({ businessName: e.target.value })} className={`mt-1.5 ${inputClass}`} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="currency" className={labelClass}>Default Currency</Label>
               <Select value={businessSettings.currencyCode} onValueChange={v => updateBusinessSettings({ currencyCode: v })}>
-                <SelectTrigger id="currency" className={inputClass}><SelectValue /></SelectTrigger>
+                <SelectTrigger id="currency" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {SUPPORTED_CURRENCIES.map(c => <SelectItem key={c.code} value={c.code}>{c.symbol} {c.name} ({c.code})</SelectItem>)}
                 </SelectContent>
@@ -203,7 +218,7 @@ export function SettingsPage() {
             <div>
               <Label htmlFor="country" className={labelClass}>Country</Label>
               <Select value={businessSettings.country} onValueChange={v => updateBusinessSettings({ country: v })}>
-                <SelectTrigger id="country" className={inputClass}><SelectValue /></SelectTrigger>
+                <SelectTrigger id="country" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {COUNTRIES.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}
                 </SelectContent>
@@ -214,7 +229,7 @@ export function SettingsPage() {
             <div>
               <Label htmlFor="taxTreatment" className={labelClass}>Tax Treatment</Label>
               <Select value={businessSettings.taxTreatment} onValueChange={v => updateBusinessSettings({ taxTreatment: v as TaxTreatment })}>
-                <SelectTrigger id="taxTreatment" className={inputClass}><SelectValue /></SelectTrigger>
+                <SelectTrigger id="taxTreatment" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {TAX_TREATMENTS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                 </SelectContent>
@@ -222,13 +237,13 @@ export function SettingsPage() {
             </div>
             <div>
               <Label htmlFor="taxRate" className={labelClass}>Default Tax Rate (%)</Label>
-              <Input id="taxRate" type="number" value={businessSettings.defaultTaxRatePercent} onChange={e => updateBusinessSettings({ defaultTaxRatePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
+              <Input id="taxRate" type="number" value={businessSettings.defaultTaxRatePercent} onChange={e => updateBusinessSettings({ defaultTaxRatePercent: parseFloat(e.target.value) || 0 })} className={`mt-1.5 ${inputClass}`} />
             </div>
           </div>
           <div>
             <Label htmlFor="roundingRule" className={labelClass}>Default Rounding Rule</Label>
             <Select value={businessSettings.defaultRoundingRule} onValueChange={v => updateBusinessSettings({ defaultRoundingRule: v as RoundingRule })}>
-              <SelectTrigger id="roundingRule" className={inputClass}><SelectValue /></SelectTrigger>
+              <SelectTrigger id="roundingRule" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
               <SelectContent>
                 {ROUNDING_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
               </SelectContent>
@@ -237,18 +252,18 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Pricing Defaults */}
-      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-amber-50/10 hover:shadow-lg transition-shadow duration-200">
+      {/* ───────── Pricing Defaults ───────── */}
+      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-amber-50/10 hover:shadow-lg transition-shadow duration-200">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-3">
-            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-amber-200 to-amber-100 text-amber-600 flex items-center justify-center shadow-sm"><Coins className="h-4 w-4" /></span>
+            <SectionIcon tone="amber"><Coins className="h-4 w-4" /></SectionIcon>
             Pricing Defaults
           </CardTitle>
           <CardDescription>Default margin targets, costs, and fees applied to all products</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Estimate info banner */}
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
             <Info className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
             <div className="text-xs text-amber-800">
               <span className="font-semibold">Fee estimates.</span> The default marketplace, payment gateway, and return/damage rate values below are typical estimates. Actual fees vary by product category and seller tier — please verify with each marketplace&apos;s official documentation.
@@ -257,45 +272,45 @@ export function SettingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="targetMargin" className={labelClass}>Target Margin (%)</Label>
-              <Input id="targetMargin" type="number" value={businessSettings.defaultTargetMarginPercent} onChange={e => updateBusinessSettings({ defaultTargetMarginPercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
+              <Input id="targetMargin" type="number" value={businessSettings.defaultTargetMarginPercent} onChange={e => updateBusinessSettings({ defaultTargetMarginPercent: parseFloat(e.target.value) || 0 })} className={`mt-1.5 ${inputClass}`} />
             </div>
             <div>
               <Label htmlFor="minimumMargin" className={labelClass}>Minimum Margin (%)</Label>
-              <Input id="minimumMargin" type="number" value={businessSettings.defaultMinimumMarginPercent} onChange={e => updateBusinessSettings({ defaultMinimumMarginPercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
+              <Input id="minimumMargin" type="number" value={businessSettings.defaultMinimumMarginPercent} onChange={e => updateBusinessSettings({ defaultMinimumMarginPercent: parseFloat(e.target.value) || 0 })} className={`mt-1.5 ${inputClass}`} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="premiumMargin" className={labelClass}>Premium Margin (%)</Label>
-              <Input id="premiumMargin" type="number" value={businessSettings.defaultMaximumMarginPercent} onChange={e => updateBusinessSettings({ defaultMaximumMarginPercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
+              <Input id="premiumMargin" type="number" value={businessSettings.defaultMaximumMarginPercent} onChange={e => updateBusinessSettings({ defaultMaximumMarginPercent: parseFloat(e.target.value) || 0 })} className={`mt-1.5 ${inputClass}`} />
             </div>
             <div>
               <Label htmlFor="targetMarkup" className={labelClass}>Target Markup (%)</Label>
-              <Input id="targetMarkup" type="number" value={Math.round((businessSettings.defaultTargetMarginPercent * 100 / (100 - businessSettings.defaultTargetMarginPercent)) * 100) / 100} readOnly className="bg-slate-50 shadow-sm border-slate-200" />
+              <Input id="targetMarkup" type="number" value={Math.round((businessSettings.defaultTargetMarginPercent * 100 / (100 - businessSettings.defaultTargetMarginPercent)) * 100) / 100} readOnly className="bg-slate-50 shadow-sm border-slate-200 mt-1.5" />
               <p className="text-xs text-muted-foreground mt-1">Auto-calculated from target margin</p>
             </div>
           </div>
-          <Separator />
+          <Separator className="my-2" />
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="defaultShipping" className={labelClass}>Default Shipping Cost</Label>
-              <Input id="defaultShipping" type="number" value={businessSettings.defaultShippingCost} onChange={e => updateBusinessSettings({ defaultShippingCost: parseFloat(e.target.value) || 0 })} className={inputClass} />
+              <Input id="defaultShipping" type="number" value={businessSettings.defaultShippingCost} onChange={e => updateBusinessSettings({ defaultShippingCost: parseFloat(e.target.value) || 0 })} className={`mt-1.5 ${inputClass}`} />
             </div>
             <div>
               <Label htmlFor="defaultPackaging" className={labelClass}>Default Packaging Cost</Label>
-              <Input id="defaultPackaging" type="number" value={businessSettings.defaultPackagingCost} onChange={e => updateBusinessSettings({ defaultPackagingCost: parseFloat(e.target.value) || 0 })} className={inputClass} />
+              <Input id="defaultPackaging" type="number" value={businessSettings.defaultPackagingCost} onChange={e => updateBusinessSettings({ defaultPackagingCost: parseFloat(e.target.value) || 0 })} className={`mt-1.5 ${inputClass}`} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <div className="flex items-center gap-1 mb-1">
+              <div className="flex items-center gap-1 mb-1.5">
                 <Label htmlFor="defaultMarketplaceFee" className={labelClass}>Default Marketplace Fee (%)</Label>
                 <EstimateBadge channel="marketplace" />
               </div>
               <Input id="defaultMarketplaceFee" type="number" value={businessSettings.defaultMarketplaceFeePercent} onChange={e => updateBusinessSettings({ defaultMarketplaceFeePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
             <div>
-              <div className="flex items-center gap-1 mb-1">
+              <div className="flex items-center gap-1 mb-1.5">
                 <Label htmlFor="defaultPaymentFee" className={labelClass}>Default Payment Gateway (%)</Label>
                 <EstimateBadge channel="payment gateway" />
               </div>
@@ -304,14 +319,14 @@ export function SettingsPage() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <div className="flex items-center gap-1 mb-1">
+              <div className="flex items-center gap-1 mb-1.5">
                 <Label htmlFor="defaultReturnRate" className={labelClass}>Default Return Rate (%)</Label>
                 <EstimateBadge channel="return rate" />
               </div>
               <Input id="defaultReturnRate" type="number" value={businessSettings.defaultReturnRatePercent} onChange={e => updateBusinessSettings({ defaultReturnRatePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
             <div>
-              <div className="flex items-center gap-1 mb-1">
+              <div className="flex items-center gap-1 mb-1.5">
                 <Label htmlFor="defaultDamageRate" className={labelClass}>Default Damage Rate (%)</Label>
                 <EstimateBadge channel="damage rate" />
               </div>
@@ -321,11 +336,11 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Display Settings */}
-      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-purple-50/10 hover:shadow-lg transition-shadow duration-200">
+      {/* ───────── Display Settings ───────── */}
+      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-purple-50/10 hover:shadow-lg transition-shadow duration-200">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-3">
-            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-200 to-purple-100 text-purple-600 flex items-center justify-center shadow-sm"><Palette className="h-4 w-4" /></span>
+            <SectionIcon tone="purple"><Monitor className="h-4 w-4" /></SectionIcon>
             Display Settings
           </CardTitle>
           <CardDescription>How the application looks and behaves</CardDescription>
@@ -333,37 +348,57 @@ export function SettingsPage() {
         <CardContent className="space-y-4">
           <div>
             <Label className={labelClass}>Theme</Label>
-            <RadioGroup value={appSettings.theme} onValueChange={v => updateAppSettings({ theme: v as 'light' | 'dark' | 'system' })} className="flex gap-4 mt-2">
-              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-200 hover:bg-emerald-50 hover:border-emerald-200 transition-all duration-200 cursor-pointer shadow-sm">
+            <RadioGroup value={appSettings.theme} onValueChange={v => updateAppSettings({ theme: v as 'light' | 'dark' | 'system' })} className="flex gap-3 mt-2">
+              <div className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl border transition-all duration-200 cursor-pointer shadow-sm ${
+                appSettings.theme === 'light' ? 'border-emerald-300 bg-emerald-50/80 ring-1 ring-emerald-200/50' : 'border-slate-200 hover:bg-emerald-50/50 dark:border-slate-700 dark:hover:bg-emerald-950/20'
+              }`}>
+                <Sun className="h-4 w-4 text-amber-500" />
                 <RadioGroupItem value="light" id="light" />
                 <Label htmlFor="light" className="cursor-pointer">Light</Label>
               </div>
-              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-200 hover:bg-emerald-50 hover:border-emerald-200 transition-all duration-200 cursor-pointer shadow-sm">
+              <div className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl border transition-all duration-200 cursor-pointer shadow-sm ${
+                appSettings.theme === 'dark' ? 'border-emerald-300 bg-emerald-50/80 ring-1 ring-emerald-200/50' : 'border-slate-200 hover:bg-emerald-50/50 dark:border-slate-700 dark:hover:bg-emerald-950/20'
+              }`}>
+                <Moon className="h-4 w-4 text-slate-500" />
                 <RadioGroupItem value="dark" id="dark" />
                 <Label htmlFor="dark" className="cursor-pointer">Dark</Label>
               </div>
-              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-slate-200 hover:bg-emerald-50 hover:border-emerald-200 transition-all duration-200 cursor-pointer shadow-sm">
+              <div className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl border transition-all duration-200 cursor-pointer shadow-sm ${
+                appSettings.theme === 'system' ? 'border-emerald-300 bg-emerald-50/80 ring-1 ring-emerald-200/50' : 'border-slate-200 hover:bg-emerald-50/50 dark:border-slate-700 dark:hover:bg-emerald-950/20'
+              }`}>
+                <Monitor className="h-4 w-4 text-slate-500" />
                 <RadioGroupItem value="system" id="system" />
                 <Label htmlFor="system" className="cursor-pointer">System</Label>
               </div>
             </RadioGroup>
           </div>
-          <div className="flex items-center justify-between py-2">
-            <Label htmlFor="compactMode" className={labelClass}>Compact Mode</Label>
+          <Separator className="my-2" />
+          <div className="flex items-center justify-between py-1.5">
+            <div>
+              <Label htmlFor="compactMode" className={labelClass}>Compact Mode</Label>
+              <p className="text-xs text-muted-foreground">Reduce spacing for more content on screen</p>
+            </div>
             <Switch id="compactMode" checked={appSettings.compactMode} onCheckedChange={checked => updateAppSettings({ compactMode: checked })} />
           </div>
-          <div className="flex items-center justify-between py-2">
-            <Label htmlFor="autoRecalculate" className={labelClass}>Auto Recalculate</Label>
+          <div className="flex items-center justify-between py-1.5">
+            <div>
+              <Label htmlFor="autoRecalculate" className={labelClass}>Auto Recalculate</Label>
+              <p className="text-xs text-muted-foreground">Automatically recalculate prices when data changes</p>
+            </div>
             <Switch id="autoRecalculate" checked={appSettings.autoRecalculate} onCheckedChange={checked => updateAppSettings({ autoRecalculate: checked })} />
           </div>
-          <div className="flex items-center justify-between py-2">
-            <Label htmlFor="confirmDelete" className={labelClass}>Confirm Before Delete</Label>
+          <div className="flex items-center justify-between py-1.5">
+            <div>
+              <Label htmlFor="confirmDelete" className={labelClass}>Confirm Before Delete</Label>
+              <p className="text-xs text-muted-foreground">Show confirmation dialog before deleting products</p>
+            </div>
             <Switch id="confirmDelete" checked={appSettings.confirmBeforeDelete} onCheckedChange={checked => updateAppSettings({ confirmBeforeDelete: checked })} />
           </div>
+          <Separator className="my-2" />
           <div>
             <Label htmlFor="pageSize" className={labelClass}>Table Page Size</Label>
             <Select value={String(appSettings.pageSize)} onValueChange={v => updateAppSettings({ pageSize: Number(v) })}>
-              <SelectTrigger id="pageSize" className={inputClass}><SelectValue /></SelectTrigger>
+              <SelectTrigger id="pageSize" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
               <SelectContent>
                 {[10, 20, 50, 100].map(s => <SelectItem key={s} value={String(s)}>{s} per page</SelectItem>)}
               </SelectContent>
@@ -372,23 +407,23 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Data Backup */}
-      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200">
+      {/* ───────── Data Backup ───────── */}
+      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-3">
-            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-200 to-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm"><Database className="h-4 w-4" /></span>
+            <SectionIcon><Database className="h-4 w-4" /></SectionIcon>
             Data Backup
           </CardTitle>
           <CardDescription>Backup and restore your application data</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="bg-gradient-to-r from-emerald-50 to-emerald-25/20 rounded-lg p-3 border border-emerald-200/50 flex items-center gap-2 shadow-sm">
+          <div className="bg-gradient-to-r from-emerald-50 to-emerald-25/20 rounded-xl p-3.5 border border-emerald-200/50 flex items-center gap-2.5 shadow-sm">
             <Shield className="h-4 w-4 text-emerald-600 animate-pulse" />
-            <span className="text-sm text-emerald-700">Your data is stored locally in your browser and is never sent to any server.</span>
+            <span className="text-sm text-emerald-700 dark:text-emerald-300">Your data is stored locally in your browser and is never sent to any server.</span>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Button variant="outline" onClick={handleExportData} className="rounded-lg shadow-sm h-12">
+            <Button variant="outline" onClick={handleExportData} className="rounded-xl shadow-sm h-12 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
               <FileDown className="h-4 w-4 mr-2" /> Download Backup
             </Button>
             <div>
@@ -402,8 +437,6 @@ export function SettingsPage() {
                     const reader = new FileReader();
                     reader.onload = async (ev) => {
                       const text = ev.target?.result as string;
-                      // Phase 6: show a preview BEFORE restoring so the
-                      // user can confirm counts and see any issues.
                       const preview = previewBackupRestore(text);
                       if (!preview.valid) {
                         toast.error('Restore failed', { description: preview.issues[0] ?? 'The backup file is not valid.' });
@@ -429,7 +462,7 @@ export function SettingsPage() {
           {/* Auto-backups list */}
           <Collapsible open={backupsOpen} onOpenChange={setBackupsOpen}>
             <CollapsibleTrigger asChild>
-              <Button variant="ghost" className="w-full justify-between p-2 h-auto">
+              <Button variant="ghost" className="w-full justify-between p-2 h-auto rounded-xl hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 transition-colors duration-200">
                 <span className="flex items-center gap-2 text-sm font-medium">
                   <Clock className="h-4 w-4 text-muted-foreground" />
                   Auto-backups ({autoBackups.length})
@@ -439,11 +472,11 @@ export function SettingsPage() {
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-2 mt-2">
               {autoBackups.length === 0 ? (
-                <p className="text-xs text-muted-foreground p-2">No auto-backups yet. Backups are created before imports and dangerous actions.</p>
+                <p className="text-xs text-muted-foreground p-3">No auto-backups yet. Backups are created before imports and dangerous actions.</p>
               ) : (
                 <div className="max-h-48 overflow-y-auto space-y-2">
                   {autoBackups.map(backup => (
-                    <div key={backup.id} className="bg-slate-50 dark:bg-slate-800 rounded-lg p-2 flex items-center justify-between">
+                    <div key={backup.id} className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 flex items-center justify-between transition-all duration-200 hover:shadow-sm">
                       <div>
                         <p className="text-xs font-medium">{backup.description}</p>
                         <p className="text-xs text-muted-foreground">{new Date(backup.timestamp).toLocaleString()} • {backup.trigger}</p>
@@ -451,7 +484,7 @@ export function SettingsPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="text-xs rounded-lg"
+                        className="text-xs rounded-lg hover:bg-emerald-50 hover:border-emerald-200 transition-all duration-200"
                         onClick={() => handleRestoreBackup(backup)}
                       >
                         Restore
@@ -466,29 +499,27 @@ export function SettingsPage() {
           <Separator />
 
           {/* Diagnostic Report */}
-          <div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium text-sm">Diagnostic Report</p>
-                <p className="text-xs text-muted-foreground">Download a technical report for troubleshooting. Contains no business data.</p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-lg shadow-sm"
-                onClick={() => {
-                  downloadDiagnosticReport()
-                    .then(() => {
-                      toast.success('Diagnostic report downloaded', { description: 'The report contains only technical metadata — no business data.' });
-                    })
-                    .catch(() => {
-                      toast.error('Could not generate report', { description: 'An error occurred while generating the diagnostic report.' });
-                    });
-                }}
-              >
-                <Stethoscope className="h-4 w-4 mr-1" /> Download Diagnostic Report
-              </Button>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="font-medium text-sm">Diagnostic Report</p>
+              <p className="text-xs text-muted-foreground">Download a technical report for troubleshooting. Contains no business data.</p>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl shadow-sm transition-all duration-200 hover:shadow-md shrink-0"
+              onClick={() => {
+                downloadDiagnosticReport()
+                  .then(() => {
+                    toast.success('Diagnostic report downloaded', { description: 'The report contains only technical metadata — no business data.' });
+                  })
+                  .catch(() => {
+                    toast.error('Could not generate report', { description: 'An error occurred while generating the diagnostic report.' });
+                  });
+              }}
+            >
+              <Stethoscope className="h-4 w-4 mr-1.5" /> Download Report
+            </Button>
           </div>
 
           <Separator />
@@ -502,21 +533,21 @@ export function SettingsPage() {
               onChange={e => setImportText(e.target.value)}
               className={`mb-2 ${inputClass}`}
             />
-            <Button variant="outline" size="sm" onClick={handleImportData} disabled={!importText} className="rounded-lg shadow-sm">
-              <Upload className="h-4 w-4 mr-1" /> Import
+            <Button variant="outline" size="sm" onClick={handleImportData} disabled={!importText} className="rounded-xl shadow-sm transition-all duration-200 hover:shadow-md">
+              <Upload className="h-4 w-4 mr-1.5" /> Import
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Phase 4 — Legacy storage cleanup (only shown when legacy data is present) */}
+      {/* ───────── Legacy Data Cleanup ───────── */}
       <LegacyDataCleanupCard />
 
-      {/* Danger Zone */}
-      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-red-50/5 hover:shadow-lg transition-shadow duration-200 border-t-2 border-red-200">
+      {/* ───────── Danger Zone ───────── */}
+      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-red-50/5 hover:shadow-lg transition-shadow duration-200 border-t-4 border-red-400 dark:border-t-red-600">
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-3 text-red-700">
-            <span className="h-8 w-8 rounded-full bg-gradient-to-br from-red-200 to-red-100 text-red-600 flex items-center justify-center shadow-sm"><AlertTriangle className="h-4 w-4" /></span>
+          <CardTitle className="flex items-center gap-3 text-red-700 dark:text-red-400">
+            <SectionIcon tone="red"><AlertTriangle className="h-4 w-4" /></SectionIcon>
             Danger Zone
           </CardTitle>
           <CardDescription>Irreversible and destructive actions</CardDescription>
@@ -525,13 +556,13 @@ export function SettingsPage() {
           {/* Clear Product Data */}
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <div className="flex items-center justify-between p-3 bg-red-50/50 dark:bg-red-900/10 rounded-lg cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+              <div className="flex items-center justify-between p-4 bg-red-50/50 dark:bg-red-900/10 rounded-xl cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors duration-200 group">
                 <div>
-                  <p className="font-medium text-sm">Clear Product Data</p>
+                  <p className="font-medium text-sm text-red-800 dark:text-red-300">Clear Product Data</p>
                   <p className="text-xs text-muted-foreground">Remove all products ({products.length}) but keep settings and rules</p>
                 </div>
-                <Button variant="outline" size="sm" className="text-destructive rounded-lg hover:bg-red-50 hover:text-red-600">
-                  <Trash2 className="h-4 w-4 mr-1" /> Clear
+                <Button variant="outline" size="sm" className="text-destructive rounded-xl hover:bg-red-50 hover:text-red-600 transition-all duration-200 group-hover:shadow-sm">
+                  <Trash2 className="h-4 w-4 mr-1.5" /> Clear
                 </Button>
               </div>
             </AlertDialogTrigger>
@@ -550,18 +581,18 @@ export function SettingsPage() {
           <Separator />
 
           {/* Reset Entire Application */}
-          <div className="p-4 bg-red-50/50 dark:bg-red-900/10 rounded-lg border border-red-200/50">
-            <p className="font-medium text-sm mb-1">Reset Entire Application</p>
+          <div className="p-4 bg-red-50/50 dark:bg-red-900/10 rounded-xl border border-red-200/50 dark:border-red-900/30">
+            <p className="font-medium text-sm mb-1 text-red-800 dark:text-red-300">Reset Entire Application</p>
             <p className="text-xs text-muted-foreground mb-3">
               This will permanently delete ALL your data — products, rules, scenarios, and settings. A backup will be created before reset.
             </p>
-            <Button variant="outline" size="sm" onClick={handleExportData} className="text-emerald-600 rounded-lg mb-3 hover:bg-emerald-50">
-              <Download className="h-4 w-4 mr-1" /> Download Backup First
+            <Button variant="outline" size="sm" onClick={handleExportData} className="text-emerald-600 rounded-xl mb-3 hover:bg-emerald-50 transition-all duration-200">
+              <Download className="h-4 w-4 mr-1.5" /> Download Backup First
             </Button>
             <AlertDialog open={dangerOpen} onOpenChange={setDangerOpen}>
               <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm" className="text-destructive rounded-lg hover:bg-red-50 hover:text-red-600">
-                  <RefreshCw className="h-4 w-4 mr-1" /> Reset Application
+                <Button variant="outline" size="sm" className="text-destructive rounded-xl hover:bg-red-50 hover:text-red-600 transition-all duration-200">
+                  <RefreshCw className="h-4 w-4 mr-1.5" /> Reset Application
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -593,7 +624,7 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Help */}
+      {/* ───────── Help ───────── */}
       <HelpSection currencyCode={businessSettings.currencyCode} />
     </div>
   );

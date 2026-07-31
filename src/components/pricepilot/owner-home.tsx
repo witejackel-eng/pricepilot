@@ -21,6 +21,7 @@ import { usePricePilotStore } from '@/store/pricepilot-store';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import {
   FileUp,
   AlertTriangle,
@@ -28,14 +29,59 @@ import {
   Download,
   HelpCircle,
   Undo2,
+  Clock,
+  Pencil,
+  CheckCircle,
+  Trash2,
+  FileUp as ImportIcon,
+  ArrowRight,
+  TrendingUp,
+  TrendingDown,
+  Package,
+  AlertCircle,
 } from 'lucide-react';
+import { formatPercentage, formatCurrency } from '@/lib/pricepilot/formatting';
 import { toast } from 'sonner';
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from 'recharts';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
   if (hour < 12) return 'Good morning';
   if (hour < 17) return 'Good afternoon';
   return 'Good evening';
+}
+
+// Action type to icon mapping
+const ACTION_ICONS: Record<string, React.ElementType> = {
+  'price-approve': CheckCircle,
+  'price-apply': CheckCircle2,
+  'product-edit': Pencil,
+  'bulk-approve': CheckCircle,
+  'import': ImportIcon,
+  'product-delete': Trash2,
+};
+
+const ACTION_COLORS: Record<string, string> = {
+  'price-approve': 'text-emerald-600 bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-400',
+  'price-apply': 'text-teal-600 bg-teal-100 dark:bg-teal-900/40 dark:text-teal-400',
+  'product-edit': 'text-amber-600 bg-amber-100 dark:bg-amber-900/40 dark:text-amber-400',
+  'bulk-approve': 'text-emerald-600 bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-400',
+  'import': 'text-slate-600 bg-slate-100 dark:bg-slate-800 dark:text-slate-400',
+  'product-delete': 'text-red-600 bg-red-100 dark:bg-red-900/40 dark:text-red-400',
+};
+
+function formatRelativeTime(timestamp: string): string {
+  const now = Date.now();
+  const then = new Date(timestamp).getTime();
+  const diffMs = now - then;
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return new Date(timestamp).toLocaleDateString();
 }
 
 export function OwnerHome() {
@@ -47,6 +93,7 @@ export function OwnerHome() {
     downloadBackup,
     setHelpPanelOpen,
     setCurrentView,
+    setInitialFilterTab,
   } = usePricePilotStore();
 
   const businessName = businessSettings.businessName || 'there';
@@ -86,6 +133,42 @@ export function OwnerHome() {
 
     return { needsInformation, readyToReview, approvedNotApplied, applied };
   }, [products]);
+
+  // ===== Pricing Summary Dashboard Widget =====
+  const pricingSummary = useMemo(() => {
+    if (products.length === 0) {
+      return { total: 0, healthy: 0, needsReview: 0, belowBreakEven: 0, avgMargin: 0 };
+    }
+
+    const total = products.length;
+    const healthy = products.filter(p =>
+      p.calculatedPricingStatus === 'healthy' ||
+      p.calculatedPricingStatus === 'high-margin' ||
+      p.calculatedPricingStatus === 'approved'
+    ).length;
+    const needsReview = products.filter(p =>
+      p.calculatedPricingStatus === 'low-margin' ||
+      p.calculatedPricingStatus === 'needs-review' ||
+      p.calculatedPricingStatus === 'missing-data'
+    ).length;
+    const belowBreakEven = products.filter(p =>
+      p.calculatedPricingStatus === 'loss-making' ||
+      p.calculatedPricingStatus === 'below-break-even'
+    ).length;
+    const avgMargin = products.reduce((sum, p) => sum + (p.calculatedMarginPercent || 0), 0) / total;
+
+    return { total, healthy, needsReview, belowBreakEven, avgMargin };
+  }, [products]);
+
+  // Chart data for the pricing summary
+  const chartData = useMemo(() => {
+    if (pricingSummary.total === 0) return [];
+    return [
+      { name: 'Healthy', value: pricingSummary.healthy, color: '#10b981' },
+      { name: 'Needs Review', value: pricingSummary.needsReview, color: '#f59e0b' },
+      { name: 'Below Break-even', value: pricingSummary.belowBreakEven, color: '#ef4444' },
+    ].filter(d => d.value > 0);
+  }, [pricingSummary]);
 
   const hasUndo = undoHistory.length > 0;
 
@@ -147,6 +230,9 @@ export function OwnerHome() {
     },
   ];
 
+  // Get the last 5 actions for the activity feed
+  const recentActivity = undoHistory.slice(0, 5);
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       {/* Header */}
@@ -197,6 +283,184 @@ export function OwnerHome() {
             </button>
           );
         })}
+      </div>
+
+      {/* Pricing Summary Dashboard Widget + Recent Activity Feed */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Pricing Summary Dashboard Widget */}
+        {products.length > 0 && (
+          <Card className="border-slate-200 dark:border-slate-800">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-emerald-600" />
+                Pricing Summary
+              </CardTitle>
+              <CardDescription className="text-xs text-slate-400">
+                Overview of your product pricing health
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Key metrics */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-slate-50/50 dark:bg-slate-800/50">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Package className="h-4 w-4 text-slate-500" />
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Total Products</span>
+                  </div>
+                  <div className="text-xl font-bold text-slate-800 dark:text-slate-100">{pricingSummary.total}</div>
+                </div>
+                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-slate-50/50 dark:bg-slate-800/50">
+                  <div className="flex items-center gap-2 mb-1">
+                    <TrendingUp className="h-4 w-4 text-emerald-500" />
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Avg. Margin</span>
+                  </div>
+                  <div className={`text-xl font-bold ${pricingSummary.avgMargin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600'}`}>
+                    {formatPercentage(pricingSummary.avgMargin)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Progress bars */}
+              <div className="space-y-3">
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                      Healthy margins
+                    </span>
+                    <span className="font-semibold text-emerald-700 dark:text-emerald-400">{pricingSummary.healthy}</span>
+                  </div>
+                  <Progress
+                    value={pricingSummary.total > 0 ? (pricingSummary.healthy / pricingSummary.total) * 100 : 0}
+                    className="h-2 bg-slate-200 dark:bg-slate-700 [&>div]:bg-emerald-500"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+                      Needs review
+                    </span>
+                    <span className="font-semibold text-amber-700 dark:text-amber-400">{pricingSummary.needsReview}</span>
+                  </div>
+                  <Progress
+                    value={pricingSummary.total > 0 ? (pricingSummary.needsReview / pricingSummary.total) * 100 : 0}
+                    className="h-2 bg-slate-200 dark:bg-slate-700 [&>div]:bg-amber-500"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                      <TrendingDown className="h-3.5 w-3.5 text-red-500" />
+                      Below break-even
+                    </span>
+                    <span className="font-semibold text-red-700 dark:text-red-400">{pricingSummary.belowBreakEven}</span>
+                  </div>
+                  <Progress
+                    value={pricingSummary.total > 0 ? (pricingSummary.belowBreakEven / pricingSummary.total) * 100 : 0}
+                    className="h-2 bg-slate-200 dark:bg-slate-700 [&>div]:bg-red-500"
+                  />
+                </div>
+              </div>
+
+              {/* Mini bar chart */}
+              {chartData.length > 0 && (
+                <div className="h-20 mt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <XAxis type="number" hide />
+                      <YAxis type="category" dataKey="name" hide />
+                      <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={16}>
+                        {chartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Recent Activity Feed */}
+        <Card className="border-slate-200 dark:border-slate-800">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Clock className="h-5 w-5 text-emerald-600" />
+              Recent Activity
+            </CardTitle>
+            <CardDescription className="text-xs text-slate-400">
+              Your latest actions and changes
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {recentActivity.length === 0 ? (
+              <div className="text-center py-6">
+                <Clock className="h-8 w-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
+                <p className="text-sm text-slate-400 dark:text-slate-500">No recent activity yet</p>
+                <p className="text-xs text-slate-400 dark:text-slate-600 mt-1">Actions you take will appear here</p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {recentActivity.map((action, idx) => {
+                  const Icon = ACTION_ICONS[action.type] || Pencil;
+                  const colorClass = ACTION_COLORS[action.type] || 'text-slate-600 bg-slate-100 dark:bg-slate-800 dark:text-slate-400';
+                  // Find the product name for this action
+                  const productName = action.productId
+                    ? products.find(p => p.id === action.productId)?.name || action.description
+                    : action.description;
+
+                  return (
+                    <button
+                      key={`${action.timestamp}-${idx}`}
+                      className="w-full text-left flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group"
+                      onClick={() => {
+                        if (action.productId) {
+                          setInitialFilterTab(null);
+                          setCurrentView('products');
+                          // The product detail drawer will be opened via the products page
+                        }
+                      }}
+                    >
+                      <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${colorClass}`}>
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-slate-700 dark:text-slate-300 truncate">
+                          {action.type === 'price-approve' && 'Approved price'}
+                          {action.type === 'price-apply' && 'Applied price'}
+                          {action.type === 'product-edit' && 'Edited product'}
+                          {action.type === 'bulk-approve' && 'Bulk approved'}
+                          {action.type === 'import' && 'Imported products'}
+                          {action.type === 'product-delete' && 'Deleted product'}
+                        </div>
+                        <div className="text-xs text-slate-400 dark:text-slate-500 truncate">{productName}</div>
+                      </div>
+                      <div className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap shrink-0">
+                        {formatRelativeTime(action.timestamp)}
+                      </div>
+                      <ArrowRight className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {undoHistory.length > 5 && (
+              <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-xs text-slate-500 hover:text-emerald-700 dark:hover:text-emerald-400"
+                  onClick={() => setCurrentView('products')}
+                >
+                  View All Activity
+                  <ArrowRight className="h-3 w-3 ml-1" />
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Review group summary — simple counts, no accounting jargon */}

@@ -43,7 +43,7 @@ import { ScenariosPage } from './scenarios-page';
 import { ExportPage } from './export-page';
 import { SettingsPage } from './settings-page';
 import { AddProductDialog } from './add-product-dialog';
-import { KeyboardShortcuts } from './keyboard-shortcuts';
+import { KeyboardShortcuts, FloatingHelpButton } from './keyboard-shortcuts';
 import { HelpPanel } from './help-panel';
 import { GuidedTour } from './guided-tour';
 import { toast } from 'sonner';
@@ -340,6 +340,7 @@ export function AppShell() {
         onAddProduct={() => setAddProductOpen(true)}
         onSaveScenario={handleSaveScenario}
         onRecalculate={handleRecalculate}
+        onSearch={() => setCurrentView('products')}
       />
 
       {/* Help Panel */}
@@ -356,14 +357,7 @@ export function AppShell() {
         </aside>
 
         {/* Floating Help button — bottom-right, always visible */}
-        <button
-          onClick={() => setHelpPanelOpen(true)}
-          aria-label="Open help panel"
-          title="Help (? to open)"
-          className="floating-help-button lg:hidden h-12 w-12 rounded-full bg-gradient-to-br from-emerald-600 to-emerald-500 text-white shadow-lg shadow-emerald-500/30 flex items-center justify-center hover:from-emerald-700 hover:to-emerald-600"
-        >
-          <HelpCircle className="h-5 w-5" />
-        </button>
+        <FloatingHelpButton onClick={() => setHelpPanelOpen(true)} />
 
         {/* Main area */}
         <div className="flex-1 flex flex-col min-h-screen">

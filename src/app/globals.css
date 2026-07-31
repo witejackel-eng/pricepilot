@@ -337,3 +337,60 @@ input[type="number"]::-webkit-outer-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
 }
+
+/* Scale-in animation for completion states */
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-scale-in {
+  animation: scale-in 0.3s ease-out;
+}
+
+/* Smooth page transition for main content */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-page-enter {
+  animation: page-enter 0.25s ease-out;
+}
+
+/* Staggered children animation utility */
+@keyframes stagger-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-stagger-in > * {
+  animation: stagger-in 0.3s ease-out both;
+}
+.animate-stagger-in > *:nth-child(1) { animation-delay: 0ms; }
+.animate-stagger-in > *:nth-child(2) { animation-delay: 50ms; }
+.animate-stagger-in > *:nth-child(3) { animation-delay: 100ms; }
+.animate-stagger-in > *:nth-child(4) { animation-delay: 150ms; }
+.animate-stagger-in > *:nth-child(5) { animation-delay: 200ms; }
+.animate-stagger-in > *:nth-child(6) { animation-delay: 250ms; }
+.animate-stagger-in > *:nth-child(7) { animation-delay: 300ms; }
+.animate-stagger-in > *:nth-child(8) { animation-delay: 350ms; }
+
+/* Consistent card styling */
+.card-consistent {
+  border-radius: 1rem;
+  border: 0;
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.06), 0 4px 12px -4px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.2s ease-out, transform 0.2s ease-out;
+}
+.card-consistent:hover {
+  box-shadow: 0 4px 16px -4px rgba(0, 0, 0, 0.08), 0 8px 24px -8px rgba(0, 0, 0, 0.04);
+}
+
+/* Button hover effect consistency */
+.btn-hover-lift {
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+.btn-hover-lift:hover {
+  transform: translateY(-1px);
+}
+.btn-hover-lift:active {
+  transform: translateY(0);
+}
