@@ -210,3 +210,37 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `perf: remove repeated recommendation recalculation`
+
+---
+
+## Phase 7 — fix: make imports row-safe
+
+- Created `src/lib/pricepilot/import-service.ts` with:
+  - `ImportRowResult` — `{ rowNumber, status: 'valid' | 'needs-review' | 'duplicate' | 'rejected', product?, issues[], originalRow }`.
+  - `ImportBatchResult` — `{ results, validProducts, needsReviewProducts, duplicateProducts, rejectedCount, totalCount, summary }`.
+  - `processImportRows(rows, businessSettings, pricingRules, options?)` — NEVER throws.
+    - Each row is processed independently in its own try/catch via `normalizeProduct` + `safelyRecalculateProduct`.
+    - Empty rows are skipped silently (not counted as rejected).
+    - Non-object rows are rejected with a clear issue.
+    - Missing purchase cost → row is kept as `needs-review` (recoverable, not rejected).
+    - Currency-formatted costs ("₹1,250") and percentage values ("18%") are parsed by the normalizer.
+    - Invalid fees and tax settings are reported per row.
+    - Original row number is preserved on every result.
+    - Duplicate SKUs (matched against `options.existingSkus`) are flagged as `duplicate` — the product is still produced so the caller can offer reconciliation in Phase 8.
+  - `buildIssueReportCsv(results)` — produces a CSV with columns: Row, Product Name, SKU, Field, Problem, Original Value, Suggested Action. Only includes rows that are not `valid`.
+  - `downloadIssueReport(results)` — triggers a browser download of the CSV. Never throws.
+  - `summary.message` example:
+    ```
+    97 products are ready to import.
+    2 products need review.
+    1 duplicate SKU requires reconciliation.
+    1 row could not be imported.
+    ```
+  - Each issue carries a `suggestedAction` so the owner knows what to do.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run build` — PASS
+
+**Commit**: `fix: make imports row-safe`
