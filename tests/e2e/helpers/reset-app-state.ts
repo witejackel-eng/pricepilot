@@ -166,18 +166,23 @@ export async function navigateTo(
 
   if (isButtonAttached === 0) {
     // Try expanding the "Advanced Tools" collapsible section using its testid
-    const advancedToolsTrigger = page.getByTestId('nav-advanced-tools').first();
-    if (await advancedToolsTrigger.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await advancedToolsTrigger.click();
-      // Wait for the button to be attached to the DOM (not just visible)
-      await button.waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
-      isButtonAttached = await button.count().catch(() => 0);
-
-      // If still not attached, try clicking again with force
-      if (isButtonAttached === 0) {
-        await advancedToolsTrigger.click({ force: true }).catch(() => {});
-        await button.waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
+    // Use page.evaluate for a direct DOM click that bypasses actionability checks
+    await page.evaluate(() => {
+      const trigger = document.querySelector('[data-testid="nav-advanced-tools"]');
+      if (trigger instanceof HTMLElement) {
+        trigger.click();
       }
+    }).catch(() => {});
+
+    // Wait for the button to be attached to the DOM
+    await button.waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
+    isButtonAttached = await button.count().catch(() => 0);
+
+    // If still not attached, try Playwright's click with force
+    if (isButtonAttached === 0) {
+      const advancedToolsTrigger = page.getByTestId('nav-advanced-tools').first();
+      await advancedToolsTrigger.click({ force: true }).catch(() => {});
+      await button.waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
     }
   }
 
