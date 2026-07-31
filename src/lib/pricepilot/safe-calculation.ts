@@ -398,3 +398,61 @@ export function safelyRecalculateProducts(
 
   return { successfulProducts, failedProducts, issues };
 }
+
+// ============================================================
+// Batched calculation for large imports
+// ============================================================
+
+/**
+ * Process a large set of products in controlled batches, yielding
+ * control to the browser between batches so the UI remains responsive.
+ *
+ * The progress callback receives messages like
+ * "Processing products 1-50 of 500".
+ *
+ * Default batch size is 50 products. For 5,000+ products the caller
+ * should consider moving this to a Web Worker — but only after
+ * measuring performance and confirming it is necessary.
+ */
+export async function safelyRecalculateProductsBatched(
+  rawProducts: unknown[],
+  businessSettings: BusinessSettings,
+  pricingRules: PricingRule[],
+  options?: {
+    batchSize?: number;
+    onProgress?: (message: string, processed: number, total: number) => void;
+  }
+): Promise<BatchCalculationResult> {
+  const batchSize = options?.batchSize ?? 50;
+  const onProgress = options?.onProgress;
+  const total = Array.isArray(rawProducts) ? rawProducts.length : 0;
+
+  const successfulProducts: Product[] = [];
+  const failedProducts: Product[] = [];
+  const issues: BatchCalculationResult['issues'] = [];
+
+  if (total === 0) {
+    return { successfulProducts, failedProducts, issues };
+  }
+
+  for (let start = 0; start < total; start += batchSize) {
+    const end = Math.min(start + batchSize, total);
+    const slice = rawProducts.slice(start, end);
+
+    const batchResult = safelyRecalculateProducts(slice, businessSettings, pricingRules);
+    successfulProducts.push(...batchResult.successfulProducts);
+    failedProducts.push(...batchResult.failedProducts);
+    issues.push(...batchResult.issues);
+
+    if (onProgress) {
+      onProgress(`Processing products ${start + 1}-${end} of ${total}`, end, total);
+    }
+
+    // Yield to the browser so the UI thread can paint.
+    if (end < total) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  return { successfulProducts, failedProducts, issues };
+}

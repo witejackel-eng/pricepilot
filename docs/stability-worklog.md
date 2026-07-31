@@ -187,3 +187,26 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `fix: add client error recovery boundaries`
+
+---
+
+## Phase 6 — perf: remove repeated recommendation recalculation
+
+- Replaced the 10,000-step linear search in `calculateMinimumSafePrice` with a bounded adaptive search:
+  1. Algebraic estimate (unchanged — already in place).
+  2. Validate the estimate (single `calculateOutcomeAtPrice` call).
+  3. If invalid: geometrically expand an upper bound (1, 2, 4, 8, …) until a valid price is found, capped at `MAX_VALIDATION_STEPS = 50` evaluations.
+  4. Binary-search between `lowerBound` and `upperBound` to find the smallest currency-unit-aligned price that satisfies all constraints, also capped at `MAX_VALIDATION_STEPS`.
+  5. Impossible state (no valid upper bound within budget) returns 0 — structured result captures this.
+- Worst case is now O(log n) engine evaluations per product instead of 10,000.
+- Added `RecommendationCalculationContext` interface so shared values (effective rule, break-even, minimum-safe, current outcome) are computed once per product.
+- Added an optional `precomputedMinimumSafe` parameter to `calculateCompetitivePrice`, `calculateBalancedPrice`, `calculatePremiumPrice`. When provided, the expensive search is skipped.
+- Rewrote `calculateAllRecommendations` so it computes `breakEvenPrice`, `minimumSafePrice`, and `currentOutcome` once and passes the precomputed minimum-safe to all three downstream recommendations. Previously each of those functions called `calculateMinimumSafePrice` internally, so the search ran 4× per product.
+- Added `safelyRecalculateProductsBatched` to `safe-calculation.ts` — processes large imports in controlled batches (default 50), yielding to the browser between batches via `setTimeout(0)`. Progress callback receives messages like "Processing products 1-50 of 500". Web Worker is intentionally NOT added — the spec requires measuring first.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run build` — PASS
+
+**Commit**: `perf: remove repeated recommendation recalculation`

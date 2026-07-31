@@ -115,6 +115,24 @@ function hasPurchaseCost(product: Product): boolean {
 }
 
 // ============================================================
+// Phase 6: Recommendation Calculation Context
+// ============================================================
+
+/**
+ * Shared context for recommendation calculation. Expensive values
+ * (break-even, minimum-safe, current outcome) are computed ONCE per
+ * product by calculateAllRecommendations and passed down to each
+ * recommendation mode so they are not recomputed.
+ */
+export interface RecommendationCalculationContext {
+  effectiveRule: ResolvedPricingPolicy;
+  breakEvenPrice: number;
+  minimumSafePrice: number;
+  currentOutcome: PriceOutcome;
+  competitorReference?: number;
+}
+
+// ============================================================
 // Rounding Logic (self-contained in recommendations.ts)
 // ============================================================
 
@@ -351,33 +369,76 @@ export function calculateMinimumSafePrice(
     return roundTo2Decimals(candidateStart);
   }
 
-  // Iterate upward in small increments until all constraints are met
+  // Phase 6: Replace the 10,000-step linear search with a bounded
+  // adaptive search. The algebraic estimate is already close — we
+  // just need to find the smallest currency-unit-aligned price at
+  // which all constraints are satisfied. We use an expanding window
+  // + binary search bounded by MAX_VALIDATION_STEPS so the worst case
+  // is O(log n) evaluations of calculateOutcomeAtPrice per product,
+  // not 10,000.
+  const MAX_VALIDATION_STEPS = 50;
   const increment = 1; // 1 unit of currency
-  const maxIterations = 10000;
-  let candidate = candidateStart;
 
-  for (let i = 0; i < maxIterations; i++) {
-    candidate = roundTo2Decimals(safeAdd(candidate, increment));
+  // First, find an upper bound where all constraints are met. Start
+  // by doubling the offset from candidateStart so we expand geometrically.
+  let lowerBound = candidateStart;
+  let upperBound = candidateStart;
+  let upperOutcome: PriceOutcome | null = null;
+  let stepsUsed = 0;
 
+  for (let i = 0; i < MAX_VALIDATION_STEPS; i++) {
+    upperBound = roundTo2Decimals(safeAdd(upperBound, increment * Math.pow(2, i)));
+    stepsUsed++;
     const outcome = calculateOutcomeAtPrice({
       product,
-      sellingPrice: candidate,
+      sellingPrice: upperBound,
       businessSettings,
       effectiveRule,
     });
-
     if (
       outcome.isProfitable &&
       outcome.satisfiesMinimumMargin &&
       outcome.satisfiesMinimumProfit
     ) {
-      return roundTo2Decimals(candidate);
+      upperOutcome = outcome;
+      break;
+    }
+    // If we've gone more than 1000x the candidateStart without finding
+    // a valid price, the constraints are genuinely impossible.
+    if (upperBound > Math.max(candidateStart * 100, candidateStart + 1000)) {
+      return 0;
     }
   }
 
-  // If we couldn't find a valid price within maxIterations, return 0
-  // (indicates impossible; structured result will capture this)
-  return 0;
+  if (!upperOutcome) {
+    // No valid upper bound found within budget — return 0 (impossible).
+    return 0;
+  }
+
+  // Binary search between lowerBound and upperBound to find the
+  // smallest currency-unit-aligned price that satisfies all constraints.
+  while (stepsUsed < MAX_VALIDATION_STEPS && roundTo2Decimals(safeSub(upperBound, lowerBound)) >= increment) {
+    const mid = roundTo2Decimals(safeAdd(lowerBound, safeDiv(safeSub(upperBound, lowerBound), 2)));
+    if (mid <= lowerBound || mid >= upperBound) break; // convergence
+    stepsUsed++;
+    const midOutcome = calculateOutcomeAtPrice({
+      product,
+      sellingPrice: mid,
+      businessSettings,
+      effectiveRule,
+    });
+    if (
+      midOutcome.isProfitable &&
+      midOutcome.satisfiesMinimumMargin &&
+      midOutcome.satisfiesMinimumProfit
+    ) {
+      upperBound = mid;
+    } else {
+      lowerBound = mid;
+    }
+  }
+
+  return roundTo2Decimals(upperBound);
 }
 
 // ============================================================
@@ -404,14 +465,19 @@ export function calculateCompetitivePrice(
   product: Product,
   businessSettings: BusinessSettings,
   effectiveRule: ResolvedPricingPolicy,
-  competitorStrategy: CompetitorStrategy
+  competitorStrategy: CompetitorStrategy,
+  /**
+   * Phase 6: pre-computed minimum-safe price. If provided, the
+   * expensive search is skipped.
+   */
+  precomputedMinimumSafe?: number
 ): number {
   // If purchase cost is missing, no trusted recommendation
   if (!hasPurchaseCost(product)) {
     return 0;
   }
 
-  const minimumSafe = calculateMinimumSafePrice(product, businessSettings, effectiveRule);
+  const minimumSafe = precomputedMinimumSafe ?? calculateMinimumSafePrice(product, businessSettings, effectiveRule);
   const roundingRule = effectiveRule.roundingRule;
 
   const competitorPrices = product.competitorPrices ?? [];
@@ -506,14 +572,19 @@ export function calculateBalancedPrice(
   product: Product,
   businessSettings: BusinessSettings,
   effectiveRule: ResolvedPricingPolicy,
-  competitorStrategy?: CompetitorStrategy
+  competitorStrategy?: CompetitorStrategy,
+  /**
+   * Phase 6: pre-computed minimum-safe price. If provided, the
+   * expensive search is skipped.
+   */
+  precomputedMinimumSafe?: number
 ): number {
   // If purchase cost is missing, no trusted recommendation
   if (!hasPurchaseCost(product)) {
     return 0;
   }
 
-  const minimumSafe = calculateMinimumSafePrice(product, businessSettings, effectiveRule);
+  const minimumSafe = precomputedMinimumSafe ?? calculateMinimumSafePrice(product, businessSettings, effectiveRule);
   const roundingRule = effectiveRule.roundingRule;
 
   // Weights (configurable, default 60/25/15)
@@ -602,14 +673,19 @@ export function calculatePremiumPrice(
   product: Product,
   businessSettings: BusinessSettings,
   effectiveRule: ResolvedPricingPolicy,
-  competitorStrategy?: CompetitorStrategy
+  competitorStrategy?: CompetitorStrategy,
+  /**
+   * Phase 6: pre-computed minimum-safe price. If provided, the
+   * expensive search is skipped.
+   */
+  precomputedMinimumSafe?: number
 ): number {
   // If purchase cost is missing, no trusted recommendation
   if (!hasPurchaseCost(product)) {
     return 0;
   }
 
-  const minimumSafe = calculateMinimumSafePrice(product, businessSettings, effectiveRule);
+  const minimumSafe = precomputedMinimumSafe ?? calculateMinimumSafePrice(product, businessSettings, effectiveRule);
   const roundingRule = effectiveRule.roundingRule;
 
   // Premium price must at minimum satisfy the TARGET margin, not just premium
@@ -776,14 +852,26 @@ export function calculateAllRecommendations(
     weightPercent: 25,
   };
 
-  // Step 3: Calculate each recommendation level
+  // Step 3: Calculate shared values ONCE — break-even, minimum-safe,
+  // and current outcome. These are reused by every recommendation mode
+  // so we don't pay the (bounded but non-trivial) cost four times.
   const breakEvenPrice = calculateBreakEvenPrice(product, businessSettings, effectiveRule);
   const minimumSafePrice = calculateMinimumSafePrice(product, businessSettings, effectiveRule);
-  const competitivePrice = calculateCompetitivePrice(product, businessSettings, effectiveRule, strategy);
-  const balancedPrice = calculateBalancedPrice(product, businessSettings, effectiveRule, strategy);
-  const premiumPrice = calculatePremiumPrice(product, businessSettings, effectiveRule, strategy);
+  const currentOutcome = calculateOutcomeAtPrice({
+    product,
+    sellingPrice: product.currentSellingPrice,
+    businessSettings,
+    effectiveRule,
+  });
 
-  // Step 4: Validate each through calculateOutcomeAtPrice
+  // Step 4: Calculate each recommendation level, passing the
+  // precomputed minimum-safe price so the expensive search is not
+  // repeated.
+  const competitivePrice = calculateCompetitivePrice(product, businessSettings, effectiveRule, strategy, minimumSafePrice);
+  const balancedPrice = calculateBalancedPrice(product, businessSettings, effectiveRule, strategy, minimumSafePrice);
+  const premiumPrice = calculatePremiumPrice(product, businessSettings, effectiveRule, strategy, minimumSafePrice);
+
+  // Step 5: Validate each through calculateOutcomeAtPrice
   const breakEvenOutcome = calculateOutcomeAtPrice({
     product,
     sellingPrice: breakEvenPrice,
@@ -815,13 +903,7 @@ export function calculateAllRecommendations(
     effectiveRule,
   });
 
-  // Step 5: Current selling price outcome
-  const currentOutcome = calculateOutcomeAtPrice({
-    product,
-    sellingPrice: product.currentSellingPrice,
-    businessSettings,
-    effectiveRule,
-  });
+  // Step 6: currentOutcome was already computed in step 3.
 
   // Step 6: Check for impossible state
   // Impossible if: no purchase cost, or all recommendation prices are 0 (meaning they couldn't be calculated)
