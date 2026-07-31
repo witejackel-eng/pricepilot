@@ -487,3 +487,148 @@ Each phase records the actual command output below.
 **Commit**: `chore: complete production preview verification`
 
 ---
+
+## Phase 7-9 — fix: connect row safe import pipeline with duplicate reconciliation and transactional commit
+
+- Replaced the old "Cleaning" step in `import-flow.tsx` with a "Row Review" step that calls `processImportRows()` with mapped rows, business settings, pricing rules, and existing SKUs.
+- Shows grouped results: Ready to Add, Needs Information, Duplicates Requiring Decision, Rejected Rows.
+- Each row displays its original row number, issues, and proposed action.
+- Includes a Download Issue Report (CSV) button using `downloadIssueReport()`.
+- Added a "Duplicate Resolution" step that appears when duplicates are detected.
+- Shows field-by-field differences between existing and uploaded products using `computeDuplicateDiff()`.
+- Offers 5 strategies: Update Existing Product, Fill Only Missing Fields, Keep Existing Product, Create Separate Copy, Skip This Row.
+- Includes "Apply this choice to all similar duplicates" checkbox.
+- Uses `reconcileDuplicates()` for batch processing.
+- Added `importProductsWithBatch` to the Zustand store that:
+  1. Creates a safety backup first (aborts with clear message if it fails)
+  2. Safely recalculates every proposed product
+  3. Builds the exact final product set
+  4. Creates batch metadata
+  5. Commits all products and metadata in one Dexie transaction via `atomicImportProducts()`
+  6. Updates Zustand only after success
+  7. Returns `ImportCommitResult` with `added`, `updated`, `filledMissing`, `skipped`, `rejected`, `needsReview`
+- New import flow: Upload → Preview → Mapping → Row Review → Duplicate Resolution → Confirmation
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run test` — PASS (156 tests)
+
+**Commit**: `397362a` — `fix: connect row safe import pipeline with duplicate reconciliation and transactional commit`
+
+---
+
+## Phase 21 — feat: add client-side error observability and diagnostic reporting
+
+- Created `src/lib/pricepilot/error-reporter.ts` with:
+  - `reportError()` — captures structured error metadata (category, app version, browser, operation name, product ID, import row number, schema version, IndexedDB availability)
+  - `inferCategory()` — auto-detects error category from error message and operation context
+  - `sanitizeMessage()` — strips currency values and quoted strings that could contain business data
+  - NEVER captures product names, prices, costs, spreadsheet contents, business names, full backup contents
+  - Development: console logging with `[PricePilot Error]` prefix
+  - Production: optional fire-and-forget POST to `NEXT_PUBLIC_ERROR_REPORTING_URL` env var
+  - Local: downloadable diagnostic report via `downloadDiagnosticReport()`
+- Diagnostic report contains: app version, browser info, IndexedDB availability, schema version, database table counts, migration status, last saved timestamp, error history (last 50 errors — categories and timestamps only), storage usage estimate
+- Added "Download Diagnostic Report" button in Settings page
+- Wired `reportError()` into error boundaries: `error.tsx`, `global-error.tsx`, `error-boundary.tsx`
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run test` — PASS (156 tests)
+
+**Commit**: `331bbb9` — `feat: add client-side error observability and diagnostic reporting`
+
+---
+
+## Phase 16-17 — test: replace permissive father workflow e2e and add persistence failure tests
+
+- Replaced the permissive Father Workflow E2E test with a strict 31-step test that:
+  - Uses a real CSV fixture (`tests/fixtures/mixed-products.csv`) with 95 valid + 1 missing-cost + 1 currency-formatted + 1 invalid-percentage + 1 duplicate-SKU + 1 empty-row
+  - No "if visible" branches for required actions — every step uses `expect` assertions
+  - Complete onboarding with exact values
+  - Uploads real CSV through file input
+  - Verifies row counts, resolves duplicates, commits import
+  - Verifies exact product count, refreshes, verifies persistence
+  - Opens missing-cost product, adds cost, approves, applies
+  - Asserts exact price values before and after apply
+  - Undoes and asserts previous price returns
+  - Exports XLSX, downloads backup, clears IndexedDB, restores, verifies
+- Created `tests/fixtures/mixed-products.csv` with realistic test data
+- Added `src/lib/pricepilot/__tests__/persistence-failure.test.ts` with 13 tests:
+  - Add product persistence
+  - Edit persistence
+  - Settings persistence (GST)
+  - Settings persistence (fee)
+  - Approval persistence
+  - Import transaction failure
+  - Import failure message
+  - Backup failure (catalogue)
+  - Backup failure (reset)
+  - Backup validation
+  - Legacy migration
+  - Malformed products
+  - Migration idempotency
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run test` — PASS (169 tests across 10 files)
+
+**Commit**: `32d921a` — `test: replace permissive father workflow e2e and add persistence failure tests`
+
+---
+
+## Phase 19-20 — test: add cross browser and mobile coverage with performance capacity tests
+
+- Updated `playwright.config.ts` with 6 Playwright projects:
+  - Desktop Chrome (existing)
+  - Desktop Firefox
+  - Desktop WebKit (Safari)
+  - Mobile Pixel 7
+  - Mobile iPhone 14
+  - Tablet iPad (custom viewport 1194×834, touch-enabled)
+- Created `tests/e2e/mobile-flow.spec.ts` with 10 mobile-focused tests:
+  - Onboarding works on mobile viewport
+  - Owner Home is visible and usable
+  - Add Product dialog works
+  - Import upload works
+  - Products list is scrollable
+  - Review Prices page is usable
+  - Export works
+  - No horizontal overflow
+  - No clipped controls
+  - Dialogs fit on screen
+  - Buttons remain tappable (44×44 touch target check)
+- Created `src/lib/pricepilot/__tests__/performance-capacity.test.ts` with 12 tests:
+  - 100-product: startup, import, recalculation (all < 2s)
+  - 1,000-product: startup, import, recalculation, export, backup, restore
+  - 5,000-product: startup, recalculation (with notes about batching/Web Worker)
+  - Scaling linearity: verifies 1,000-product isn't >20× the 100-product time
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run test` — PASS (181 tests across 11 files)
+
+**Commit**: `dd048f5` — `test: add cross browser and mobile coverage with performance capacity tests`
+
+---
+
+## Phase 22 — chore: complete production preview verification (updated)
+
+- Updated `docs/production-readiness-verification.md` with all 18 phase commits and their results.
+- Updated test counts: 181 tests across 11 test files.
+- Updated remaining limitations: coverage gaps (6 modules below target), single-product IndexedDB writes, per-product approval invalidation, backup hash verification, CSP inline styles.
+- Updated verdict: Substantially production-ready. All critical phases (7-9, 16-17, 19-21) are now complete.
+- Final commit count: 18 since baseline.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run test` — PASS (181 tests)
+- `bun run build` — PASS
+
+**Commit**: `d3a878c` — `chore: complete production preview verification`
+
+---
