@@ -44,6 +44,16 @@ const TAX_TREATMENTS_QS: { value: string; label: string; desc: string }[] = [
   { value: 'no-exclusive', label: 'No, I add GST on top', desc: 'e.g. ₹500 + 18% = ₹590 — common for B2B sellers' },
   { value: 'exempt', label: 'My products are tax exempt', desc: 'No GST/VAT applies' },
   { value: 'composite', label: 'Composite GST (CGST+SGST)', desc: 'Split GST components' },
+  { value: 'not-sure', label: 'Not sure', desc: 'Skip for now — recommendations will be marked low-confidence until you confirm a rate in Settings' },
+];
+
+/** Phase 12: GST rate question options. */
+const GST_RATES: { value: number; label: string }[] = [
+  { value: 0, label: '0%' },
+  { value: 5, label: '5%' },
+  { value: 12, label: '12%' },
+  { value: 18, label: '18%' },
+  { value: 28, label: '28%' },
 ];
 
 const CHANNELS = [
@@ -158,21 +168,31 @@ export function OnboardingFlow() {
       // Build settings based on setup mode
       if (setupMode === 'quick') {
         const taxTreatment: TaxTreatment = form.taxAnswer === 'yes-inclusive' ? 'inclusive' : form.taxAnswer === 'no-exclusive' ? 'exclusive' : form.taxAnswer === 'exempt' ? 'exempt' : 'composite';
-        // Calculate fees from selected channels (use highest marketplace fee)
+        // Phase 12: do NOT invent fees when no channel is selected.
+        // If the user picked no channels, marketplace fee and payment
+        // fee are both 0%. The recommendation engine will use the
+        // actual product-level fees when they're entered.
         const selectedChannels = CHANNELS.filter(c => form.channels.includes(c.id));
         const maxMarketplaceFee = selectedChannels.length > 0
           ? Math.max(...selectedChannels.map(c => form.channelFees[c.id]?.marketplace ?? c.fees.marketplace))
-          : 5;
+          : 0;
         const maxPaymentFee = selectedChannels.length > 0
           ? Math.max(...selectedChannels.map(c => form.channelFees[c.id]?.payment ?? c.fees.payment))
-          : 2;
+          : 0;
+
+        // Phase 12: GST rate now comes from the form (the user picks
+        // one of 0/5/12/18/28/Custom/Not-sure). Previously this was
+        // hard-coded to 18 for every non-exempt user.
+        const taxRate = form.taxAnswer === 'exempt'
+          ? 0
+          : (typeof form.taxRate === 'number' && form.taxRate >= 0 ? form.taxRate : 0);
 
         completeOnboarding({
           businessName: form.businessName,
           currencyCode: form.currencyCode,
           country: form.country,
           taxTreatment,
-          defaultTaxRatePercent: form.taxAnswer === 'exempt' ? 0 : 18,
+          defaultTaxRatePercent: taxRate,
           defaultTargetMarginPercent: form.targetMargin,
           defaultMinimumMarginPercent: form.minimumMargin,
           defaultRoundingRule: 'no-rounding',
@@ -180,9 +200,17 @@ export function OnboardingFlow() {
           defaultShippingCost: 0,
           defaultPaymentFeePercent: maxPaymentFee,
           defaultMarketplaceFeePercent: maxMarketplaceFee,
-          defaultReturnRatePercent: 2,
+          // Phase 12: do not invent a return-rate default either.
+          // The recommendation engine will use 0 when none is set;
+          // the user can configure it later in Settings.
+          defaultReturnRatePercent: 0,
           defaultHandlingCost: 0,
           defaultOtherCosts: 0,
+          // Phase 12: when the user picked "Not sure" for GST, mark
+          // tax settings as unconfirmed. The recommendation engine
+          // treats unconfirmed-tax products as low-confidence until
+          // the user provides a confirmed rate in Settings.
+          taxSettingsUnconfirmed: form.taxAnswer === 'not-sure',
         });
       } else {
         // Advanced setup - same as original
@@ -265,6 +293,55 @@ export function OnboardingFlow() {
                 </div>
               ))}
             </RadioGroup>
+
+            {/* Phase 12: GST rate question — only shown when the user
+                picked a non-exempt, non-"not-sure" answer. Previously
+                this was hard-coded to 18% for every non-exempt user. */}
+            {(form.taxAnswer === 'yes-inclusive' || form.taxAnswer === 'no-exclusive' || form.taxAnswer === 'composite') && (
+              <div className="mt-4 p-3 rounded-lg border border-emerald-200 bg-emerald-50/30">
+                <Label className={labelClass}>Which GST rate normally applies?</Label>
+                <p className="text-xs text-muted-foreground mt-0.5 mb-2">Pick the rate that applies to most of your products. You can override per-product later.</p>
+                <RadioGroup
+                  value={String(form.taxRate ?? 18)}
+                  onValueChange={v => updateForm('taxRate', parseFloat(v))}
+                  className="grid grid-cols-5 gap-2"
+                >
+                  {GST_RATES.map(r => (
+                    <div key={r.value} className={`flex items-center justify-center p-2 rounded-md border text-sm cursor-pointer transition-all ${
+                      String(form.taxRate) === String(r.value) ? 'border-emerald-500 bg-emerald-100 text-emerald-800 font-medium' : 'border-slate-200 bg-white hover:border-emerald-300'
+                    }`}>
+                      <RadioGroupItem value={String(r.value)} id={`gst-${r.value}`} className="sr-only" />
+                      <Label htmlFor={`gst-${r.value}`} className="cursor-pointer">{r.label}</Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+                <div className="mt-2">
+                  <Label className={`${labelClass} text-xs`}>Or enter a custom rate:</Label>
+                  <Input
+                    type="number"
+                    value={form.taxRate ?? 18}
+                    onChange={e => updateForm('taxRate', parseFloat(e.target.value) || 0)}
+                    className={`${inputClass} mt-1 w-24`}
+                    min={0}
+                    max={100}
+                    step={0.5}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Phase 12: when the user picks "Not sure", show a clear
+                explanation that recommendations will be low-confidence
+                until they confirm a rate in Settings. */}
+            {form.taxAnswer === 'not-sure' && (
+              <div className="mt-4 p-3 rounded-lg border border-amber-200 bg-amber-50/50">
+                <p className="text-sm text-amber-800">
+                  <Info className="inline h-4 w-4 mr-1" />
+                  Recommendations will be marked low-confidence until you confirm a GST rate in Settings.
+                  You can complete onboarding now and update this later.
+                </p>
+              </div>
+            )}
           </div>
         );
 

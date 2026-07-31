@@ -406,3 +406,27 @@ Each phase records the actual command output below.
 **Commit**: `fix: correct add product validation`
 
 ---
+
+## Phase 12 — fix: remove unconfirmed onboarding assumptions
+
+- Added new optional fields to `BusinessSettings` in `src/lib/pricepilot/types.ts`:
+  - `taxSettingsUnconfirmed?: boolean` — set when the user picked "Not sure" for GST during onboarding.
+  - `feeSettingsUnconfirmed?: boolean` — set when the user picked "Confirm later" for marketplace fees.
+  - When either is true, the recommendation engine should treat affected products as low-confidence until the user provides a confirmed value in Settings.
+- Updated `src/components/pricepilot/onboarding-flow.tsx`:
+  - **GST question** — added "Not sure" as a fifth tax-treatment option. Picking it allows onboarding to complete but sets `taxSettingsUnconfirmed: true`.
+  - **GST rate picker** — new UI shown when the user picks inclusive/exclusive/composite. Offers 0% / 5% / 12% / 18% / 28% buttons plus a custom-rate input. Previously the rate was hard-coded to 18 for every non-exempt user.
+  - **"Not sure" warning** — when the user picks "Not sure", an amber info card explains: "Recommendations will be marked low-confidence until you confirm a GST rate in Settings. You can complete onboarding now and update this later."
+  - **No-channel default** — when the user picks NO sales channels, `defaultMarketplaceFeePercent` and `defaultPaymentFeePercent` are now `0` (previously defaulted to 5 and 2 respectively). The recommendation engine uses the actual product-level fees when entered.
+  - **Return rate default** — `defaultReturnRatePercent` is now `0` instead of `2`. The user can configure it later in Settings.
+- The store's `completeOnboarding` action persists these settings atomically via `persistBusinessSettings` and returns `OperationResult` so onboarding is only marked complete if the IndexedDB write succeeds.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (0 errors, 0 warnings)
+- `bun run test` — PASS (156 tests, ~7.7s)
+- `bun run build` — PASS
+
+**Commit**: `fix: remove unconfirmed onboarding assumptions`
+
+---

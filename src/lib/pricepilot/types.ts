@@ -348,6 +348,15 @@ export interface BusinessSettings {
   // --- Rounding ---
   defaultRoundingRule: RoundingRule;
   customRoundingValue?: number;
+
+  // --- Phase 12: Onboarding Flags ---
+  /** True when the user picked "Not sure" for GST during onboarding.
+   * Recommendation confidence is forced to 'low' until the user
+   * provides a confirmed rate in Settings. */
+  taxSettingsUnconfirmed?: boolean;
+  /** True when the user picked "Confirm later" for marketplace fees
+   * during onboarding. Same low-confidence behaviour. */
+  feeSettingsUnconfirmed?: boolean;
   
   // --- Profitability Thresholds ---
   lowMarginThresholdPercent: number;   // Below this = low-margin
