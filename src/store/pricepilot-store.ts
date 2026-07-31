@@ -547,15 +547,15 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   // Business settings
   updateBusinessSettings: async (updates) => {
-    const newSettings = { ...get().businessSettings, ...updates, updatedAt: new Date().toISOString() };
+    const oldSettings = get().businessSettings;
+    const newSettings = { ...oldSettings, ...updates, updatedAt: new Date().toISOString() };
     // Recalculate all products with new settings using the SAFE batch helper
     const { products, pricingRules } = get();
     const batchResult = safelyRecalculateProducts(products, newSettings, pricingRules);
     let recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    // Phase 10: invalidate approvals when settings change — every
-    // approved price is now suspect because the recommendation inputs
-    // changed.
-    recalculated = invalidateApprovalsForSettingsChange(recalculated);
+    // Phase 8: product-specific invalidation — only invalidate products
+    // whose effective pricing inputs actually changed.
+    recalculated = invalidateApprovalsForSettingsChange(recalculated, oldSettings, newSettings, pricingRules);
     // ATOMIC: persist settings + recalculated products in ONE Dexie
     // transaction so the catalogue can never end up with new settings
     // but stale calculations (or vice versa).
@@ -1084,8 +1084,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     // Recalculate products under the new rule set.
     const batchResult = safelyRecalculateProducts(products, businessSettings, newRules);
     let recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    // Phase 10: invalidate approvals when rules change.
-    recalculated = invalidateApprovalsForRulesChange(recalculated);
+    // Phase 8: product-specific invalidation — only invalidate products
+    // whose effective pricing inputs actually changed.
+    recalculated = invalidateApprovalsForRulesChange(recalculated, pricingRules, newRules, businessSettings);
     try {
       await atomicUpdateRulesAndProducts(newRules, recalculated);
       await saveLastSavedTimestampToDb(new Date().toISOString());
@@ -1104,8 +1105,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     );
     const batchResult = safelyRecalculateProducts(products, businessSettings, updated);
     let recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    // Phase 10: invalidate approvals when rules change.
-    recalculated = invalidateApprovalsForRulesChange(recalculated);
+    // Phase 8: product-specific invalidation — only invalidate products
+    // whose effective pricing inputs actually changed.
+    recalculated = invalidateApprovalsForRulesChange(recalculated, pricingRules, updated, businessSettings);
     try {
       await atomicUpdateRulesAndProducts(updated, recalculated);
       await saveLastSavedTimestampToDb(new Date().toISOString());
@@ -1122,8 +1124,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const updated = pricingRules.filter(r => r.id !== id);
     const batchResult = safelyRecalculateProducts(products, businessSettings, updated);
     let recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    // Phase 10: invalidate approvals when rules change.
-    recalculated = invalidateApprovalsForRulesChange(recalculated);
+    // Phase 8: product-specific invalidation — only invalidate products
+    // whose effective pricing inputs actually changed.
+    recalculated = invalidateApprovalsForRulesChange(recalculated, pricingRules, updated, businessSettings);
     try {
       await atomicUpdateRulesAndProducts(updated, recalculated);
       await saveLastSavedTimestampToDb(new Date().toISOString());

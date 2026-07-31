@@ -7,20 +7,44 @@
  * owner to apply a stale approved price that no longer reflected the
  * current cost structure.
  *
+ * Phase 8 (product-specific): only invalidate approvals when the
+ * product's *effective* pricing inputs actually changed.  This avoids
+ * blanket invalidation of every approved product when a rule or
+ * setting that is irrelevant to most products changes.
+ *
+ * Algorithm:
+ *   For each approved product:
+ *   1. Resolve its effective pricing policy before the change
+ *   2. Resolve its effective pricing policy after the change
+ *   3. Compare only financially relevant dependencies
+ *   4. Invalidate the approval only when its effective pricing inputs changed
+ *
  * This module defines:
  *   - `FINANCIAL_DEPENDENCIES` — the complete list of product fields
  *     that affect a recommendation.
  *   - `invalidateApproval(product)` — returns a new product with the
  *     approval cleared and a `needs-review` lifecycle status.
- *   `shouldInvalidateApproval(productBefore, productAfter)` — checks
+ *   - `shouldInvalidateApproval(productBefore, productAfter)` — checks
  *     whether any financial field changed.
- *   - `invalidateApprovalsForSettingsChange(products, oldSettings, newSettings)`
- *     — bulk invalidation when business settings change.
- *   - `invalidateApprovalsForRulesChange(products, oldRules, newRules)`
- *     — bulk invalidation when pricing rules change.
+ *   - `invalidateIfStale(before, after)` — apply invalidation only
+ *     when an approval exists AND a financial field changed.
+ *   - `invalidateApprovalsForSettingsChange(products, oldSettings, newSettings, rules)`
+ *     — product-specific invalidation when business settings change.
+ *   - `invalidateApprovalsForRulesChange(products, oldRules, newRules, businessSettings)`
+ *     — product-specific invalidation when pricing rules change.
  */
 
-import { Product, BusinessSettings, PricingRule, LifecycleStatus } from './types';
+import {
+  Product,
+  BusinessSettings,
+  PricingRule,
+  LifecycleStatus,
+  RoundingRule,
+  TaxTreatment,
+  FeeBasePolicy,
+} from './types';
+import { resolveEffectivePricingPolicy } from './resolve-rule';
+import { safeNumberValue } from './formatting';
 
 // ============================================================
 // Constants
@@ -43,17 +67,21 @@ export const FINANCIAL_DEPENDENCIES = [
   'marketplaceFeeFixed',
   'paymentFeePercent',
   'paymentFeeFixed',
+  'otherFeesPercent',
+  'otherFeesFixed',
   'taxRatePercent',
   'taxTreatment',
   'purchaseTaxRatePercent',
   'purchaseCostTaxMode',
   'inputTaxCreditRecoverable',
+  'feeBasePolicy',
   'currentSellingPrice',
 ] as const;
 
 /**
  * Business settings fields that affect the recommendation engine. If
- * any of these change, every product's approval must be invalidated.
+ * any of these change, products whose effective inputs depend on the
+ * default must have their approval invalidated.
  */
 export const SETTINGS_FINANCIAL_DEPENDENCIES = [
   'defaultTaxRatePercent',
@@ -75,6 +103,111 @@ export const SETTINGS_FINANCIAL_DEPENDENCIES = [
   'feeBasePolicy',
   'currencyCode',
 ] as const;
+
+// ============================================================
+// Effective Pricing Inputs
+// ============================================================
+
+/**
+ * Snapshot of all financially relevant inputs for a product.
+ * Used to compare the effective inputs before and after a change.
+ */
+interface EffectivePricingInputs {
+  // From ResolvedPricingPolicy (source trace values — accurate)
+  targetMarginPercent: number;
+  minimumMarginPercent: number;
+  premiumMarginPercent: number;
+  minimumProfitPerUnit: number;
+  taxRatePercent: number;
+  taxTreatment: TaxTreatment;
+  marketplaceFeePercent: number;
+  marketplaceFeeFixed: number;
+  paymentFeePercent: number;
+  paymentFeeFixed: number;
+  otherFeesPercent: number;
+  otherFeesFixed: number;
+  feeBasePolicy: FeeBasePolicy;
+  roundingRule: RoundingRule;
+  customRoundingValue: number;
+  inputTaxRecoverablePercent: number;
+  competitorStrategy: string; // JSON-stringified for comparison
+
+  // Effective cost fields (product value with settings default fallback)
+  effectiveShippingCost: number;
+  effectivePackagingCost: number;
+  effectiveHandlingCost: number;
+  effectiveOtherCosts: number;
+  effectiveReturnRatePercent: number;
+  effectiveDamageRatePercent: number;
+}
+
+/**
+ * Extract a snapshot of all financially relevant pricing inputs for a
+ * product, resolved against the given rules and business settings.
+ *
+ * Uses the sourceTrace values from resolveEffectivePricingPolicy,
+ * which correctly handle the "0 means use default" convention for
+ * tax/fee fields.
+ */
+export function extractEffectivePricingInputs(
+  product: Product,
+  rules: PricingRule[],
+  businessSettings: BusinessSettings,
+): EffectivePricingInputs {
+  const policy = resolveEffectivePricingPolicy(product, rules, businessSettings);
+  const st = policy.sourceTrace;
+
+  return {
+    // From resolved policy (source trace values)
+    targetMarginPercent: st['targetMarginPercent']?.value as number ?? policy.targetMarginPercent,
+    minimumMarginPercent: st['minimumMarginPercent']?.value as number ?? policy.minimumMarginPercent,
+    premiumMarginPercent: st['premiumMarginPercent']?.value as number ?? policy.premiumMarginPercent,
+    minimumProfitPerUnit: st['minimumProfitPerUnit']?.value as number ?? policy.minimumProfitPerUnit,
+    taxRatePercent: st['taxRatePercent']?.value as number ?? policy.taxRatePercent,
+    taxTreatment: (st['taxTreatment']?.value as TaxTreatment) ?? policy.taxTreatment,
+    marketplaceFeePercent: st['marketplaceFeePercent']?.value as number ?? policy.marketplaceFeePercent,
+    marketplaceFeeFixed: st['marketplaceFeeFixed']?.value as number ?? policy.marketplaceFeeFixed,
+    paymentFeePercent: st['paymentFeePercent']?.value as number ?? policy.paymentFeePercent,
+    paymentFeeFixed: st['paymentFeeFixed']?.value as number ?? policy.paymentFeeFixed,
+    otherFeesPercent: st['otherFeesPercent']?.value as number ?? policy.otherFeesPercent,
+    otherFeesFixed: st['otherFeesFixed']?.value as number ?? policy.otherFeesFixed,
+    feeBasePolicy: (st['feeBasePolicy']?.value as FeeBasePolicy) ?? policy.feeBasePolicy,
+    roundingRule: (st['roundingRule']?.value as RoundingRule) ?? policy.roundingRule,
+    customRoundingValue: (st['customRoundingValue']?.value as number) ?? policy.customRoundingValue ?? 0,
+    inputTaxRecoverablePercent: st['inputTaxRecoverablePercent']?.value as number ?? policy.inputTaxRecoverablePercent,
+    competitorStrategy: JSON.stringify(st['competitorStrategy']?.value ?? policy.competitorStrategy),
+
+    // Effective cost fields (product value with settings default fallback)
+    effectiveShippingCost: safeNumberValue(product.shippingCost, businessSettings.defaultShippingCost),
+    effectivePackagingCost: safeNumberValue(product.packagingCost, businessSettings.defaultPackagingCost),
+    effectiveHandlingCost: safeNumberValue(product.handlingCost, businessSettings.defaultHandlingCost),
+    effectiveOtherCosts: safeNumberValue(product.otherCosts, businessSettings.defaultOtherCosts),
+    effectiveReturnRatePercent: safeNumberValue(product.returnRatePercent, businessSettings.defaultReturnRatePercent),
+    effectiveDamageRatePercent: safeNumberValue(product.damageRatePercent, businessSettings.defaultDamageRatePercent),
+  };
+}
+
+/**
+ * Compare two effective pricing inputs snapshots and return true if
+ * any financially relevant field changed. Uses epsilon comparison for
+ * numbers and strict equality for strings.
+ */
+export function haveEffectivePricingInputsChanged(
+  before: EffectivePricingInputs,
+  after: EffectivePricingInputs,
+): boolean {
+  const keys = Object.keys(before) as (keyof EffectivePricingInputs)[];
+  for (const key of keys) {
+    const a = before[key];
+    const b = after[key];
+    if (typeof a === 'number' || typeof b === 'number') {
+      if (Math.abs(Number(a) - Number(b)) > 1e-9) return true;
+    } else if (a !== b) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // ============================================================
 // Helpers
@@ -168,42 +301,68 @@ export function getChangedSettingsFields(
 }
 
 /**
- * Invalidate the approval on EVERY product that currently has an
- * approval. Used after a business settings change — since settings
- * affect the recommendation engine, every approved price is suspect.
+ * Product-specific invalidation when business settings change.
+ *
+ * For each approved product, resolves its effective pricing inputs
+ * before and after the change, and only invalidates the approval if
+ * the effective inputs changed. This avoids blanket invalidation of
+ * every approved product when a setting that is irrelevant (e.g.
+ * overridden by a product-specific rule) changes.
  *
  * Returns a new array — does not mutate the input.
  */
 export function invalidateApprovalsForSettingsChange(
   products: Product[],
+  oldSettings: BusinessSettings,
+  newSettings: BusinessSettings,
+  rules: PricingRule[],
 ): Product[] {
-  return products.map(p =>
-    p.priceApprovalStatus === 'none' || !p.finalApprovedPrice
-      ? p
-      : invalidateApproval(p),
-  );
+  return products.map(p => {
+    // Only check products with an active approval
+    if (p.priceApprovalStatus === 'none' || !p.finalApprovedPrice) {
+      return p;
+    }
+    const before = extractEffectivePricingInputs(p, rules, oldSettings);
+    const after = extractEffectivePricingInputs(p, rules, newSettings);
+    if (haveEffectivePricingInputsChanged(before, after)) {
+      return invalidateApproval(p);
+    }
+    return p;
+  });
 }
 
 /**
- * Invalidate the approval on every product that currently has an
- * approval AND whose effective pricing rule has changed.
+ * Product-specific invalidation when pricing rules change.
  *
- * For simplicity (and because rule resolution is complex), this
- * invalidates EVERY approved product when ANY rule changes. A more
- * granular implementation would resolve each product's effective rule
- * before and after, and only invalidate those whose rule actually
- * changed. The granular approach is a future optimization.
+ * For each approved product, resolves its effective pricing inputs
+ * before and after the rule change, and only invalidates the approval
+ * if the effective inputs changed. This means:
+ *   - A category rule change only invalidates products in that category
+ *   - A channel rule change only invalidates products in that channel
+ *   - A global rule change only invalidates products not shielded by
+ *     a higher-priority rule
+ *   - A product-specific rule change only invalidates the target product
  *
  * Returns a new array — does not mutate the input.
  */
 export function invalidateApprovalsForRulesChange(
   products: Product[],
+  oldRules: PricingRule[],
+  newRules: PricingRule[],
+  businessSettings: BusinessSettings,
 ): Product[] {
-  return products.map(p =>
-    p.priceApprovalStatus === 'none' || !p.finalApprovedPrice
-      ? p
-      : invalidateApproval(p),
-  );
+  return products.map(p => {
+    // Only check products with an active approval
+    if (p.priceApprovalStatus === 'none' || !p.finalApprovedPrice) {
+      return p;
+    }
+    const before = extractEffectivePricingInputs(p, oldRules, businessSettings);
+    const after = extractEffectivePricingInputs(p, newRules, businessSettings);
+    if (haveEffectivePricingInputsChanged(before, after)) {
+      return invalidateApproval(p);
+    }
+    return p;
+  });
 }
 
 /**
