@@ -40,6 +40,7 @@ import {
   exportAllData,
   importAllData,
   getLastSavedTimestamp,
+  loadAppSettings,
 } from '@/lib/pricepilot/storage';
 import { calculateAllRecommendations, mapRecommendationsToProduct } from '@/lib/pricepilot/recommendations';
 import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
@@ -55,6 +56,31 @@ import {
   makeFailedSummary,
 } from '@/lib/pricepilot/initialization';
 import { normalizeProduct } from '@/lib/pricepilot/product-normalizer';
+import {
+  loadAllProducts,
+  loadBusinessSettingsFromDb,
+  loadPricingRulesFromDb,
+  loadScenariosFromDb,
+  saveProductsToDb,
+  saveBusinessSettingsToDb,
+  savePricingRulesToDb,
+  saveScenariosToDb,
+  loadUndoHistoryFromDb,
+  saveUndoHistoryToDb,
+  loadBackupsFromDb,
+  saveBackupsToDb,
+  addBackupToDb,
+  atomicImportProducts,
+  atomicResetAll,
+  atomicRestoreBackup,
+  getMetadata,
+  setMetadata,
+} from '@/lib/pricepilot/database';
+import {
+  migrateLegacyDataIfNeeded,
+  hasLegacyLocalStorageData,
+  MigrationResult,
+} from '@/lib/pricepilot/migration';
 
 /**
  * Helper: Calculate product using the new recommendations engine.
@@ -256,20 +282,68 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   autoBackups: loadAutoBackups(),
   helpPanelOpen: false,
 
-  // Initialize from localStorage
-  initialize: () => {
+  // Initialize from IndexedDB (with localStorage migration)
+  initialize: async () => {
     // Mark as loading FIRST so the UI can render the "Opening your
     // PricePilot workspace…" screen instead of briefly flashing
     // onboarding.
     set({ initialization: makeLoadingSummary() });
 
     try {
-      const data = initializeStorage();
+      // Phase 10: Run the localStorage → IndexedDB migration first.
+      // This is idempotent and atomic — if it fails, the original
+      // localStorage data is untouched.
+      let migrationResult: MigrationResult | null = null;
+      try {
+        migrationResult = await migrateLegacyDataIfNeeded();
+        if (migrationResult.status === 'failed') {
+          console.warn('[PricePilot] localStorage migration failed.', migrationResult.message);
+          // We still try to load from IndexedDB — it may have partial
+          // data from a previous successful migration, or it may be
+          // empty. Either way, the owner can use the app.
+        } else if (migrationResult.status === 'complete' && migrationResult.hadLegacyData) {
+          console.info('[PricePilot] localStorage migration completed.', migrationResult.message);
+        }
+      } catch (migrationErr) {
+        console.error('[PricePilot] Migration threw unexpectedly.', migrationErr);
+      }
+
+      // Phase 9: Load from IndexedDB.
+      let products: Product[] = [];
+      let businessSettings: BusinessSettings | null = null;
+      let pricingRules: PricingRule[] = [];
+      let scenarios: Scenario[] = [];
+      let undoHistory: UndoAction[] = [];
+      let backups: AutoBackup[] = [];
+
+      try {
+        products = await loadAllProducts();
+        businessSettings = await loadBusinessSettingsFromDb();
+        pricingRules = await loadPricingRulesFromDb();
+        scenarios = await loadScenariosFromDb();
+        undoHistory = await loadUndoHistoryFromDb();
+        backups = await loadBackupsFromDb();
+      } catch (dbErr) {
+        console.error('[PricePilot] Could not load from IndexedDB.', dbErr);
+        // Fall back to legacy localStorage if IndexedDB is unavailable.
+        // This keeps the app usable in environments without IndexedDB
+        // (e.g. some private browsing modes).
+        const legacy = initializeStorage();
+        products = legacy.products;
+        businessSettings = legacy.businessSettings;
+        pricingRules = legacy.pricingRules;
+        scenarios = legacy.scenarios;
+      }
+
+      // Use defaults if business settings weren't found.
+      if (!businessSettings) {
+        businessSettings = createDefaultBusinessSettings();
+      }
 
       // Run calculations on all loaded products using the SAFE batch helper
       // so a single malformed stored product cannot blank the whole app.
       const batchResult = safelyRecalculateProducts(
-        data.products, data.businessSettings, data.pricingRules
+        products, businessSettings, pricingRules
       );
       const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
       if (batchResult.issues.length > 0) {
@@ -279,8 +353,11 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         );
       }
 
-      const mode = data.appSettings.applicationMode || 'owner';
-      const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
+      const mode = (businessSettings as BusinessSettings).defaultRoundingRule ? 'owner' : 'owner'; // placeholder for app mode
+      // We need appSettings from localStorage (theme/mode/sidebar are still in localStorage).
+      const legacyAppSettings = loadAppSettings();
+      const actualMode = legacyAppSettings.applicationMode || 'owner';
+      const defaultView: AppView = actualMode === 'owner' ? 'owner-home' : 'dashboard';
 
       // Build the initialization summary.
       const needsReviewCount = recalculated.filter(
@@ -290,29 +367,28 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       const summary = makeReadySummary(successfulCount, needsReviewCount);
 
       set({
-        businessSettings: data.businessSettings,
+        businessSettings: businessSettings as BusinessSettings,
         products: recalculated,
-        pricingRules: data.pricingRules,
-        scenarios: data.scenarios,
-        appSettings: data.appSettings,
-        onboardingCompleted: data.onboardingCompleted,
+        pricingRules,
+        scenarios,
+        appSettings: legacyAppSettings,
+        onboardingCompleted: (businessSettings as BusinessSettings).onboardingCompleted ?? false,
         lastSaved: getLastSavedTimestamp(),
-        currentView: data.onboardingCompleted ? defaultView : 'dashboard',
-        autoBackups: loadAutoBackups(),
+        currentView: (businessSettings as BusinessSettings).onboardingCompleted ? defaultView : 'dashboard',
+        autoBackups: backups,
+        undoHistory,
         initialization: summary,
       });
 
-      // Save recalculated products (best-effort; failure here is not fatal
-      // because we already have the data in memory).
+      // Persist recalculated products back to IndexedDB (best-effort).
       try {
-        saveProducts(recalculated);
+        await saveProductsToDb(recalculated);
       } catch (saveErr) {
         console.warn('[PricePilot] Could not persist recalculated products on startup.', saveErr);
       }
     } catch (err) {
-      // Storage initialization failed entirely. DO NOT delete the old
-      // data — surface a failure summary so the UI can offer recovery
-      // options (Try Again / Download Existing Data / Start Empty).
+      // Total initialization failure. DO NOT delete the old data —
+      // surface a failure summary so the UI can offer recovery options.
       console.error('[PricePilot] Initialization failed.', err);
       set({ initialization: makeFailedSummary(err) });
     }

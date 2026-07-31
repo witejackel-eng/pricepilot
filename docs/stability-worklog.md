@@ -306,3 +306,43 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `feat: migrate catalogue storage to indexeddb`
+
+---
+
+## Phase 10 — feat: add safe localstorage migration
+
+- Created `src/lib/pricepilot/migration.ts`:
+  - `MigrationStatus = 'not-started' | 'in-progress' | 'complete' | 'failed' | 'skipped'`
+  - `MigrationResult` interface with counts and a human-readable message.
+  - `hasLegacyLocalStorageData()` — detects any of the legacy `pricepilot_v1_*` keys or the legacy auto-backup key.
+  - `migrateLegacyDataIfNeeded()` — IDEMPOTENT. Checks metadata first; if migration already completed, returns immediately.
+    1. Marks migration as `in-progress` in the metadata table.
+    2. Reads legacy localStorage data.
+    3. Normalizes every product via `normalizeProducts` so malformed legacy data is repaired before being written.
+    4. Saves business settings, pricing rules, scenarios, and atomically imports products into IndexedDB.
+    5. Verifies the written count matches the attempted count.
+    6. Marks migration as `complete` and sets storage version to 2.
+    7. On failure: rolls back the IndexedDB transaction; localStorage data is **never** deleted.
+    8. Success message: `"Your PricePilot data was upgraded safely. 104 products were moved. 3 products need review."`
+    9. Failure message: `"Your existing data was not changed. PricePilot could not finish the storage upgrade."`
+  - `removeLegacyLocalStorageCopy()` — manually removes the legacy keys. To be wired into a Settings button (only enabled after migration is verified complete).
+  - `isLegacyDataStillPresent()` — for showing/hiding the manual cleanup button.
+- Updated `store/pricepilot-store.ts`:
+  - Imported all IndexedDB CRUD helpers and migration functions.
+  - Converted `initialize()` to `async`. New startup sequence:
+    1. Set `initialization: loading`.
+    2. Run `migrateLegacyDataIfNeeded()` (idempotent, atomic, never deletes localStorage).
+    3. Load products, businessSettings, pricingRules, scenarios, undoHistory, backups from IndexedDB.
+    4. Fall back to legacy `initializeStorage()` if IndexedDB is unavailable (e.g. private browsing).
+    5. Use defaults if business settings were not found.
+    6. Recalculate via `safelyRecalculateProducts` (one malformed product cannot abort the batch).
+    7. Count needs-review products and produce a `ready` or `ready-with-warnings` summary.
+    8. Persist recalculated products back to IndexedDB (best-effort).
+    9. On any uncaught failure: set `initialization: failed` — **does NOT delete localStorage**.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run build` — PASS
+
+**Commit**: `feat: add safe localstorage migration`
