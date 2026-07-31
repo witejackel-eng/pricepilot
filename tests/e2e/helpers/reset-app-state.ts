@@ -128,13 +128,27 @@ export type NavigationTarget = keyof typeof navigationIds;
  * Navigate to a view using the stable test ID.
  *
  * On mobile, opens the mobile navigation first if the sidebar
- * is not visible.
+ * is not visible. Also dismisses any open dialogs/sheets that
+ * might intercept pointer events.
  */
 export async function navigateTo(
   page: Page,
   target: NavigationTarget,
 ): Promise<void> {
   const testId = navigationIds[target];
+
+  // Dismiss any open dialogs/sheets/drawers that might intercept clicks.
+  // Press Escape to close any open overlay.
+  await page.keyboard.press('Escape').catch(() => {});
+  // Wait briefly for any overlay to close
+  await page.waitForTimeout(300);
+
+  // Check if there's still a sheet overlay open and try to close it
+  const overlay = page.locator('[data-slot="sheet-overlay"][data-state="open"], [role="dialog"][data-state="open"]').first();
+  if (await overlay.isVisible({ timeout: 500 }).catch(() => false)) {
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(500);
+  }
 
   // On mobile, the sidebar may be hidden behind a hamburger menu.
   // Try to open the mobile menu first.

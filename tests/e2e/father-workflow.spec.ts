@@ -64,10 +64,9 @@ const BUSINESS_NAME = 'Test Business E2E';
 
 /** Get the current selling price from the product detail drawer. */
 async function getExistingPrice(page: Page): Promise<number> {
-  const priceLabel = page.locator('[data-testid="existing-price-label"]');
-  await expect(priceLabel, 'Existing Price label must be visible in drawer').toBeVisible({ timeout: 5_000 });
-  const priceCard = priceLabel.locator('..');
-  const priceText = await priceCard.locator('.text-2xl').first().textContent() ?? '';
+  const priceValue = page.locator('[data-testid="existing-price-value"]');
+  await expect(priceValue, 'Existing Price value must be visible in drawer').toBeVisible({ timeout: 5_000 });
+  const priceText = await priceValue.textContent() ?? '';
   const value = parseCurrency(priceText);
   expect(value, `Existing price must be a valid number, got "${priceText}"`).not.toBeNaN();
   return value;
@@ -75,10 +74,9 @@ async function getExistingPrice(page: Page): Promise<number> {
 
 /** Get the recommended price from the product detail drawer. */
 async function getRecommendedPrice(page: Page): Promise<number> {
-  const recLabel = page.locator('[data-testid="recommended-price-label"]');
-  await expect(recLabel, 'Recommended Price label must be visible in drawer').toBeVisible({ timeout: 5_000 });
-  const recCard = recLabel.locator('..');
-  const recText = await recCard.locator('.text-2xl').first().textContent() ?? '';
+  const recValue = page.locator('[data-testid="recommended-price-value"]');
+  await expect(recValue, 'Recommended Price value must be visible in drawer').toBeVisible({ timeout: 5_000 });
+  const recText = await recValue.textContent() ?? '';
   const value = parseCurrency(recText);
   expect(value, `Recommended price must be a valid number, got "${recText}"`).not.toBeNaN();
   return value;
@@ -105,6 +103,21 @@ async function openProductBySku(page: Page, sku: string): Promise<void> {
   // Clear search after opening the product
   if (await searchInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
     await searchInput.clear();
+  }
+}
+
+/** Close the product detail drawer if it's open. */
+async function closeProductDrawer(page: Page): Promise<void> {
+  const drawer = page.locator('[role="dialog"][data-state="open"], [data-slot="sheet-content"]').first();
+  if (await drawer.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    // Try pressing Escape to close the drawer
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(500);
+    // If still open, try clicking outside
+    if (await drawer.isVisible({ timeout: 500 }).catch(() => false)) {
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(500);
+    }
   }
 }
 
@@ -401,6 +414,12 @@ test.describe('Strict Father Workflow E2E', () => {
     await expect(applyButton, 'Apply as Selling Price button must be visible').toBeVisible({ timeout: 5_000 });
     await applyButton.click();
 
+    // Wait for the "Price applied" toast to confirm the action completed
+    const applyToast = page.locator('text=Price applied').first();
+    await expect(applyToast, 'Price applied toast must appear').toBeVisible({ timeout: 10_000 }).catch(() => {
+      // Toast may disappear quickly; continue even if not caught
+    });
+
     // ============================================================
     // Step 20: Assert current price becomes the approved value
     // ============================================================
@@ -428,6 +447,9 @@ test.describe('Strict Father Workflow E2E', () => {
     expect(priceAfterRefresh, 'Applied price must persist after refresh').toBe(appliedPrice);
     await assertNoInvalidNumbers(page, 'after refresh with applied price');
 
+    // Close the product drawer before navigating
+    await closeProductDrawer(page);
+
     // ============================================================
     // Step 22: Undo
     // ============================================================
@@ -437,6 +459,12 @@ test.describe('Strict Father Workflow E2E', () => {
     await expect(undoButton, 'Undo button must be visible and enabled').toBeVisible({ timeout: 5_000 });
     await expect(undoButton, 'Undo button must be enabled').toBeEnabled({ timeout: 5_000 });
     await undoButton.click();
+
+    // Wait for the "Action undone" toast to confirm the undo completed
+    const undoToast = page.locator('text=Action undone').first();
+    await expect(undoToast, 'Action undone toast must appear').toBeVisible({ timeout: 10_000 }).catch(() => {
+      // Toast may disappear quickly; continue even if not caught
+    });
 
     // ============================================================
     // Step 23: Verify undo returns to the previous price
@@ -463,6 +491,9 @@ test.describe('Strict Father Workflow E2E', () => {
     const priceAfterUndoRefresh = await getExistingPrice(page);
     expect(priceAfterUndoRefresh, 'Undo result must persist after refresh').toBe(priceAfterUndo);
     await assertNoInvalidNumbers(page, 'after refresh with undo result');
+
+    // Close the product drawer before navigating
+    await closeProductDrawer(page);
 
     // ============================================================
     // Step 25: Export XLSX

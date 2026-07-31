@@ -293,14 +293,14 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
               <Card className="bg-gradient-to-b from-slate-50 to-white shadow-sm rounded-xl border border-slate-100">
                 <CardContent className="p-3">
                   <div className="text-xs text-muted-foreground" data-testid="existing-price-label">Existing Price</div>
-                  <div className="text-2xl font-bold">{formatCurrency(product.currentSellingPrice, cc)}</div>
+                  <div className="text-2xl font-bold" data-testid="existing-price-value">{formatCurrency(product.currentSellingPrice, cc)}</div>
                   <div className="text-sm font-medium text-muted-foreground">Margin: {formatPercentage(product.calculatedMarginPercent)}</div>
                 </CardContent>
               </Card>
               <Card className="bg-gradient-to-b from-emerald-50 to-white shadow-sm rounded-xl border border-emerald-200">
                 <CardContent className="p-3">
                   <div className="text-xs text-muted-foreground" data-testid="recommended-price-label">Recommended Price</div>
-                  <div className="text-2xl font-bold text-emerald-700">{formatCurrency(product.recommendedPrices.balanced, cc)}</div>
+                  <div className="text-2xl font-bold text-emerald-700" data-testid="recommended-price-value">{formatCurrency(product.recommendedPrices.balanced, cc)}</div>
                   <div className={`text-sm font-medium ${diffFromExisting(product.recommendedPrices.balanced) > 0 ? 'text-emerald-600' : diffFromExisting(product.recommendedPrices.balanced) < 0 ? 'text-red-600' : 'text-slate-500'}`}>
                     {diffFromExisting(product.recommendedPrices.balanced) > 0 ? <ArrowUpRight className="h-4 w-4 inline" /> : diffFromExisting(product.recommendedPrices.balanced) < 0 ? <ArrowDownRight className="h-4 w-4 inline" /> : null}
                     {diffFromExisting(product.recommendedPrices.balanced) > 0 ? '+' : ''}{formatCurrency(diffFromExisting(product.recommendedPrices.balanced), cc)}
