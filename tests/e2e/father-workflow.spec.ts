@@ -88,6 +88,12 @@ async function getRecommendedPrice(page: Page): Promise<number> {
 async function openProductBySku(page: Page, sku: string): Promise<void> {
   await navigateTo(page, 'products');
 
+  // The table is virtualized, so search for the SKU first
+  const searchInput = page.locator('input[placeholder*="earch"], input[type="search"]').first();
+  if (await searchInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await searchInput.fill(sku);
+  }
+
   const productRow = page.locator(`[data-testid="product-row"][data-sku="${sku}"]`).first();
   await expect(productRow, `Product row with SKU "${sku}" must be visible`).toBeVisible({ timeout: 10_000 });
   await productRow.click();
@@ -95,11 +101,31 @@ async function openProductBySku(page: Page, sku: string): Promise<void> {
   // Verify the drawer opened
   const drawer = page.locator('[role="dialog"], [data-state="open"]').first();
   await expect(drawer, 'Product detail drawer must be open').toBeVisible({ timeout: 5_000 });
+
+  // Clear search after opening the product
+  if (await searchInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await searchInput.clear();
+  }
 }
 
-/** Count product rows in the products table. */
+/** Get the total product count from the products page UI text.
+ *  The table is virtualized, so we can't count DOM rows.
+ *  Instead, read the "X of Y products" text. */
 async function getProductCount(page: Page): Promise<number> {
   await navigateTo(page, 'products');
+  // The products page shows "X of Y products" where Y is the total count.
+  const bodyText = await page.locator('body').textContent() ?? '';
+  const match = bodyText.match(/(\d+)\s+of\s+(\d+)\s+products/);
+  if (match) {
+    return parseInt(match[2], 10);
+  }
+  // Fallback: try to find the count in the header badge
+  const badgeText = await page.locator('text=products').first().textContent() ?? '';
+  const badgeMatch = badgeText.match(/(\d+)\s+products/);
+  if (badgeMatch) {
+    return parseInt(badgeMatch[1], 10);
+  }
+  // Last resort: count DOM rows (may be inaccurate due to virtualization)
   const rows = page.locator('[data-testid="product-row"]');
   return await rows.count();
 }
@@ -303,9 +329,19 @@ test.describe('Strict Father Workflow E2E', () => {
     expect(productCountAfterRefresh, `Product count must persist after refresh, expected ${EXPECTED_PRODUCT_COUNT}`).toBe(EXPECTED_PRODUCT_COUNT);
 
     // Verify the duplicate did not create an extra product
+    // The table is virtualized, so SKU-001 may not be in the visible rows.
+    // Search for it to make it visible.
+    const searchInput = page.locator('input[placeholder*="earch"], input[type="search"]').first();
+    if (await searchInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await searchInput.fill('SKU-001');
+    }
     const sku001Rows = page.locator('[data-testid="product-row"][data-sku="SKU-001"]');
     const sku001Count = await sku001Rows.count();
     expect(sku001Count, 'Duplicate SKU-001 must not create an extra product — must be exactly 1').toBe(1);
+    // Clear search
+    if (await searchInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await searchInput.clear();
+    }
 
     // ============================================================
     // Step 13: Open the missing-cost product
