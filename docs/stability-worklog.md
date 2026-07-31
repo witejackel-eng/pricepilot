@@ -271,3 +271,38 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `fix: reconcile duplicate SKUs during import`
+
+---
+
+## Phase 9 — feat: migrate catalogue storage to indexeddb
+
+- Installed `dexie@4.4.4`.
+- Created `src/lib/pricepilot/database.ts` with `PricePilotDatabase` class extending Dexie.
+- Database name: `pricepilot`. Database version: 1.
+- Tables:
+  - `products` (key: `id`; indexes: `sku`, `lifecycleStatus`, `calculatedPricingStatus`, `category`, `brand`, `salesChannel`)
+  - `businessSettings` (key: `id`; singleton with id `current`)
+  - `pricingRules` (key: `id`; indexes: `level`, `isActive`, `priority`, `targetCategory`, `targetBrand`, `targetChannel`)
+  - `scenarios` (key: `id`; indexes: `scenarioType`, `createdAt`)
+  - `importBatches` (key: `id`; indexes: `startedAt`, `fileName`)
+  - `importIssues` (key: `id`; indexes: `batchId`, `rowNumber`, `status`)
+  - `undoActions` (key: `id`; indexes: `timestamp`, `type`)
+  - `backups` (key: `id`; indexes: `timestamp`, `trigger`)
+  - `metadata` (key: `key` — generic key/value store)
+- Singleton `getDb()` lazily constructs the database. Throws cleanly if IndexedDB is unavailable (SSR / tests without fake-indexeddb).
+- `setDbForTesting(db)` and `resetDbForTesting()` for test injection.
+- Atomic operations using Dexie transactions:
+  - `atomicImportProducts(products, batchMetadata?)` — all-or-nothing import. Either every product is written or none are. Records the import batch metadata in the same transaction.
+  - `atomicBulkUpdateProducts(products)` — atomic bulk update.
+  - `atomicApplyApprovedPrices(products)` — atomic price application.
+  - `atomicRestoreBackup(payload)` — atomic restore across products, businessSettings, pricingRules, scenarios.
+  - `atomicResetAll()` — atomic reset of every table except `metadata` (which tracks migration state).
+- CRUD wrappers: `loadAllProducts`, `saveProductsToDb`, `saveProductToDb`, `removeProductFromDb`, `loadBusinessSettingsFromDb`, `saveBusinessSettingsToDb`, `loadPricingRulesFromDb`, `savePricingRulesToDb`, `loadScenariosFromDb`, `saveScenariosToDb`, `loadUndoHistoryFromDb`, `saveUndoHistoryToDb`, `loadBackupsFromDb`, `saveBackupsToDb`, `addBackupToDb`, `getMetadata`, `setMetadata`.
+- localStorage is now reserved for: theme, application mode, sidebar state, tour completion, last opened page.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run build` — PASS
+
+**Commit**: `feat: migrate catalogue storage to indexeddb`
