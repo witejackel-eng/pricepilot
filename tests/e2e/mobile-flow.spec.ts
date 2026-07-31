@@ -97,6 +97,14 @@ async function assertNoClippedControls(page: Page): Promise<void> {
   expect(clipped, 'No controls should be clipped off-screen').toEqual([]);
 }
 
+/** Dismiss the tour invitation if it appears (to avoid visual overlap with buttons). */
+async function dismissTourInvitation(page: Page): Promise<void> {
+  const dismissButton = page.locator('[data-testid="dismiss-tour-button"]');
+  if (await dismissButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await dismissButton.click();
+  }
+}
+
 /** Complete onboarding on a fresh browser. */
 async function completeOnboarding(page: Page): Promise<void> {
   const businessNameInput = page.locator('#businessName');
@@ -114,6 +122,9 @@ async function completeOnboarding(page: Page): Promise<void> {
   // Wait for owner home
   const ownerHome = page.locator('[data-testid="owner-home"]');
   await expect(ownerHome, 'Owner Home must be visible after onboarding').toBeVisible({ timeout: 15_000 });
+
+  // Dismiss the tour invitation to avoid visual overlap
+  await dismissTourInvitation(page);
 }
 
 // ============================================================

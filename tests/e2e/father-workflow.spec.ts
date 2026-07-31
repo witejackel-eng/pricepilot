@@ -182,15 +182,21 @@ test.describe('Strict Father Workflow E2E', () => {
     await assertNoInvalidNumbers(page, 'after onboarding');
 
     // ============================================================
-    // Step 5: Verify no blocking tour
+    // Step 5: Verify no blocking tour and dismiss invitation
     // ============================================================
     const tourDialog = page.locator('[data-testid="guided-tour-dialog"]');
     await expect(tourDialog, 'Guided tour dialog must NOT auto-open').not.toBeVisible({ timeout: 3_000 });
 
-    // The tour invitation may be visible (non-blocking) — that's fine.
-    // But it must NOT block navigation.
-    const tourInvitation = page.locator('[data-testid="tour-invitation"]');
-    // The invitation is non-blocking, so it's OK if visible or not.
+    // The tour invitation is non-blocking (pointer-events-none on container)
+    // but its card may still visually overlap buttons. Dismiss it to avoid
+    // any interference with subsequent interactions.
+    const dismissTourButton = page.locator('[data-testid="dismiss-tour-button"]');
+    if (await dismissTourButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await dismissTourButton.click();
+      // Verify the invitation is gone
+      const tourInvitation = page.locator('[data-testid="tour-invitation"]');
+      await expect(tourInvitation, 'Tour invitation must be dismissed').not.toBeVisible({ timeout: 3_000 });
+    }
 
     // ============================================================
     // Step 6: Refresh and verify onboarding remains complete
