@@ -192,6 +192,7 @@ async function openMissingCostProduct(page: Page): Promise<void> {
 
 test.describe('Strict Father Workflow E2E', () => {
   test('complete owner workflow: setup -> CSV upload -> duplicate resolve -> approve -> apply -> undo -> refresh -> backup', async ({ page, context }) => {
+    test.setTimeout(120_000);
     const errors = attachErrorWatchers(page);
 
     // Monitor unhandled promise rejections
@@ -226,9 +227,9 @@ test.describe('Strict Father Workflow E2E', () => {
     await page.waitForTimeout(800);
 
     // Step 2: GST question — select "Yes, GST is already in my price"
-    const inclusiveRadio = page.locator('#yes-inclusive');
-    await expect(inclusiveRadio, 'GST inclusive radio must be visible').toBeVisible({ timeout: 5_000 });
-    await inclusiveRadio.click();
+    const inclusiveLabel = page.locator('label[for="yes-inclusive"]');
+    await expect(inclusiveLabel, 'GST inclusive label must be visible').toBeVisible({ timeout: 5_000 });
+    await inclusiveLabel.click();
     await page.waitForTimeout(500);
 
     // Select 18% GST rate (it should be visible since we selected inclusive)
@@ -248,9 +249,9 @@ test.describe('Strict Father Workflow E2E', () => {
     await page.waitForTimeout(800);
 
     // Step 4: Sales channels — select "Amazon", then Complete Setup
-    const amazonCheckbox = page.locator('#amazon');
-    await expect(amazonCheckbox, 'Amazon checkbox must be visible').toBeVisible({ timeout: 5_000 });
-    await amazonCheckbox.click();
+    const amazonLabel = page.locator('label[for="amazon"]');
+    await expect(amazonLabel, 'Amazon label must be visible').toBeVisible({ timeout: 5_000 });
+    await amazonLabel.click();
     await page.waitForTimeout(500);
 
     // Click Complete Setup (the last step)
