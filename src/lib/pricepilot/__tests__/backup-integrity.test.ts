@@ -517,8 +517,8 @@ describe('backup integrity — 9. Restore transaction failure', () => {
 
     // Mock atomicRestoreBackup to throw.
     const originalRestore = atomicRestoreBackup;
-    const module = await import('../database');
-    const spy = vi.spyOn(module, 'atomicRestoreBackup').mockRejectedValue(new Error('IDB transaction failed'));
+    const dbModule = await import('../database');
+    const spy = vi.spyOn(dbModule, 'atomicRestoreBackup').mockRejectedValue(new Error('IDB transaction failed'));
 
     const result = await getStore().restoreBackup(json);
 
