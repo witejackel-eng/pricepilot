@@ -119,3 +119,38 @@ Each phase records the actual command output below.
 **Commit**: `refactor: make indexeddb the single data source`
 
 ---
+
+## Phase 2 — fix: persist every product mutation atomically
+
+- Created `src/lib/pricepilot/operation-result.ts`:
+  - `OperationResult<T>` discriminated union: `{ success: true; data: T; message: string }` | `{ success: false; code: string; message: string; recoverable: boolean }`.
+  - `ERROR_CODES` constant: `validation-failed`, `normalization-failed`, `calculation-failed`, `database-error`, `backup-failed`, `not-found`, `unauthorized`, `conflict`.
+  - Helpers: `ok()`, `retryableError()`, `invalidInputError()`, `wrapPromise()`.
+- Updated the store type signatures for ALL product mutations to return `Promise<OperationResult>`:
+  - `addProduct`, `updateProduct`, `deleteProduct`, `deleteSelectedProducts`
+  - `bulkUpdateProducts`, `approveSelectedProducts`, `markSelectedForReview`
+  - `loadSampleData`, `loadDemoSampleData`, `removeDemoSampleData`, `clearAllProducts`, `recalculateProducts`
+  - `duplicateProduct`, `approveProductPrice`, `applyApprovedPrice`
+  - `bulkSetField`, `bulkApprovePrices`, `archiveProducts`
+  - `importProducts`
+- Each mutation now follows the canonical sequence:
+  1. Validate input (return `invalidInputError` if missing/not found).
+  2. Build next state (calculate via `safelyRecalculateProducts`).
+  3. `await persistProducts(...)` — IndexedDB transaction.
+  4. On success: `set(...)` Zustand state, return `ok(...)`.
+  5. On failure: log + return `retryableError(...)` — Zustand state is UNCHANGED.
+- Updated critical call sites to `await` the mutation and show error toasts:
+  - `add-product-dialog.tsx` — Add Product save handler.
+  - `product-detail-drawer.tsx` — Edit save, Approve Price, Apply Price (both inline and modal), Delete.
+  - `import-flow.tsx` — `handleImport` now blocks on `importProducts` and surfaces a toast on failure.
+- Other call sites (products-page bulk actions, dashboard-page, bulk-adjust-dialog, price-simulator) continue to work because TypeScript allows calling an async function without awaiting — the returned Promise is discarded. They will be migrated to await + error toast in subsequent phases if needed.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (0 errors, 0 warnings)
+- `bun run test` — PASS (115 tests, ~6.5s)
+- `bun run build` — PASS
+
+**Commit**: `fix: persist every product mutation atomically`
+
+---

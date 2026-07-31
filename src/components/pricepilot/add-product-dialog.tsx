@@ -149,18 +149,22 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
   }, [businessSettings]);
 
   // Save handler
-  const handleSave = useCallback((keepOpen: boolean = false) => {
+  const handleSave = useCallback(async (keepOpen: boolean = false) => {
     if (validationErrors.length > 0) return;
     const product: Product = {
       ...(form as Product),
       competitorPrices: competitors,
     };
-    addProduct(product);
-    toast.success('Product added', { description: `${product.name} has been added to your product list` });
-    if (!keepOpen) {
-      onOpenChange(false);
+    const result = await addProduct(product);
+    if (result.success) {
+      toast.success('Product added', { description: `${product.name} has been added to your product list` });
+      if (!keepOpen) {
+        onOpenChange(false);
+      }
+      resetForm();
+    } else {
+      toast.error('Could not add product', { description: result.message });
     }
-    resetForm();
   }, [form, competitors, validationErrors, addProduct, onOpenChange, resetForm]);
 
   const cc = businessSettings.currencyCode;

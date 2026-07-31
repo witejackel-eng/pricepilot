@@ -78,6 +78,13 @@ import {
   hasLegacyLocalStorageData,
   MigrationResult,
 } from '@/lib/pricepilot/migration';
+import {
+  OperationResult,
+  ERROR_CODES,
+  ok,
+  retryableError,
+  invalidInputError,
+} from '@/lib/pricepilot/operation-result';
 
 /**
  * Helper: Calculate product using the new recommendations engine.
@@ -197,30 +204,30 @@ interface PricePilotState {
   completeOnboarding: (settings: Partial<BusinessSettings>) => void;
 
   // Products
-  addProduct: (product: Product) => void;
-  updateProduct: (id: string, updates: Partial<Product>) => void;
-  deleteProduct: (id: string) => void;
-  deleteSelectedProducts: () => void;
-  bulkUpdateProducts: (ids: string[], updates: Partial<Product>) => void;
-  approveSelectedProducts: () => void;
-  markSelectedForReview: () => void;
-  loadSampleData: () => void;
-  loadDemoSampleData: () => void;
-  removeDemoSampleData: () => void;
-  clearAllProducts: () => void;
-  recalculateProducts: () => void;
+  addProduct: (product: Product) => Promise<OperationResult>;
+  updateProduct: (id: string, updates: Partial<Product>) => Promise<OperationResult>;
+  deleteProduct: (id: string) => Promise<OperationResult>;
+  deleteSelectedProducts: () => Promise<OperationResult>;
+  bulkUpdateProducts: (ids: string[], updates: Partial<Product>) => Promise<OperationResult>;
+  approveSelectedProducts: () => Promise<OperationResult>;
+  markSelectedForReview: () => Promise<OperationResult>;
+  loadSampleData: () => Promise<OperationResult>;
+  loadDemoSampleData: () => Promise<OperationResult>;
+  removeDemoSampleData: () => Promise<OperationResult>;
+  clearAllProducts: () => Promise<OperationResult>;
+  recalculateProducts: () => Promise<OperationResult>;
 
   // Product workflow
-  duplicateProduct: (productId: string) => void;
-  approveProductPrice: (productId: string, recommendationMode: RecommendationMode) => void;
-  applyApprovedPrice: (productId: string) => void;
-  bulkSetField: (productIds: string[], field: string, value: unknown) => void;
-  bulkApprovePrices: (productIds: string[]) => void;
-  archiveProducts: (productIds: string[]) => void;
+  duplicateProduct: (productId: string) => Promise<OperationResult>;
+  approveProductPrice: (productId: string, recommendationMode: RecommendationMode) => Promise<OperationResult>;
+  applyApprovedPrice: (productId: string) => Promise<OperationResult>;
+  bulkSetField: (productIds: string[], field: string, value: unknown) => Promise<OperationResult>;
+  bulkApprovePrices: (productIds: string[]) => Promise<OperationResult>;
+  archiveProducts: (productIds: string[]) => Promise<OperationResult>;
 
   // Import
   updateImportState: (updates: Partial<ImportState>) => void;
-  importProducts: (products: Product[]) => void;
+  importProducts: (products: Product[]) => Promise<OperationResult>;
   resetImportState: () => void;
 
   // Pricing rules
@@ -541,31 +548,33 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   // Products
-  addProduct: (product) => {
+  addProduct: async (product) => {
     const { businessSettings, pricingRules, products } = get();
     const calculated = recalcProduct(product, businessSettings, pricingRules);
     const newProducts = [...products, calculated];
-    persistProducts(newProducts)
-      .then(() => {
-        set({ products: newProducts });
-      })
-      .catch(() => {
-        // Error already logged.
-      });
+    try {
+      await persistProducts(newProducts);
+      set({ products: newProducts });
+      return ok(undefined, 'Product added.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not add the product.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  updateProduct: (id, updates) => {
+  updateProduct: async (id, updates) => {
     const { products, businessSettings, pricingRules } = get();
     const productBefore = products.find(p => p.id === id);
-    if (productBefore) {
-      get().pushUndoAction({
-        type: 'product-edit',
-        productId: id,
-        previousState: { ...productBefore },
-        timestamp: new Date().toISOString(),
-        description: `Edited ${productBefore.name || 'product'}`,
-      });
+    if (!productBefore) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Product not found.');
     }
+    get().pushUndoAction({
+      type: 'product-edit',
+      productId: id,
+      previousState: { ...productBefore },
+      timestamp: new Date().toISOString(),
+      description: `Edited ${productBefore.name || 'product'}`,
+    });
     const updated = products.map(p => {
       if (p.id === id) {
         const merged = { ...p, ...updates, updatedAt: new Date().toISOString() };
@@ -573,38 +582,54 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    persistProducts(updated)
-      .then(() => set({ products: updated }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistProducts(updated);
+      set({ products: updated });
+      return ok(undefined, 'Product saved.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not save the product.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  deleteProduct: (id) => {
+  deleteProduct: async (id) => {
     const { products } = get();
     const productBefore = products.find(p => p.id === id);
-    if (productBefore) {
-      get().pushUndoAction({
-        type: 'product-delete',
-        productId: id,
-        previousState: { ...productBefore },
-        timestamp: new Date().toISOString(),
-        description: `Deleted ${productBefore.name || 'product'}`,
-      });
+    if (!productBefore) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Product not found.');
     }
+    get().pushUndoAction({
+      type: 'product-delete',
+      productId: id,
+      previousState: { ...productBefore },
+      timestamp: new Date().toISOString(),
+      description: `Deleted ${productBefore.name || 'product'}`,
+    });
     const newProducts = products.filter(p => p.id !== id);
-    persistProducts(newProducts)
-      .then(() => set({ products: newProducts, selectedProducts: [] }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistProducts(newProducts);
+      set({ products: newProducts, selectedProducts: [] });
+      return ok(undefined, 'Product deleted.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not delete the product.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  deleteSelectedProducts: () => {
+  deleteSelectedProducts: async () => {
     const { selectedProducts, products } = get();
     const newProducts = products.filter(p => !selectedProducts.includes(p.id));
-    persistProducts(newProducts)
-      .then(() => set({ products: newProducts, selectedProducts: [] }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistProducts(newProducts);
+      set({ products: newProducts, selectedProducts: [] });
+      return ok(undefined, `${selectedProducts.length} product(s) deleted.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not delete the selected products.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  bulkUpdateProducts: (ids, updates) => {
+  bulkUpdateProducts: async (ids, updates) => {
     const { products, businessSettings, pricingRules } = get();
     const updated = products.map(p => {
       if (ids.includes(p.id)) {
@@ -613,25 +638,32 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    persistProducts(updated)
-      .then(() => set({ products: updated }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistProducts(updated);
+      set({ products: updated });
+      return ok(undefined, `${ids.length} product(s) updated.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not update the products.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  approveSelectedProducts: () => {
+  approveSelectedProducts: async () => {
     const { selectedProducts } = get();
-    get().bulkUpdateProducts(selectedProducts, { isApproved: true, calculatedPricingStatus: 'approved' as PricingStatus });
+    return get().bulkUpdateProducts(selectedProducts, { isApproved: true, calculatedPricingStatus: 'approved' as PricingStatus });
   },
 
-  markSelectedForReview: () => {
+  markSelectedForReview: async () => {
     const { selectedProducts } = get();
-    get().bulkUpdateProducts(selectedProducts, { calculatedPricingStatus: 'needs-review' as PricingStatus, lifecycleStatus: 'needs-review' as LifecycleStatus });
+    return get().bulkUpdateProducts(selectedProducts, { calculatedPricingStatus: 'needs-review' as PricingStatus, lifecycleStatus: 'needs-review' as LifecycleStatus });
   },
 
-  duplicateProduct: (productId) => {
+  duplicateProduct: async (productId) => {
     const { products, businessSettings, pricingRules } = get();
     const original = products.find(p => p.id === productId);
-    if (!original) return;
+    if (!original) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Product not found.');
+    }
     const newProduct: Product = {
       ...original,
       id: `prod-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -647,17 +679,23 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     };
     const calculated = recalcProduct(newProduct, businessSettings, pricingRules);
     const newProducts = [...products, calculated];
-    persistProducts(newProducts)
-      .then(() => set({ products: newProducts }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistProducts(newProducts);
+      set({ products: newProducts });
+      return ok(undefined, 'Product duplicated.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not duplicate the product.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  approveProductPrice: (productId, recommendationMode) => {
+  approveProductPrice: async (productId, recommendationMode) => {
     const { products, businessSettings, pricingRules } = get();
     const product = products.find(p => p.id === productId);
-    if (!product) return;
+    if (!product) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Product not found.');
+    }
     const approvedPrice = product.recommendedPrices[recommendationMode] || product.recommendedPrices.balanced;
-    // Push undo action
     get().pushUndoAction({
       type: 'price-approve',
       productId,
@@ -680,16 +718,25 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    persistProducts(updated)
-      .then(() => set({ products: updated }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistProducts(updated);
+      set({ products: updated });
+      return ok(undefined, 'Price approved.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not approve the price.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  applyApprovedPrice: (productId) => {
+  applyApprovedPrice: async (productId) => {
     const { products, businessSettings, pricingRules } = get();
     const product = products.find(p => p.id === productId);
-    if (!product || product.priceApprovalStatus !== 'approved' || product.finalApprovedPrice <= 0) return;
-    // Push undo action
+    if (!product) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Product not found.');
+    }
+    if (product.priceApprovalStatus !== 'approved' || product.finalApprovedPrice <= 0) {
+      return invalidInputError(ERROR_CODES.VALIDATION_FAILED, 'Approve a price before applying it.');
+    }
     get().pushUndoAction({
       type: 'price-apply',
       productId,
@@ -708,12 +755,17 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    persistProducts(updated)
-      .then(() => set({ products: updated }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistProducts(updated);
+      set({ products: updated });
+      return ok(undefined, 'Price applied.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not apply the price.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  bulkSetField: (productIds, field, value) => {
+  bulkSetField: async (productIds, field, value) => {
     const { products, businessSettings, pricingRules } = get();
     const updated = products.map(p => {
       if (productIds.includes(p.id)) {
@@ -722,12 +774,17 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    persistProducts(updated)
-      .then(() => set({ products: updated }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistProducts(updated);
+      set({ products: updated });
+      return ok(undefined, `${productIds.length} product(s) updated.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not update the products.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  bulkApprovePrices: (productIds) => {
+  bulkApprovePrices: async (productIds) => {
     const { products, businessSettings, pricingRules } = get();
     get().pushUndoAction({
       type: 'bulk-approve',
@@ -751,81 +808,103 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    persistProducts(updated)
-      .then(() => set({ products: updated }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistProducts(updated);
+      set({ products: updated });
+      return ok(undefined, `${productIds.length} price(s) approved.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not approve the prices.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  archiveProducts: (productIds) => {
-    get().bulkSetField(productIds, 'lifecycleStatus', 'archived' as LifecycleStatus);
+  archiveProducts: async (productIds) => {
+    return get().bulkSetField(productIds, 'lifecycleStatus', 'archived' as LifecycleStatus);
   },
 
-  loadSampleData: () => {
+  loadSampleData: async () => {
     const { businessSettings, pricingRules } = get();
     const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
-    // Use the SAFE batch helper so even sample data can't crash the app
     const batchResult = safelyRecalculateProducts(SAMPLE_PRODUCTS, businessSettings, existingRules);
     const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
     const rulesToSave = pricingRules.length === 0 ? SAMPLE_PRICING_RULES : pricingRules;
-    // Persist products and rules in parallel.
-    Promise.all([
-      persistProducts(calculated),
-      pricingRules.length === 0 ? persistPricingRules(SAMPLE_PRICING_RULES) : Promise.resolve(),
-    ])
-      .then(() => {
-        set({ products: calculated, pricingRules: rulesToSave });
-      })
-      .catch(() => { /* logged */ });
+    try {
+      await Promise.all([
+        persistProducts(calculated),
+        pricingRules.length === 0 ? persistPricingRules(SAMPLE_PRICING_RULES) : Promise.resolve(),
+      ]);
+      set({ products: calculated, pricingRules: rulesToSave });
+      return ok(undefined, 'Sample data loaded.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not load sample data.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  loadDemoSampleData: () => {
-    get().createAutoBackup('manual', 'Before loading demo sample data')
-      .then(() => {
-        const { businessSettings, pricingRules } = get();
-        const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
-        const batchResult = safelyRecalculateProducts(SAMPLE_PRODUCTS, businessSettings, existingRules);
-        const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-        const rulesToSave = pricingRules.length === 0 ? SAMPLE_PRICING_RULES : pricingRules;
-        return Promise.all([
-          persistProducts(calculated),
-          pricingRules.length === 0 ? persistPricingRules(SAMPLE_PRICING_RULES) : Promise.resolve(),
-        ]).then(() => {
-          get().updateAppSettings({ sampleDataLoaded: true });
-          set({ products: calculated, pricingRules: rulesToSave });
-        });
-      })
-      .catch((err) => {
-        console.error('[PricePilot] loadDemoSampleData aborted: backup creation failed.', err);
-      });
+  loadDemoSampleData: async () => {
+    try {
+      await get().createAutoBackup('manual', 'Before loading demo sample data');
+    } catch (err) {
+      return retryableError(ERROR_CODES.BACKUP_FAILED, 'Could not create a safety backup. Sample data was not loaded.');
+    }
+    const { businessSettings, pricingRules } = get();
+    const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
+    const batchResult = safelyRecalculateProducts(SAMPLE_PRODUCTS, businessSettings, existingRules);
+    const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    const rulesToSave = pricingRules.length === 0 ? SAMPLE_PRICING_RULES : pricingRules;
+    try {
+      await Promise.all([
+        persistProducts(calculated),
+        pricingRules.length === 0 ? persistPricingRules(SAMPLE_PRICING_RULES) : Promise.resolve(),
+      ]);
+      get().updateAppSettings({ sampleDataLoaded: true });
+      set({ products: calculated, pricingRules: rulesToSave });
+      return ok(undefined, 'Demo data loaded.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not load demo data.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  removeDemoSampleData: () => {
-    clearProductsInDb()
-      .then(async () => {
-        await saveLastSavedTimestampToDb(new Date().toISOString());
-        get().updateAppSettings({ sampleDataLoaded: false });
-        set({ products: [] });
-      })
-      .catch(() => { /* logged */ });
+  removeDemoSampleData: async () => {
+    try {
+      await clearProductsInDb();
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      get().updateAppSettings({ sampleDataLoaded: false });
+      set({ products: [] });
+      return ok(undefined, 'Demo data removed.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not remove demo data.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  clearAllProducts: () => {
-    clearProductsInDb()
-      .then(async () => {
-        await saveLastSavedTimestampToDb(new Date().toISOString());
-        set({ products: [] });
-      })
-      .catch(() => { /* logged */ });
+  clearAllProducts: async () => {
+    try {
+      await clearProductsInDb();
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ products: [] });
+      return ok(undefined, 'All products cleared.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not clear products.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  recalculateProducts: () => {
+  recalculateProducts: async () => {
     set({ isCalculating: true });
     const { businessSettings, pricingRules, products } = get();
     const batchResult = safelyRecalculateProducts(products, businessSettings, pricingRules);
     const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    persistProducts(recalculated)
-      .then(() => set({ products: recalculated, isCalculating: false }))
-      .catch(() => set({ isCalculating: false }));
+    try {
+      await persistProducts(recalculated);
+      set({ products: recalculated, isCalculating: false });
+      return ok(undefined, 'Recalculated.');
+    } catch (err) {
+      set({ isCalculating: false });
+      const message = err instanceof Error ? err.message : 'Could not recalculate products.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
   // Import
@@ -833,29 +912,33 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     set({ importState: { ...get().importState, ...updates } });
   },
 
-  importProducts: (newProducts) => {
+  importProducts: async (newProducts) => {
     // Create auto-backup before import. If backup fails, abort.
-    get().createAutoBackup('import', `Before importing ${newProducts.length} products`)
-      .then(() => {
-        const { businessSettings, pricingRules, products } = get();
-        const batchResult = safelyRecalculateProducts(newProducts, businessSettings, pricingRules);
-        const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-        get().pushUndoAction({
-          type: 'import',
-          productIds: calculated.map(p => p.id),
-          previousState: [...products],
-          timestamp: new Date().toISOString(),
-          description: `Imported ${calculated.length} products`,
-        });
-        const allProducts = [...products, ...calculated];
-        return persistProducts(allProducts).then(() => {
-          set({ products: allProducts, currentView: 'products' });
-          get().resetImportState();
-        });
-      })
-      .catch((err) => {
-        console.error('[PricePilot] importProducts aborted: backup creation failed.', err);
-      });
+    try {
+      await get().createAutoBackup('import', `Before importing ${newProducts.length} products`);
+    } catch (err) {
+      return retryableError(ERROR_CODES.BACKUP_FAILED, 'Could not create a safety backup. The import was not applied.');
+    }
+    const { businessSettings, pricingRules, products } = get();
+    const batchResult = safelyRecalculateProducts(newProducts, businessSettings, pricingRules);
+    const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    get().pushUndoAction({
+      type: 'import',
+      productIds: calculated.map(p => p.id),
+      previousState: [...products],
+      timestamp: new Date().toISOString(),
+      description: `Imported ${calculated.length} products`,
+    });
+    const allProducts = [...products, ...calculated];
+    try {
+      await persistProducts(allProducts);
+      set({ products: allProducts, currentView: 'products' });
+      get().resetImportState();
+      return ok(undefined, `Imported ${calculated.length} product(s).`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not import the products.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
   resetImportState: () => {

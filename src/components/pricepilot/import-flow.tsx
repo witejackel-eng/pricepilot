@@ -422,7 +422,7 @@ export function ImportFlow() {
     setStep('confirmation');
   };
 
-  const handleImport = () => {
+  const handleImport = async () => {
     const newProducts: Product[] = previewProducts.map((p, i) => ({
       ...createDefaultProduct(),
       ...p,
@@ -431,7 +431,11 @@ export function ImportFlow() {
       updatedAt: new Date().toISOString(),
     })) as Product[];
 
-    importProducts(newProducts);
+    const result = await importProducts(newProducts);
+    if (!result.success) {
+      toast.error('Import failed', { description: result.message });
+      return;
+    }
 
     // Calculate import summary
     const needingAttention = newProducts.filter(p =>
