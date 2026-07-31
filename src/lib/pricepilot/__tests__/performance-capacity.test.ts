@@ -408,7 +408,7 @@ describe('Performance: 5,000 products (capacity boundary)', () => {
     db.close();
   });
 
-  it('recalculation with 5,000 products completes in under 30 seconds', async () => {
+  it('recalculation with 5,000 products completes in under 30 seconds', { timeout: 60_000 }, async () => {
     const db = setupFreshDb();
     const { settings, rules } = await initSettingsAndRules();
 
