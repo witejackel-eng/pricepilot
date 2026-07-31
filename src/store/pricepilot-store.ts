@@ -46,15 +46,20 @@ import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
 import { SAMPLE_PRODUCTS, SAMPLE_PRICING_RULES } from '@/lib/pricepilot/sample-data';
 import { RecommendationResult, RecommendedOutcomes } from '@/lib/pricepilot/types';
 import { safeNumberValue } from '@/lib/pricepilot/formatting';
+import { safelyRecalculateProducts, safelyRecalculateProduct } from '@/lib/pricepilot/safe-calculation';
 
 /**
  * Helper: Calculate product using the new recommendations engine.
  * Replaces the old calculateProduct() from calculations.ts.
+ *
+ * NOTE: This thin wrapper still calls the engine directly. For any path
+ * that processes UNTRUSTED input (localStorage, imports, backups), use
+ * `safelyRecalculateProduct` instead so a single malformed product
+ * cannot crash the whole batch.
  */
 function recalcProduct(product: Product, settings: BusinessSettings, rules: PricingRule[]): Product {
-  const allRecs = calculateAllRecommendations(product, settings, rules);
-  const effectiveRule = resolveEffectivePricingPolicy(product, rules, settings);
-  return mapRecommendationsToProduct(product, allRecs, settings, effectiveRule) as Product;
+  const result = safelyRecalculateProduct(product, settings, rules);
+  return result.product;
 }
 
 // Navigation views
@@ -239,8 +244,18 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   // Initialize from localStorage
   initialize: () => {
     const data = initializeStorage();
-    // Run calculations on all loaded products
-    const recalculated = data.products.map(p => recalcProduct(p, data.businessSettings, data.pricingRules));
+    // Run calculations on all loaded products using the SAFE batch helper
+    // so a single malformed stored product cannot blank the whole app.
+    const batchResult = safelyRecalculateProducts(
+      data.products, data.businessSettings, data.pricingRules
+    );
+    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    if (batchResult.issues.length > 0) {
+      console.warn(
+        `[PricePilot] ${batchResult.issues.length} product(s) had calculation issues during startup.`,
+        batchResult.issues
+      );
+    }
     const mode = data.appSettings.applicationMode || 'owner';
     const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
     set({
@@ -271,9 +286,10 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const newSettings = { ...get().businessSettings, ...updates, updatedAt: new Date().toISOString() };
     saveBusinessSettings(newSettings);
     set({ businessSettings: newSettings });
-    // Recalculate all products with new settings
+    // Recalculate all products with new settings using the SAFE batch helper
     const { products, pricingRules } = get();
-    const recalculated = products.map(p => recalcProduct(p, newSettings, pricingRules));
+    const batchResult = safelyRecalculateProducts(products, newSettings, pricingRules);
+    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
     saveProducts(recalculated);
     set({ products: recalculated, lastSaved: getLastSavedTimestamp() });
   },
@@ -497,7 +513,10 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   loadSampleData: () => {
     const { businessSettings, pricingRules } = get();
     const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
-    const calculated = SAMPLE_PRODUCTS.map(p => recalcProduct(p, businessSettings, existingRules));
+    // Use the SAFE batch helper so even sample data can't crash the app
+    // if it ever drifts out of sync with the schema.
+    const batchResult = safelyRecalculateProducts(SAMPLE_PRODUCTS, businessSettings, existingRules);
+    const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
     saveProducts(calculated);
     if (pricingRules.length === 0) {
       savePricingRules(SAMPLE_PRICING_RULES);
@@ -510,7 +529,8 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     get().createAutoBackup('manual', 'Before loading demo sample data');
     const { businessSettings, pricingRules } = get();
     const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
-    const calculated = SAMPLE_PRODUCTS.map(p => recalcProduct(p, businessSettings, existingRules));
+    const batchResult = safelyRecalculateProducts(SAMPLE_PRODUCTS, businessSettings, existingRules);
+    const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
     saveProducts(calculated);
     if (pricingRules.length === 0) {
       savePricingRules(SAMPLE_PRICING_RULES);
@@ -534,7 +554,10 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   recalculateProducts: () => {
     set({ isCalculating: true });
     const { businessSettings, pricingRules, products } = get();
-    const recalculated = products.map(p => recalcProduct(p, businessSettings, pricingRules));
+    // Use the SAFE batch helper so a single malformed product cannot
+    // abort the entire recalculation.
+    const batchResult = safelyRecalculateProducts(products, businessSettings, pricingRules);
+    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
     saveProducts(recalculated);
     set({ products: recalculated, isCalculating: false, lastSaved: getLastSavedTimestamp() });
   },
@@ -548,7 +571,10 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     // Create auto-backup before import
     get().createAutoBackup('import', `Before importing ${newProducts.length} products`);
     const { businessSettings, pricingRules, products } = get();
-    const calculated = newProducts.map(p => recalcProduct(p, businessSettings, pricingRules));
+    // Use the SAFE batch helper so a single malformed import row cannot
+    // abort the entire import.
+    const batchResult = safelyRecalculateProducts(newProducts, businessSettings, pricingRules);
+    const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
     // Push undo action
     get().pushUndoAction({
       type: 'import',

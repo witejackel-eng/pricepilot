@@ -101,3 +101,34 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `fix: normalize legacy and malformed product records`
+
+---
+
+## Phase 3 — fix: isolate individual product calculation failures
+
+- Created `src/lib/pricepilot/safe-calculation.ts` with:
+  - `ProductCalculationResult` discriminated union — `success: true/false`. The `product` field is ALWAYS present and safe to render.
+  - `safelyRecalculateProduct(rawProduct, businessSettings, pricingRules)` — never throws. Pipeline:
+    1. Normalizes input via `normalizeProduct`.
+    2. Short-circuits with a structured "missing-data" result when purchase cost is missing.
+    3. Validates business settings.
+    4. Resolves effective pricing policy in try/catch.
+    5. Runs `calculateAllRecommendations` in try/catch.
+    6. Maps recommendations onto the product in try/catch.
+    7. Validates every numeric output with `Number.isFinite`.
+    8. On any failure: returns a fallback product with `lifecycleStatus: 'needs-review'`, `calculatedPricingStatus: 'needs-review'`, `recommendedPrices.confidence: 'low'`, plus a useful internal issue like "Price calculation could not be completed because the marketplace fee is invalid."
+  - `safelyRecalculateProducts(rawProducts, businessSettings, pricingRules)` — batch helper. Each product processed in its own try/catch. One failure does NOT abort the batch. Returns `{ successfulProducts, failedProducts, issues }`.
+- Replaced the unsafe direct `products.map(p => recalcProduct(...))` pattern in the Zustand store:
+  - `initialize()` — now uses `safelyRecalculateProducts`.
+  - `updateBusinessSettings()` — same.
+  - `recalculateProducts()` — same.
+  - `importProducts()` — same.
+  - `loadSampleData()` and `loadDemoSampleData()` — same.
+- The `recalcProduct` helper now delegates to `safelyRecalculateProduct` so all single-product paths (add, update, duplicate, approve, apply, undo) inherit the same isolation guarantees.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run build` — PASS
+
+**Commit**: `fix: isolate individual product calculation failures`
