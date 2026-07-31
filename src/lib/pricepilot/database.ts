@@ -38,6 +38,7 @@ import {
   BusinessSettings,
   PricingRule,
   Scenario,
+  createDefaultBusinessSettings,
 } from './types';
 import { UndoAction, AutoBackup } from '@/store/pricepilot-store';
 import { ImportRowResult } from './import-service';
@@ -398,3 +399,51 @@ export async function setMetadata(key: string, value: unknown): Promise<void> {
     updatedAt: new Date().toISOString(),
   });
 }
+
+/**
+ * Atomically clear the entire products table. Used by `clearAllProducts`
+ * and `removeDemoSampleData`.
+ */
+export async function clearProductsInDb(): Promise<void> {
+  const db = getDb();
+  await db.transaction('rw', db.products, async () => {
+    await db.products.clear();
+  });
+}
+
+/**
+ * Canonical export — reads the entire primary state from IndexedDB in
+ * one read transaction so the resulting snapshot is internally
+ * consistent. Used by backup/export paths.
+ */
+export async function exportAllDataFromDb(): Promise<{
+  businessSettings: BusinessSettings;
+  products: Product[];
+  pricingRules: PricingRule[];
+  scenarios: Scenario[];
+}> {
+  const db = getDb();
+  return db.transaction('r', db.products, db.businessSettings, db.pricingRules, db.scenarios, async () => {
+    const [products, settingsRecord, pricingRules, scenarios] = await Promise.all([
+      db.products.toArray(),
+      db.businessSettings.get(BUSINESS_SETTINGS_ID),
+      db.pricingRules.toArray(),
+      db.scenarios.toArray(),
+    ]);
+    const businessSettings = settingsRecord
+      ? (() => {
+          const { id: _id, ...rest } = settingsRecord;
+          return rest as BusinessSettings;
+        })()
+      : null;
+    return {
+      businessSettings: businessSettings ?? createDefaultBusinessSettings(),
+      products,
+      pricingRules,
+      scenarios,
+    };
+  });
+}
+
+// Local import to avoid circular dependency at module load.
+// (Moved to top of file alongside other type imports.)

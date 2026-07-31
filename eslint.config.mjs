@@ -15,7 +15,7 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "@typescript-eslint/ban-ts-comment": "off",
     "@typescript-eslint/prefer-as-const": "off",
     "@typescript-eslint/no-unused-disable-directive": "off",
-    
+
     // React rules
     "react-hooks/exhaustive-deps": "off",
     "react-hooks/purity": "off",
@@ -23,11 +23,11 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "react/display-name": "off",
     "react/prop-types": "off",
     "react-compiler/react-compiler": "off",
-    
+
     // Next.js rules
     "@next/next/no-img-element": "off",
     "@next/next/no-html-link-for-pages": "off",
-    
+
     // General JavaScript rules
     "prefer-const": "off",
     "no-unused-vars": "off",
@@ -42,9 +42,35 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-undef": "off",
     "no-unreachable": "off",
     "no-useless-escape": "off",
+
+    // Phase 1 (production-readiness): legacy-storage.ts is migration-only.
+    // Production code must NOT import it — primary data lives in IndexedDB.
+    "no-restricted-imports": ["error", {
+      patterns: [{
+        group: ["@/lib/pricepilot/legacy-storage", "@/lib/pricepilot/legacy-storage/*", "./legacy-storage", "./legacy-storage/*"],
+        message: "legacy-storage.ts is migration-only. Primary data must be read/written through IndexedDB (@/lib/pricepilot/database) or UI-preferences (@/lib/pricepilot/app-settings). Allowed only inside migration.ts, app-settings.ts, and the migration test file.",
+        allowTypeImports: false,
+      }],
+    }],
   },
 }, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"]
+  ignores: [
+    "node_modules/**",
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "examples/**",
+    "skills",
+    // The legacy-storage module itself, and the migration that reads
+    // its legacy keys, are exempt from the no-restricted-imports rule.
+    "src/lib/pricepilot/legacy-storage.ts",
+    "src/lib/pricepilot/migration.ts",
+    "src/lib/pricepilot/app-settings.ts",
+    "src/lib/pricepilot/__tests__/import-persistence.test.ts",
+    // Coverage artifacts are not linted.
+    "coverage/**",
+  ]
 }];
 
 export default eslintConfig;

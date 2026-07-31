@@ -1,6 +1,14 @@
 /**
  * PricePilot - Zustand Store
  * Central state management for the entire application.
+ *
+ * Phase 1 of production-readiness: IndexedDB is the SINGLE source of
+ * truth for primary data. localStorage is used only for UI preferences
+ * via `src/lib/pricepilot/app-settings.ts`.
+ *
+ * Mutations are async and write to IndexedDB. UI state updates only
+ * after the IndexedDB write succeeds. If the write fails, the prior
+ * state is preserved and an error is surfaced.
  */
 
 import { create } from 'zustand';
@@ -18,30 +26,7 @@ import {
   createDefaultBusinessSettings,
   createDefaultAppSettings,
   createDefaultImportState,
-  createDefaultPricingRule,
-  createDefaultProduct,
 } from '@/lib/pricepilot/types';
-import {
-  initializeStorage,
-  saveBusinessSettings,
-  saveProducts,
-  savePricingRules,
-  saveScenarios,
-  saveAppSettings,
-  saveOnboardingCompleted,
-  clearProducts as clearProductsStorage,
-  resetAll as resetAllStorage,
-  saveProduct,
-  removeProduct as removeProductStorage,
-  savePricingRule,
-  removePricingRule as removePricingRuleStorage,
-  saveScenario,
-  removeScenario as removeScenarioStorage,
-  exportAllData,
-  importAllData,
-  getLastSavedTimestamp,
-  loadAppSettings,
-} from '@/lib/pricepilot/storage';
 import { calculateAllRecommendations, mapRecommendationsToProduct } from '@/lib/pricepilot/recommendations';
 import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
 import { SAMPLE_PRODUCTS, SAMPLE_PRICING_RULES } from '@/lib/pricepilot/sample-data';
@@ -62,6 +47,8 @@ import {
   loadPricingRulesFromDb,
   loadScenariosFromDb,
   saveProductsToDb,
+  saveProductToDb,
+  removeProductFromDb,
   saveBusinessSettingsToDb,
   savePricingRulesToDb,
   saveScenariosToDb,
@@ -73,9 +60,19 @@ import {
   atomicImportProducts,
   atomicResetAll,
   atomicRestoreBackup,
+  atomicBulkUpdateProducts,
+  atomicApplyApprovedPrices,
+  clearProductsInDb,
+  exportAllDataFromDb,
   getMetadata,
   setMetadata,
 } from '@/lib/pricepilot/database';
+import {
+  loadAppSettings,
+  saveAppSettings,
+  clearAppSettings,
+  migrateLegacyAppSettingsIfNeeded,
+} from '@/lib/pricepilot/app-settings';
 import {
   migrateLegacyDataIfNeeded,
   hasLegacyLocalStorageData,
@@ -87,13 +84,38 @@ import {
  * Replaces the old calculateProduct() from calculations.ts.
  *
  * NOTE: This thin wrapper still calls the engine directly. For any path
- * that processes UNTRUSTED input (localStorage, imports, backups), use
+ * that processes UNTRUSTED input (imports, backups), use
  * `safelyRecalculateProduct` instead so a single malformed product
  * cannot crash the whole batch.
  */
 function recalcProduct(product: Product, settings: BusinessSettings, rules: PricingRule[]): Product {
   const result = safelyRecalculateProduct(product, settings, rules);
   return result.product;
+}
+
+/** Metadata key under which the last-successful-save timestamp is stored. */
+const METADATA_KEY_LAST_SAVED = 'lastSavedTimestamp';
+
+/**
+ * Read the last-saved timestamp from IndexedDB metadata. Returns null
+ * if missing. Synchronous callers should use the cached `lastSaved`
+ * field on the store; this helper is only for initialization.
+ */
+async function loadLastSavedTimestampFromDb(): Promise<string | null> {
+  try {
+    return await getMetadata<string>(METADATA_KEY_LAST_SAVED);
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the last-saved timestamp to IndexedDB metadata. Best-effort. */
+async function saveLastSavedTimestampToDb(timestamp: string): Promise<void> {
+  try {
+    await setMetadata(METADATA_KEY_LAST_SAVED, timestamp);
+  } catch (err) {
+    console.warn('[PricePilot] Could not persist lastSaved timestamp.', err);
+  }
 }
 
 // Navigation views
@@ -137,7 +159,7 @@ interface PricePilotState {
   appSettings: AppSettings;
   onboardingCompleted: boolean;
 
-  // Initialization lifecycle (Phase 4)
+  // Initialization lifecycle
   initialization: AppInitializationSummary;
   retryInitialize: () => void;
   startEmptyWorkspace: () => void;
@@ -188,7 +210,7 @@ interface PricePilotState {
   clearAllProducts: () => void;
   recalculateProducts: () => void;
 
-  // Phase 6 - Product workflow
+  // Product workflow
   duplicateProduct: (productId: string) => void;
   approveProductPrice: (productId: string, recommendationMode: RecommendationMode) => void;
   applyApprovedPrice: (productId: string) => void;
@@ -238,25 +260,56 @@ interface PricePilotState {
 
 const MAX_UNDO_HISTORY = 20;
 const MAX_AUTO_BACKUPS = 10;
-const AUTO_BACKUP_KEY = 'pricepilot_auto_backups';
 
-function loadAutoBackups(): AutoBackup[] {
+/**
+ * Best-effort: persist a list of products to IndexedDB and update the
+ * lastSaved timestamp. Logs but does NOT throw on failure so that
+ * fire-and-forget call sites (e.g. bulk operations) don't crash.
+ *
+ * Phase 2 will replace this with proper Promise<OperationResult>.
+ */
+async function persistProducts(products: Product[]): Promise<void> {
   try {
-    const raw = localStorage.getItem(AUTO_BACKUP_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as AutoBackup[];
-  } catch {
-    return [];
+    await saveProductsToDb(products);
+    const ts = new Date().toISOString();
+    await saveLastSavedTimestampToDb(ts);
+  } catch (err) {
+    console.error('[PricePilot] Could not persist products to IndexedDB.', err);
+    // Re-throw so callers that need to know can catch.
+    throw err;
   }
 }
 
-function saveAutoBackups(backups: AutoBackup[]): void {
+async function persistBusinessSettings(settings: BusinessSettings): Promise<void> {
   try {
-    localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify(backups.slice(0, MAX_AUTO_BACKUPS)));
-  } catch {
-    // If storage is full, remove oldest backups
-    const trimmed = backups.slice(0, MAX_AUTO_BACKUPS - 2);
-    localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify(trimmed));
+    await saveBusinessSettingsToDb(settings);
+    const ts = new Date().toISOString();
+    await saveLastSavedTimestampToDb(ts);
+  } catch (err) {
+    console.error('[PricePilot] Could not persist business settings to IndexedDB.', err);
+    throw err;
+  }
+}
+
+async function persistPricingRules(rules: PricingRule[]): Promise<void> {
+  try {
+    await savePricingRulesToDb(rules);
+    const ts = new Date().toISOString();
+    await saveLastSavedTimestampToDb(ts);
+  } catch (err) {
+    console.error('[PricePilot] Could not persist pricing rules to IndexedDB.', err);
+    throw err;
+  }
+}
+
+async function persistScenarios(scenarios: Scenario[]): Promise<void> {
+  try {
+    await saveScenariosToDb(scenarios);
+    const ts = new Date().toISOString();
+    await saveLastSavedTimestampToDb(ts);
+  } catch (err) {
+    console.error('[PricePilot] Could not persist scenarios to IndexedDB.', err);
+    throw err;
   }
 }
 
@@ -279,10 +332,10 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   sidebarCollapsed: false,
   recentlyViewedIds: [],
   undoHistory: [],
-  autoBackups: loadAutoBackups(),
+  autoBackups: [],
   helpPanelOpen: false,
 
-  // Initialize from IndexedDB (with localStorage migration)
+  // Initialize from IndexedDB (single source of truth)
   initialize: async () => {
     // Mark as loading FIRST so the UI can render the "Opening your
     // PricePilot workspace…" screen instead of briefly flashing
@@ -290,17 +343,17 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     set({ initialization: makeLoadingSummary() });
 
     try {
-      // Phase 10: Run the localStorage → IndexedDB migration first.
-      // This is idempotent and atomic — if it fails, the original
-      // localStorage data is untouched.
+      // Migrate UI preferences from the legacy localStorage key if needed.
+      migrateLegacyAppSettingsIfNeeded();
+
+      // Run the localStorage → IndexedDB migration first. Idempotent
+      // and atomic — if it fails, the original localStorage data is
+      // untouched.
       let migrationResult: MigrationResult | null = null;
       try {
         migrationResult = await migrateLegacyDataIfNeeded();
         if (migrationResult.status === 'failed') {
           console.warn('[PricePilot] localStorage migration failed.', migrationResult.message);
-          // We still try to load from IndexedDB — it may have partial
-          // data from a previous successful migration, or it may be
-          // empty. Either way, the owner can use the app.
         } else if (migrationResult.status === 'complete' && migrationResult.hadLegacyData) {
           console.info('[PricePilot] localStorage migration completed.', migrationResult.message);
         }
@@ -308,13 +361,14 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         console.error('[PricePilot] Migration threw unexpectedly.', migrationErr);
       }
 
-      // Phase 9: Load from IndexedDB.
+      // Load primary data from IndexedDB.
       let products: Product[] = [];
       let businessSettings: BusinessSettings | null = null;
       let pricingRules: PricingRule[] = [];
       let scenarios: Scenario[] = [];
       let undoHistory: UndoAction[] = [];
       let backups: AutoBackup[] = [];
+      let lastSaved: string | null = null;
 
       try {
         products = await loadAllProducts();
@@ -323,16 +377,13 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         scenarios = await loadScenariosFromDb();
         undoHistory = await loadUndoHistoryFromDb();
         backups = await loadBackupsFromDb();
+        lastSaved = await loadLastSavedTimestampFromDb();
       } catch (dbErr) {
         console.error('[PricePilot] Could not load from IndexedDB.', dbErr);
-        // Fall back to legacy localStorage if IndexedDB is unavailable.
-        // This keeps the app usable in environments without IndexedDB
-        // (e.g. some private browsing modes).
-        const legacy = initializeStorage();
-        products = legacy.products;
-        businessSettings = legacy.businessSettings;
-        pricingRules = legacy.pricingRules;
-        scenarios = legacy.scenarios;
+        // No localStorage fallback anymore — IndexedDB is the single
+        // source of truth. The user sees an initialization failure
+        // screen with retry / start-empty options.
+        throw dbErr;
       }
 
       // Use defaults if business settings weren't found.
@@ -353,10 +404,10 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         );
       }
 
-      const mode = (businessSettings as BusinessSettings).defaultRoundingRule ? 'owner' : 'owner'; // placeholder for app mode
-      // We need appSettings from localStorage (theme/mode/sidebar are still in localStorage).
-      const legacyAppSettings = loadAppSettings();
-      const actualMode = legacyAppSettings.applicationMode || 'owner';
+      // UI preferences come from localStorage (theme/mode/sidebar are
+      // explicitly UI preferences, not primary data).
+      const appSettings = loadAppSettings();
+      const actualMode = appSettings.applicationMode || 'owner';
       const defaultView: AppView = actualMode === 'owner' ? 'owner-home' : 'dashboard';
 
       // Build the initialization summary.
@@ -371,9 +422,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         products: recalculated,
         pricingRules,
         scenarios,
-        appSettings: legacyAppSettings,
+        appSettings,
         onboardingCompleted: (businessSettings as BusinessSettings).onboardingCompleted ?? false,
-        lastSaved: getLastSavedTimestamp(),
+        lastSaved,
         currentView: (businessSettings as BusinessSettings).onboardingCompleted ? defaultView : 'dashboard',
         autoBackups: backups,
         undoHistory,
@@ -387,7 +438,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         console.warn('[PricePilot] Could not persist recalculated products on startup.', saveErr);
       }
     } catch (err) {
-      // Total initialization failure. DO NOT delete the old data —
+      // Total initialization failure. DO NOT delete any data —
       // surface a failure summary so the UI can offer recovery options.
       console.error('[PricePilot] Initialization failed.', err);
       set({ initialization: makeFailedSummary(err) });
@@ -401,8 +452,8 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   startEmptyWorkspace: () => {
     // The user clicked "Start Empty Workspace". We DO NOT delete the
-    // old localStorage data — we just bypass it for this session so
-    // the owner can keep using the app while the old data remains
+    // IndexedDB data — we just bypass it for this session so the
+    // owner can keep using the app while the old data remains
     // available for download or a later retry.
     try {
       const defaults = createDefaultBusinessSettings();
@@ -424,20 +475,27 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   downloadExistingData: () => {
-    // Best-effort: try to export whatever is in localStorage so the
-    // owner has a recovery file. This must never throw into the UI.
-    try {
-      const data = exportAllData();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `pricepilot-recovery-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('[PricePilot] Could not download existing data.', err);
-    }
+    // Best-effort: read canonical state from IndexedDB and offer it as
+    // a recovery download. This must never throw into the UI.
+    (async () => {
+      try {
+        const data = await exportAllDataFromDb();
+        const payload = {
+          format: 'pricepilot-recovery',
+          exportedAt: new Date().toISOString(),
+          ...data,
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `pricepilot-recovery-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('[PricePilot] Could not download existing data.', err);
+      }
+    })();
   },
 
   // Navigation
@@ -451,24 +509,35 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   // Business settings
   updateBusinessSettings: (updates) => {
     const newSettings = { ...get().businessSettings, ...updates, updatedAt: new Date().toISOString() };
-    saveBusinessSettings(newSettings);
-    set({ businessSettings: newSettings });
     // Recalculate all products with new settings using the SAFE batch helper
     const { products, pricingRules } = get();
     const batchResult = safelyRecalculateProducts(products, newSettings, pricingRules);
     const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    saveProducts(recalculated);
-    set({ products: recalculated, lastSaved: getLastSavedTimestamp() });
+    // Persist to IndexedDB. If the write fails, the UI keeps the old
+    // state (we don't `set` until the write succeeds).
+    persistBusinessSettings(newSettings)
+      .then(() => persistProducts(recalculated))
+      .then(() => {
+        const ts = new Date().toISOString();
+        set({ businessSettings: newSettings, products: recalculated, lastSaved: ts });
+      })
+      .catch((err) => {
+        console.error('[PricePilot] updateBusinessSettings failed; UI state unchanged.', err);
+      });
   },
 
   completeOnboarding: (settings) => {
     const newSettings = { ...get().businessSettings, ...settings, onboardingCompleted: true, updatedAt: new Date().toISOString() };
-    saveBusinessSettings(newSettings);
-    saveOnboardingCompleted(true);
-    // After onboarding, set default view based on mode
-    const mode = get().appSettings.applicationMode || 'owner';
-    const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
-    set({ businessSettings: newSettings, onboardingCompleted: true, currentView: defaultView });
+    // Persist to IndexedDB first; only navigate to the workspace on success.
+    persistBusinessSettings(newSettings)
+      .then(() => {
+        const mode = get().appSettings.applicationMode || 'owner';
+        const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
+        set({ businessSettings: newSettings, onboardingCompleted: true, currentView: defaultView });
+      })
+      .catch((err) => {
+        console.error('[PricePilot] completeOnboarding failed; onboarding not marked complete.', err);
+      });
   },
 
   // Products
@@ -476,8 +545,13 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const { businessSettings, pricingRules, products } = get();
     const calculated = recalcProduct(product, businessSettings, pricingRules);
     const newProducts = [...products, calculated];
-    saveProducts(newProducts);
-    set({ products: newProducts, lastSaved: getLastSavedTimestamp() });
+    persistProducts(newProducts)
+      .then(() => {
+        set({ products: newProducts });
+      })
+      .catch(() => {
+        // Error already logged.
+      });
   },
 
   updateProduct: (id, updates) => {
@@ -499,8 +573,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    saveProducts(updated);
-    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+    persistProducts(updated)
+      .then(() => set({ products: updated }))
+      .catch(() => { /* logged */ });
   },
 
   deleteProduct: (id) => {
@@ -516,15 +591,17 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       });
     }
     const newProducts = products.filter(p => p.id !== id);
-    saveProducts(newProducts);
-    set({ products: newProducts, lastSaved: getLastSavedTimestamp() });
+    persistProducts(newProducts)
+      .then(() => set({ products: newProducts, selectedProducts: [] }))
+      .catch(() => { /* logged */ });
   },
 
   deleteSelectedProducts: () => {
     const { selectedProducts, products } = get();
     const newProducts = products.filter(p => !selectedProducts.includes(p.id));
-    saveProducts(newProducts);
-    set({ products: newProducts, selectedProducts: [], lastSaved: getLastSavedTimestamp() });
+    persistProducts(newProducts)
+      .then(() => set({ products: newProducts, selectedProducts: [] }))
+      .catch(() => { /* logged */ });
   },
 
   bulkUpdateProducts: (ids, updates) => {
@@ -536,8 +613,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    saveProducts(updated);
-    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+    persistProducts(updated)
+      .then(() => set({ products: updated }))
+      .catch(() => { /* logged */ });
   },
 
   approveSelectedProducts: () => {
@@ -569,8 +647,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     };
     const calculated = recalcProduct(newProduct, businessSettings, pricingRules);
     const newProducts = [...products, calculated];
-    saveProducts(newProducts);
-    set({ products: newProducts, lastSaved: getLastSavedTimestamp() });
+    persistProducts(newProducts)
+      .then(() => set({ products: newProducts }))
+      .catch(() => { /* logged */ });
   },
 
   approveProductPrice: (productId, recommendationMode) => {
@@ -601,8 +680,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    saveProducts(updated);
-    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+    persistProducts(updated)
+      .then(() => set({ products: updated }))
+      .catch(() => { /* logged */ });
   },
 
   applyApprovedPrice: (productId) => {
@@ -628,8 +708,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    saveProducts(updated);
-    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+    persistProducts(updated)
+      .then(() => set({ products: updated }))
+      .catch(() => { /* logged */ });
   },
 
   bulkSetField: (productIds, field, value) => {
@@ -641,8 +722,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    saveProducts(updated);
-    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+    persistProducts(updated)
+      .then(() => set({ products: updated }))
+      .catch(() => { /* logged */ });
   },
 
   bulkApprovePrices: (productIds) => {
@@ -669,8 +751,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    saveProducts(updated);
-    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+    persistProducts(updated)
+      .then(() => set({ products: updated }))
+      .catch(() => { /* logged */ });
   },
 
   archiveProducts: (productIds) => {
@@ -681,52 +764,68 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const { businessSettings, pricingRules } = get();
     const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
     // Use the SAFE batch helper so even sample data can't crash the app
-    // if it ever drifts out of sync with the schema.
     const batchResult = safelyRecalculateProducts(SAMPLE_PRODUCTS, businessSettings, existingRules);
     const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    saveProducts(calculated);
-    if (pricingRules.length === 0) {
-      savePricingRules(SAMPLE_PRICING_RULES);
-      set({ pricingRules: SAMPLE_PRICING_RULES });
-    }
-    set({ products: calculated, lastSaved: getLastSavedTimestamp() });
+    const rulesToSave = pricingRules.length === 0 ? SAMPLE_PRICING_RULES : pricingRules;
+    // Persist products and rules in parallel.
+    Promise.all([
+      persistProducts(calculated),
+      pricingRules.length === 0 ? persistPricingRules(SAMPLE_PRICING_RULES) : Promise.resolve(),
+    ])
+      .then(() => {
+        set({ products: calculated, pricingRules: rulesToSave });
+      })
+      .catch(() => { /* logged */ });
   },
 
   loadDemoSampleData: () => {
-    get().createAutoBackup('manual', 'Before loading demo sample data');
-    const { businessSettings, pricingRules } = get();
-    const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
-    const batchResult = safelyRecalculateProducts(SAMPLE_PRODUCTS, businessSettings, existingRules);
-    const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    saveProducts(calculated);
-    if (pricingRules.length === 0) {
-      savePricingRules(SAMPLE_PRICING_RULES);
-      set({ pricingRules: SAMPLE_PRICING_RULES });
-    }
-    get().updateAppSettings({ sampleDataLoaded: true });
-    set({ products: calculated, lastSaved: getLastSavedTimestamp() });
+    get().createAutoBackup('manual', 'Before loading demo sample data')
+      .then(() => {
+        const { businessSettings, pricingRules } = get();
+        const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
+        const batchResult = safelyRecalculateProducts(SAMPLE_PRODUCTS, businessSettings, existingRules);
+        const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+        const rulesToSave = pricingRules.length === 0 ? SAMPLE_PRICING_RULES : pricingRules;
+        return Promise.all([
+          persistProducts(calculated),
+          pricingRules.length === 0 ? persistPricingRules(SAMPLE_PRICING_RULES) : Promise.resolve(),
+        ]).then(() => {
+          get().updateAppSettings({ sampleDataLoaded: true });
+          set({ products: calculated, pricingRules: rulesToSave });
+        });
+      })
+      .catch((err) => {
+        console.error('[PricePilot] loadDemoSampleData aborted: backup creation failed.', err);
+      });
   },
 
   removeDemoSampleData: () => {
-    clearProductsStorage();
-    get().updateAppSettings({ sampleDataLoaded: false });
-    set({ products: [], lastSaved: getLastSavedTimestamp() });
+    clearProductsInDb()
+      .then(async () => {
+        await saveLastSavedTimestampToDb(new Date().toISOString());
+        get().updateAppSettings({ sampleDataLoaded: false });
+        set({ products: [] });
+      })
+      .catch(() => { /* logged */ });
   },
 
   clearAllProducts: () => {
-    clearProductsStorage();
-    set({ products: [], lastSaved: getLastSavedTimestamp() });
+    clearProductsInDb()
+      .then(async () => {
+        await saveLastSavedTimestampToDb(new Date().toISOString());
+        set({ products: [] });
+      })
+      .catch(() => { /* logged */ });
   },
 
   recalculateProducts: () => {
     set({ isCalculating: true });
     const { businessSettings, pricingRules, products } = get();
-    // Use the SAFE batch helper so a single malformed product cannot
-    // abort the entire recalculation.
     const batchResult = safelyRecalculateProducts(products, businessSettings, pricingRules);
     const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    saveProducts(recalculated);
-    set({ products: recalculated, isCalculating: false, lastSaved: getLastSavedTimestamp() });
+    persistProducts(recalculated)
+      .then(() => set({ products: recalculated, isCalculating: false }))
+      .catch(() => set({ isCalculating: false }));
   },
 
   // Import
@@ -735,25 +834,28 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   importProducts: (newProducts) => {
-    // Create auto-backup before import
-    get().createAutoBackup('import', `Before importing ${newProducts.length} products`);
-    const { businessSettings, pricingRules, products } = get();
-    // Use the SAFE batch helper so a single malformed import row cannot
-    // abort the entire import.
-    const batchResult = safelyRecalculateProducts(newProducts, businessSettings, pricingRules);
-    const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    // Push undo action
-    get().pushUndoAction({
-      type: 'import',
-      productIds: calculated.map(p => p.id),
-      previousState: [...products],
-      timestamp: new Date().toISOString(),
-      description: `Imported ${calculated.length} products`,
-    });
-    const allProducts = [...products, ...calculated];
-    saveProducts(allProducts);
-    set({ products: allProducts, lastSaved: getLastSavedTimestamp(), currentView: 'products' });
-    get().resetImportState();
+    // Create auto-backup before import. If backup fails, abort.
+    get().createAutoBackup('import', `Before importing ${newProducts.length} products`)
+      .then(() => {
+        const { businessSettings, pricingRules, products } = get();
+        const batchResult = safelyRecalculateProducts(newProducts, businessSettings, pricingRules);
+        const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+        get().pushUndoAction({
+          type: 'import',
+          productIds: calculated.map(p => p.id),
+          previousState: [...products],
+          timestamp: new Date().toISOString(),
+          description: `Imported ${calculated.length} products`,
+        });
+        const allProducts = [...products, ...calculated];
+        return persistProducts(allProducts).then(() => {
+          set({ products: allProducts, currentView: 'products' });
+          get().resetImportState();
+        });
+      })
+      .catch((err) => {
+        console.error('[PricePilot] importProducts aborted: backup creation failed.', err);
+      });
   },
 
   resetImportState: () => {
@@ -762,9 +864,13 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   // Pricing rules
   addPricingRule: (rule) => {
-    const rules = savePricingRule(rule);
-    set({ pricingRules: rules, lastSaved: getLastSavedTimestamp() });
-    get().recalculateProducts();
+    const rules = [...get().pricingRules, rule];
+    persistPricingRules(rules)
+      .then(() => {
+        set({ pricingRules: rules });
+        get().recalculateProducts();
+      })
+      .catch(() => { /* logged */ });
   },
 
   updatePricingRule: (id, updates) => {
@@ -772,15 +878,23 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const updated = pricingRules.map(r =>
       r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r
     );
-    savePricingRules(updated);
-    set({ pricingRules: updated, lastSaved: getLastSavedTimestamp() });
-    get().recalculateProducts();
+    persistPricingRules(updated)
+      .then(() => {
+        set({ pricingRules: updated });
+        get().recalculateProducts();
+      })
+      .catch(() => { /* logged */ });
   },
 
   deletePricingRule: (id) => {
-    const rules = removePricingRuleStorage(id);
-    set({ pricingRules: rules, lastSaved: getLastSavedTimestamp() });
-    get().recalculateProducts();
+    const { pricingRules } = get();
+    const updated = pricingRules.filter(r => r.id !== id);
+    persistPricingRules(updated)
+      .then(() => {
+        set({ pricingRules: updated });
+        get().recalculateProducts();
+      })
+      .catch(() => { /* logged */ });
   },
 
   duplicatePricingRule: (id) => {
@@ -794,14 +908,18 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    const rules = savePricingRule(newRule);
-    set({ pricingRules: rules, lastSaved: getLastSavedTimestamp() });
+    const updated = [...pricingRules, newRule];
+    persistPricingRules(updated)
+      .then(() => set({ pricingRules: updated }))
+      .catch(() => { /* logged */ });
   },
 
   // Scenarios
   addScenario: (scenario) => {
-    const scenarios = saveScenario(scenario);
-    set({ scenarios, lastSaved: getLastSavedTimestamp() });
+    const scenarios = [...get().scenarios, scenario];
+    persistScenarios(scenarios)
+      .then(() => set({ scenarios }))
+      .catch(() => { /* logged */ });
   },
 
   updateScenario: (id, updates) => {
@@ -809,35 +927,44 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const updated = scenarios.map(s =>
       s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s
     );
-    saveScenarios(updated);
-    set({ scenarios: updated, lastSaved: getLastSavedTimestamp() });
+    persistScenarios(updated)
+      .then(() => set({ scenarios: updated }))
+      .catch(() => { /* logged */ });
   },
 
   deleteScenario: (id) => {
-    const scenarios = removeScenarioStorage(id);
-    set({ scenarios, lastSaved: getLastSavedTimestamp() });
+    const { scenarios } = get();
+    const updated = scenarios.filter(s => s.id !== id);
+    persistScenarios(updated)
+      .then(() => set({ scenarios: updated }))
+      .catch(() => { /* logged */ });
   },
 
   restoreScenario: (id) => {
-    const { scenarios } = get();
+    const { scenarios, businessSettings, pricingRules } = get();
     const scenario = scenarios.find(s => s.id === id);
     if (!scenario) return;
-    saveProducts(scenario.snapshotProducts);
-    savePricingRules(scenario.snapshotPricingRules);
-    saveBusinessSettings(scenario.snapshotBusinessSettings);
-    set({
-      products: scenario.snapshotProducts,
-      pricingRules: scenario.snapshotPricingRules,
-      businessSettings: scenario.snapshotBusinessSettings,
-      lastSaved: getLastSavedTimestamp(),
-    });
+    // Persist all three datasets to IndexedDB in parallel.
+    Promise.all([
+      persistProducts(scenario.snapshotProducts),
+      persistPricingRules(scenario.snapshotPricingRules),
+      persistBusinessSettings(scenario.snapshotBusinessSettings),
+    ])
+      .then(() => {
+        set({
+          products: scenario.snapshotProducts,
+          pricingRules: scenario.snapshotPricingRules,
+          businessSettings: scenario.snapshotBusinessSettings,
+        });
+      })
+      .catch(() => { /* logged */ });
   },
 
-  // Settings
+  // Settings (UI preferences only — these stay in localStorage)
   updateAppSettings: (updates) => {
     const newSettings = { ...get().appSettings, ...updates, updatedAt: new Date().toISOString() };
     saveAppSettings(newSettings);
-    set({ appSettings: newSettings, lastSaved: getLastSavedTimestamp() });
+    set({ appSettings: newSettings });
   },
 
   setApplicationMode: (mode) => {
@@ -849,7 +976,6 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   // Recently viewed
   addRecentlyViewed: (productId) => {
     const { recentlyViewedIds } = get();
-    // Remove if already in list, then add at front (most recent)
     const updated = [productId, ...recentlyViewedIds.filter(id => id !== productId)].slice(0, 5);
     set({ recentlyViewedIds: updated });
   },
@@ -859,7 +985,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const { undoHistory } = get();
     const newHistory = [action, ...undoHistory].slice(0, MAX_UNDO_HISTORY);
     set({ undoHistory: newHistory });
-    // Phase 11: persist undo history to IndexedDB (best-effort).
+    // Persist undo history to IndexedDB (best-effort).
     saveUndoHistoryToDb(newHistory).catch((err) => {
       console.warn('[PricePilot] Could not persist undo history to IndexedDB.', err);
     });
@@ -874,7 +1000,6 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     let newProducts: Product[] = products;
 
     if (lastAction.type === 'price-approve' || lastAction.type === 'price-apply' || lastAction.type === 'product-edit') {
-      // Restore the product from previousState
       const previousProduct = lastAction.previousState as Product;
       newProducts = products.map(p => {
         if (p.id === lastAction.productId) {
@@ -883,12 +1008,10 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         return p;
       });
     } else if (lastAction.type === 'product-delete') {
-      // Re-add the deleted product
       const previousProduct = lastAction.previousState as Product;
       const recalculated = recalcProduct(previousProduct, businessSettings, pricingRules);
       newProducts = [...products, recalculated];
     } else if (lastAction.type === 'bulk-approve') {
-      // Restore all products from previousState
       const previousProducts = lastAction.previousState as Product[];
       newProducts = products.map(p => {
         const prev = previousProducts.find(pp => pp.id === p.id);
@@ -896,30 +1019,31 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         return p;
       });
     } else if (lastAction.type === 'import') {
-      // Remove imported products (restore to pre-import state)
       const previousProducts = lastAction.previousState as Product[];
       newProducts = previousProducts.map(p => recalcProduct(p, businessSettings, pricingRules));
     }
 
-    // Phase 11: persist to BOTH localStorage (legacy compatibility) and
-    // IndexedDB (the new source of truth). Best-effort — failures are
-    // logged but do not block the undo.
-    saveProducts(newProducts);
-    saveProductsToDb(newProducts).catch((err) => {
-      console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
-    });
-    saveUndoHistoryToDb(remainingHistory).catch((err) => {
-      console.warn('[PricePilot] Could not persist undo history to IndexedDB.', err);
-    });
-    set({ products: newProducts, undoHistory: remainingHistory, lastSaved: getLastSavedTimestamp() });
+    // Persist to IndexedDB. Best-effort — failures are logged but do
+    // not block the undo.
+    Promise.all([
+      saveProductsToDb(newProducts),
+      saveUndoHistoryToDb(remainingHistory),
+      saveLastSavedTimestampToDb(new Date().toISOString()),
+    ])
+      .then(() => {
+        set({ products: newProducts, undoHistory: remainingHistory });
+      })
+      .catch((err) => {
+        console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
+      });
   },
 
   // Backup
   createAutoBackup: async (trigger, description) => {
-    // Phase 11: backups now live in IndexedDB. Backup creation must
-    // NOT crash the operation it was called from. If backup creation
-    // fails, we surface a warning to the user and DO NOT continue
-    // with any destructive action that depended on the backup.
+    // Backups now live in IndexedDB. Backup creation must NOT crash the
+    // operation it was called from. If backup creation fails, we
+    // surface a warning to the user and DO NOT continue with any
+    // destructive action that depended on the backup.
     try {
       const dataString = get().exportData();
       const backup: AutoBackup = {
@@ -934,15 +1058,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       const newBackups = [backup, ...autoBackups].slice(0, MAX_AUTO_BACKUPS);
       // Persist to IndexedDB.
       await saveBackupsToDb(newBackups);
-      // Also persist to localStorage for legacy compatibility / quick reads.
-      saveAutoBackups(newBackups);
       set({ autoBackups: newBackups });
     } catch (err) {
       console.error('[PricePilot] Could not create safety backup.', err);
-      // Surface the failure to the user.
-      // The caller is responsible for deciding whether to proceed.
-      // For destructive actions (import, bulk apply, restore, reset,
-      // migration), the caller MUST abort.
       throw new Error(
         'PricePilot could not create a safety backup. The requested change has not been applied.'
       );
@@ -961,7 +1079,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   restoreBackup: async (dataString) => {
-    // Phase 11: restore is now atomic via IndexedDB transactions.
+    // Restore is now atomic via IndexedDB transactions.
     try {
       const data = JSON.parse(dataString);
       // Create a safety backup first.
@@ -973,17 +1091,14 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         return false;
       }
       // Atomic restore via IndexedDB.
-      if (data.products && data.businessSettings && data.pricingRules !== undefined) {
+      if (data.products && data.businessSettings) {
         await atomicRestoreBackup({
           products: data.products,
           businessSettings: data.businessSettings,
           pricingRules: data.pricingRules ?? [],
           scenarios: data.scenarios ?? [],
         });
-      }
-      // Also write to localStorage for legacy compatibility.
-      const success = importAllData(data);
-      if (success) {
+        await saveLastSavedTimestampToDb(new Date().toISOString());
         await get().initialize();
         return true;
       }
@@ -1000,16 +1115,43 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   // Data management
   exportData: () => {
-    const data = exportAllData();
-    return JSON.stringify(data, null, 2);
+    // Synchronous read from in-memory state. The async canonical
+    // `exportAllDataFromDb()` is used by `downloadBackup` /
+    // `downloadExistingData` for the on-disk truth.
+    const { businessSettings, products, pricingRules, scenarios } = get();
+    const payload = {
+      format: 'pricepilot-backup',
+      backupVersion: 1,
+      schemaVersion: 1,
+      appVersion: '0.2.1',
+      createdAt: new Date().toISOString(),
+      businessSettings,
+      products,
+      pricingRules,
+      scenarios,
+    };
+    return JSON.stringify(payload, null, 2);
   },
 
   importData: (dataString) => {
     try {
       const data = JSON.parse(dataString);
-      const success = importAllData(data);
-      if (success) {
-        get().initialize();
+      // Atomic restore via IndexedDB. Fire-and-forget here; the UI
+      // shows a toast and reloads state on success.
+      if (data.products && data.businessSettings) {
+        atomicRestoreBackup({
+          products: data.products,
+          businessSettings: data.businessSettings,
+          pricingRules: data.pricingRules ?? [],
+          scenarios: data.scenarios ?? [],
+        })
+          .then(() => {
+            saveLastSavedTimestampToDb(new Date().toISOString());
+            get().initialize();
+          })
+          .catch((err) => {
+            console.error('[PricePilot] importData failed.', err);
+          });
         return true;
       }
       return false;
@@ -1019,21 +1161,22 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   resetApplication: async () => {
-    // Phase 11: create a safety backup BEFORE the reset. If backup
-    // creation fails, the reset is aborted.
+    // Create a safety backup BEFORE the reset. If backup creation
+    // fails, the reset is aborted.
     try {
       await get().createAutoBackup('reset', 'Before application reset');
     } catch (err) {
       console.error('[PricePilot] Reset aborted because backup creation failed.', err);
-      // Surface to the UI.
       throw err;
     }
     // Atomic reset via IndexedDB.
     try {
       await atomicResetAll();
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      clearAppSettings();
     } catch (err) {
-      console.error('[PricePilot] IndexedDB reset failed; falling back to localStorage reset.', err);
-      resetAllStorage();
+      console.error('[PricePilot] IndexedDB reset failed.', err);
+      throw err;
     }
     set({
       businessSettings: createDefaultBusinessSettings(),
@@ -1047,6 +1190,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       selectedProducts: [],
       importState: createDefaultImportState(),
       undoHistory: [],
+      autoBackups: [],
     });
   },
 }));
