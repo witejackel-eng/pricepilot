@@ -14,6 +14,7 @@
 import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Home, RotateCcw, Download, AlertTriangle } from 'lucide-react';
+import { reportError } from '@/lib/pricepilot/error-reporter';
 
 interface GlobalErrorProps {
   error: Error & { digest?: string };
@@ -27,6 +28,17 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
       stack: error.stack,
       digest: error.digest,
     });
+
+    // Report via the error observability module.
+    try {
+      reportError(error, {
+        category: 'ui',
+        operation: 'global-render',
+        digest: error.digest,
+      });
+    } catch {
+      // Error reporting must never cause errors.
+    }
   }, [error]);
 
   const handleReturnHome = (): void => {

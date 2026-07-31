@@ -19,6 +19,7 @@
 import { Component, ReactNode, ErrorInfo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Home, RotateCcw, Download, AlertTriangle } from 'lucide-react';
+import { reportError } from '@/lib/pricepilot/error-reporter';
 
 interface Props {
   children: ReactNode;
@@ -63,6 +64,17 @@ export class PricePilotErrorBoundary extends Component<Props, State> {
       contextImportRow: this.props.contextImportRow,
     });
     this.setState({ errorInfo });
+
+    // Report via the error observability module.
+    try {
+      reportError(error, {
+        category: 'ui',
+        operation: this.props.boundaryName ?? 'error-boundary',
+        productId: this.props.contextProductId,
+      });
+    } catch {
+      // Error reporting must never cause errors.
+    }
   }
 
   handleReturnHome = (): void => {

@@ -19,8 +19,9 @@ import { AutoBackup } from '@/store/pricepilot-store';
 import { HelpSection } from './help-section';
 import { RestartTourButton } from './guided-tour';
 import { LegacyDataCleanupCard } from './legacy-data-cleanup-card';
-import { Building2, Coins, Palette, Database, Download, Upload, Trash2, RefreshCw, Shield, ChevronDown, ChevronRight, AlertTriangle, FileDown, Eye, Clock, Info } from 'lucide-react';
+import { Building2, Coins, Palette, Database, Download, Upload, Trash2, RefreshCw, Shield, ChevronDown, ChevronRight, AlertTriangle, FileDown, Eye, Clock, Info, Stethoscope } from 'lucide-react';
 import { toast } from 'sonner';
+import { downloadDiagnosticReport } from '@/lib/pricepilot/error-reporter';
 
 const COUNTRIES = [
   { code: 'IN', name: 'India' },
@@ -461,6 +462,34 @@ export function SettingsPage() {
               )}
             </CollapsibleContent>
           </Collapsible>
+
+          <Separator />
+
+          {/* Diagnostic Report */}
+          <div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-sm">Diagnostic Report</p>
+                <p className="text-xs text-muted-foreground">Download a technical report for troubleshooting. Contains no business data.</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-lg shadow-sm"
+                onClick={() => {
+                  downloadDiagnosticReport()
+                    .then(() => {
+                      toast.success('Diagnostic report downloaded', { description: 'The report contains only technical metadata — no business data.' });
+                    })
+                    .catch(() => {
+                      toast.error('Could not generate report', { description: 'An error occurred while generating the diagnostic report.' });
+                    });
+                }}
+              >
+                <Stethoscope className="h-4 w-4 mr-1" /> Download Diagnostic Report
+              </Button>
+            </div>
+          </div>
 
           <Separator />
 
