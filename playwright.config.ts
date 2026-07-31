@@ -3,10 +3,19 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Playwright configuration for PricePilot.
  *
- * The Father Workflow E2E test (Phase 16) launches a Next.js dev
- * server, navigates through Quick Setup, imports a mixed spreadsheet,
- * resolves a duplicate, approves a price, applies it, undoes, re-applies,
- * downloads Excel, refreshes, and verifies products persist.
+ * Phase 19: Cross-browser and mobile testing.
+ *
+ * Projects:
+ *   - Desktop Chrome   (existing)
+ *   - Desktop Firefox
+ *   - Desktop WebKit
+ *   - Mobile: Pixel 7
+ *   - Mobile: iPhone 14
+ *   - Tablet: iPad-like viewport
+ *
+ * Mobile and tablet projects include metadata.name that can be used
+ * to filter tests with --project. Mobile-focused tests live in
+ * mobile-flow.spec.ts.
  *
  * Tests live in tests/e2e/.
  */
@@ -24,9 +33,48 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   projects: [
+    // ── Desktop browsers ──────────────────────────────────────────
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+    },
+
+    // ── Mobile devices ───────────────────────────────────────────
+    // Run mobile-only tests with: npx playwright test --project=mobile-pixel-7
+    // Exclude mobile tests in CI with: npx playwright test --project=chromium
+    {
+      name: 'mobile-pixel-7',
+      use: {
+        ...devices['Pixel 7'],
+      },
+    },
+    {
+      name: 'mobile-iphone-14',
+      use: {
+        ...devices['iPhone 14'],
+      },
+    },
+
+    // ── Tablet viewport ──────────────────────────────────────────
+    {
+      name: 'tablet-ipad',
+      use: {
+        // iPad Pro 11 landscape — close enough for a general tablet
+        // viewport check. Uses a custom viewport since Playwright's
+        // built-in iPad descriptors are portrait-only.
+        viewport: { width: 1194, height: 834 },
+        deviceScaleFactor: 2,
+        isMobile: false,
+        hasTouch: true,
+      },
     },
   ],
   webServer: {
