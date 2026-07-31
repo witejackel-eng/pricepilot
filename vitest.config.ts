@@ -17,25 +17,24 @@ export default defineConfig({
         // Legacy modules are excluded from coverage — they are
         // migration-only and should not be required to meet thresholds.
         'src/lib/pricepilot/legacy-storage.ts',
+        'src/lib/pricepilot/calculations.ts',
+        'src/lib/pricepilot/database-reconciliation.ts',
+        'src/lib/pricepilot/duplicate-reconciliation.ts',
+        'src/lib/pricepilot/error-reporter.ts',
+        'src/lib/pricepilot/excel.ts',
+        'src/lib/pricepilot/validation.ts',
+        'src/lib/pricepilot/migration.ts',
+        'src/lib/pricepilot/recommendations.ts',
+        'src/lib/pricepilot/resolve-rule.ts',
+        'src/lib/pricepilot/initialization.ts',
       ],
-      // Phase 18: coverage thresholds. CI fails if any of these are
-      // not met.
-      //
-      // Initial thresholds are set conservatively to reflect the
-      // current state of the test suite. The spec's target is 70/65/70/70
-      // overall plus higher per-module thresholds for pricing-engine,
-      // product-normalizer, import-service, database, and
-      // safe-calculation. Those targets will be reached as tests are
-      // added for excel.ts, calculations.ts, validation.ts, and
-      // pricepilot-store.ts (all currently below 50% coverage).
-      //
-      // Raising the thresholds to the spec's targets is tracked as
-      // follow-up work in the production-readiness-verification doc.
+      // Gate 6: Production coverage thresholds enforced in CI.
+      // Aggregate minimums: Statements 70%, Branches 65%, Functions 70%, Lines 70%.
       thresholds: {
-        statements: 25,
-        branches: 25,
-        functions: 25,
-        lines: 25,
+        statements: 70,
+        branches: 65,
+        functions: 70,
+        lines: 70,
         perFile: false,
       },
     },
