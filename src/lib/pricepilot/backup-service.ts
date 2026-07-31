@@ -117,12 +117,40 @@ function validateProductFiniteNumbers(product: Product): string[] {
 // ============================================================
 
 /**
+ * Recursively produce a deterministic JSON string with sorted keys
+ * at every nesting level. Unlike `JSON.stringify(value, replacer)`
+ * with a replacer array (which only includes top-level properties
+ * named in the array), this function sorts keys at every depth and
+ * preserves all nested properties.
+ */
+function deterministicStringify(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null';
+  }
+  if (typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return '[' + value.map(deterministicStringify).join(',') + ']';
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj).sort();
+    return '{' + keys.map(k => JSON.stringify(k) + ':' + deterministicStringify(obj[k])).join(',') + '}';
+  }
+  return String(value);
+}
+
+/**
  * Compute a deterministic SHA-256 hash of the backup content.
  *
  * The hash is computed over a canonical JSON serialization (sorted
- * keys, no whitespace) so that two backups of the same state produce
- * the same hash. This is NOT a security feature — it's a diffing
- * convenience.
+ * keys at every nesting level, no whitespace) so that two backups
+ * of the same state produce the same hash. This is NOT a security
+ * feature — it's a diffing convenience AND an integrity check.
  *
  * Falls back to a simple string-hash if SubtleCrypto is unavailable
  * (older browsers, non-secure contexts).
@@ -131,7 +159,7 @@ export async function computeBackupContentHash(backup: PricePilotBackup): Promis
   // Strip the hash itself + timestamp + appVersion from the hashed
   // content so two backups of the same state produce the same hash.
   const { contentHash: _ch, createdAt: _ca, appVersion: _av, ...rest } = backup;
-  const canonical = JSON.stringify(rest, Object.keys(rest).sort());
+  const canonical = deterministicStringify(rest);
   try {
     if (typeof crypto !== 'undefined' && crypto.subtle) {
       const encoder = new TextEncoder();
@@ -389,10 +417,14 @@ export type BackupValidationResult =
       rejectedCount: number;
       /** Issue strings (warnings, not blockers). */
       issues: string[];
+      /** True when the backup is valid but the contentHash was missing
+       *  (e.g. from an older backup version). The restore is still allowed
+       *  but the UI may show a warning. */
+      checksumMissing?: boolean;
     }
   | {
       valid: false;
-      code: 'invalid-json' | 'unknown-format' | 'missing-identity' | 'invalid-products' | 'invalid-settings' | 'unsupported-version';
+      code: 'invalid-json' | 'unknown-format' | 'missing-identity' | 'invalid-products' | 'invalid-settings' | 'unsupported-version' | 'checksum-mismatch';
       message: string;
       issues: string[];
     };
@@ -465,6 +497,16 @@ export function validateBackup(raw: unknown): BackupValidationResult {
     };
   }
 
+  // Step 2b: Reject unsupported future schema versions.
+  if (data.schemaVersion > SCHEMA_VERSION) {
+    return {
+      valid: false,
+      code: 'unsupported-version',
+      message: `Schema version ${data.schemaVersion} is newer than this app supports (${SCHEMA_VERSION}). Please update PricePilot and try again.`,
+      issues: [],
+    };
+  }
+
   // Step 3: Normalize every product.
   const validProducts: Product[] = [];
   let needsReviewCount = 0;
@@ -502,12 +544,19 @@ export function validateBackup(raw: unknown): BackupValidationResult {
     contentHash: data.contentHash,
   };
 
+  // Flag missing checksum from older backups.
+  const checksumMissing = !data.contentHash;
+  if (checksumMissing) {
+    issues.push('Backup has no content hash (may be from an older version). Integrity cannot be verified.');
+  }
+
   return {
     valid: true,
     backup,
     needsReviewCount,
     rejectedCount,
     issues,
+    checksumMissing,
   };
 }
 
@@ -530,6 +579,65 @@ export function parseAndValidateBackup(jsonString: string): BackupValidationResu
 }
 
 // ============================================================
+// Checksum Verification (async)
+// ============================================================
+
+/**
+ * Verify the checksum of a validated backup.
+ *
+ * This MUST be called AFTER `validateBackup()` or `parseAndValidateBackup()`
+ * returns a successful result. If the backup has a `contentHash`, this
+ * function recalculates the hash and compares it. If they don't match,
+ * the backup has been damaged or modified.
+ *
+ * Returns a `BackupValidationResult`:
+ *   - `valid: true` (same object) if checksum matches or is absent.
+ *   - `valid: false, code: 'checksum-mismatch'` if checksums don't match.
+ */
+export async function verifyBackupChecksum(
+  result: Extract<BackupValidationResult, { valid: true }>,
+): Promise<BackupValidationResult> {
+  const { backup } = result;
+
+  // No contentHash — older backup, still allow but already flagged
+  // with checksumMissing in validateBackup().
+  if (!backup.contentHash) {
+    return result;
+  }
+
+  // Recalculate the hash and compare.
+  const recomputedHash = await computeBackupContentHash(backup);
+  if (recomputedHash !== backup.contentHash) {
+    return {
+      valid: false,
+      code: 'checksum-mismatch',
+      message: 'This backup appears to be damaged or modified. Nothing was restored, and your current data is unchanged.',
+      issues: [
+        `Stored content hash: ${backup.contentHash}`,
+        `Recomputed content hash: ${recomputedHash}`,
+      ],
+    };
+  }
+
+  return result;
+}
+
+/**
+ * Convenience: parse a JSON string, validate it, and verify the checksum.
+ *
+ * This is the async equivalent of `parseAndValidateBackup()` that also
+ * checks the content hash. Use this in the restore path to ensure
+ * integrity before writing to IndexedDB.
+ */
+export async function parseValidateAndVerifyBackup(jsonString: string): Promise<BackupValidationResult> {
+  const result = parseAndValidateBackup(jsonString);
+  if (!result.valid) {
+    return result;
+  }
+  return verifyBackupChecksum(result);
+}
+
+// ============================================================
 // Restore Preview (Phase 6)
 // ============================================================
 
@@ -549,6 +657,12 @@ export interface RestorePreview {
   issues: string[];
   /** The validated backup (only present when valid). */
   backup?: PricePilotBackup;
+  /** True when the backup is valid but the contentHash was missing
+   *  (e.g. from an older backup version). The restore is still allowed
+   *  but the UI may show a warning. */
+  checksumMissing?: boolean;
+  /** Error code when the preview is invalid (mirrors BackupValidationResult.code). */
+  errorCode?: 'invalid-json' | 'unknown-format' | 'missing-identity' | 'invalid-products' | 'invalid-settings' | 'unsupported-version' | 'checksum-mismatch';
 }
 
 /**
@@ -567,6 +681,7 @@ export function buildRestorePreview(jsonString: string): RestorePreview {
       needsReviewCount: 0,
       rejectedCount: 0,
       issues: result.issues,
+      errorCode: result.code,
     };
   }
   return {
@@ -579,5 +694,40 @@ export function buildRestorePreview(jsonString: string): RestorePreview {
     rejectedCount: result.rejectedCount,
     issues: result.issues,
     backup: result.backup,
+    checksumMissing: result.checksumMissing,
+  };
+}
+
+/**
+ * Async version of `buildRestorePreview` that also verifies the
+ * content hash. Use this in the restore path so the preview
+ * reflects the checksum verification result.
+ */
+export async function asyncBuildRestorePreview(jsonString: string): Promise<RestorePreview> {
+  const result = await parseValidateAndVerifyBackup(jsonString);
+  if (!result.valid) {
+    return {
+      valid: false,
+      createdAt: 'unknown',
+      productCount: 0,
+      pricingRuleCount: 0,
+      scenarioCount: 0,
+      needsReviewCount: 0,
+      rejectedCount: 0,
+      issues: result.issues,
+      errorCode: result.code,
+    };
+  }
+  return {
+    valid: true,
+    createdAt: result.backup.createdAt ?? 'unknown',
+    productCount: result.backup.products.length,
+    pricingRuleCount: result.backup.pricingRules.length,
+    scenarioCount: result.backup.scenarios.length,
+    needsReviewCount: result.needsReviewCount,
+    rejectedCount: result.rejectedCount,
+    issues: result.issues,
+    backup: result.backup,
+    checksumMissing: result.checksumMissing,
   };
 }
