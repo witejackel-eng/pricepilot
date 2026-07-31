@@ -157,60 +157,64 @@ function readLegacyData(): {
  * deleted by this function.
  */
 export async function migrateLegacyDataIfNeeded(): Promise<MigrationResult> {
-  // Check if migration has already been completed.
-  const existingStatus = await getMetadata<MigrationStatus>(METADATA_KEY_MIGRATION_STATUS);
-  if (existingStatus === 'complete') {
-    return {
-      status: 'complete',
-      migratedProductCount: 0,
-      needsReviewCount: 0,
-      rejectedCount: 0,
-      issues: [],
-      message: 'Migration already completed.',
-      hadLegacyData: false,
-    };
-  }
-
-  // Detect legacy data.
-  if (!hasLegacyLocalStorageData()) {
-    // No legacy data — mark migration as complete so we don't keep
-    // checking on every startup.
-    await setMetadata(METADATA_KEY_MIGRATION_STATUS, 'complete');
-    return {
-      status: 'complete',
-      migratedProductCount: 0,
-      needsReviewCount: 0,
-      rejectedCount: 0,
-      issues: [],
-      message: 'No legacy data found.',
-      hadLegacyData: false,
-    };
-  }
-
-  // Mark migration as in-progress.
-  await setMetadata(METADATA_KEY_MIGRATION_STATUS, 'in-progress');
-
-  // Read the legacy data.
-  const legacyData = readLegacyData();
-  if (!legacyData) {
-    await setMetadata(METADATA_KEY_MIGRATION_STATUS, 'failed');
-    return {
-      status: 'failed',
-      migratedProductCount: 0,
-      needsReviewCount: 0,
-      rejectedCount: 0,
-      issues: [],
-      message: 'PricePilot could not read your existing localStorage data. Your data has not been changed.',
-      hadLegacyData: true,
-    };
-  }
-
-  // Normalize every legacy product. This never throws.
-  const normResult = normalizeProducts(legacyData.products, { source: 'storage' });
-  const productsToMigrate = [...normResult.successfulProducts, ...normResult.failedProducts];
-
-  // Atomic write to IndexedDB. Either everything commits or nothing does.
+  // Wrap the entire function body in a try/catch so that ANY error
+  // (including database closed, IndexedDB unavailable, metadata read
+  // failure, etc.) results in a structured failure result instead of
+  // an unhandled rejection.
   try {
+    // Check if migration has already been completed.
+    const existingStatus = await getMetadata<MigrationStatus>(METADATA_KEY_MIGRATION_STATUS);
+    if (existingStatus === 'complete') {
+      return {
+        status: 'complete',
+        migratedProductCount: 0,
+        needsReviewCount: 0,
+        rejectedCount: 0,
+        issues: [],
+        message: 'Migration already completed.',
+        hadLegacyData: false,
+      };
+    }
+
+    // Detect legacy data.
+    if (!hasLegacyLocalStorageData()) {
+      // No legacy data — mark migration as complete so we don't keep
+      // checking on every startup.
+      await setMetadata(METADATA_KEY_MIGRATION_STATUS, 'complete');
+      return {
+        status: 'complete',
+        migratedProductCount: 0,
+        needsReviewCount: 0,
+        rejectedCount: 0,
+        issues: [],
+        message: 'No legacy data found.',
+        hadLegacyData: false,
+      };
+    }
+
+    // Mark migration as in-progress.
+    await setMetadata(METADATA_KEY_MIGRATION_STATUS, 'in-progress');
+
+    // Read the legacy data.
+    const legacyData = readLegacyData();
+    if (!legacyData) {
+      await setMetadata(METADATA_KEY_MIGRATION_STATUS, 'failed');
+      return {
+        status: 'failed',
+        migratedProductCount: 0,
+        needsReviewCount: 0,
+        rejectedCount: 0,
+        issues: [],
+        message: 'PricePilot could not read your existing localStorage data. Your data has not been changed.',
+        hadLegacyData: true,
+      };
+    }
+
+    // Normalize every legacy product. This never throws.
+    const normResult = normalizeProducts(legacyData.products, { source: 'storage' });
+    const productsToMigrate = [...normResult.successfulProducts, ...normResult.failedProducts];
+
+    // Atomic write to IndexedDB. Either everything commits or nothing does.
     // Ensure the DB exists.
     getDb();
 
@@ -266,7 +270,14 @@ export async function migrateLegacyDataIfNeeded(): Promise<MigrationResult> {
     };
   } catch (err) {
     console.error('[PricePilot Migration] Migration failed.', err);
-    await setMetadata(METADATA_KEY_MIGRATION_STATUS, 'failed');
+    // Best-effort: try to mark the migration as failed in metadata.
+    // If this also throws (e.g. database is closed), we silently ignore
+    // it — the localStorage data is still intact, which is what matters.
+    try {
+      await setMetadata(METADATA_KEY_MIGRATION_STATUS, 'failed');
+    } catch {
+      // Ignore — metadata write is best-effort.
+    }
     const errorMessage = err instanceof Error ? err.message : String(err);
     return {
       status: 'failed',

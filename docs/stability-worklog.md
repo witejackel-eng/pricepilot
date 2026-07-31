@@ -500,3 +500,23 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `test: add pricing and normalization unit tests`
+
+---
+
+## Phase 15 — test: add import and persistence integration tests
+
+- Created `src/lib/pricepilot/__tests__/import-persistence.test.ts` (5 integration tests using fake-indexeddb):
+  1. **Clean import** — 100 valid rows → `processImportRows` returns 100 ready-to-import, 0 rejected, 0 needs-review. `atomicImportProducts` writes them to IndexedDB. `loadAllProducts` returns all 100.
+  2. **Mixed import** — 95 valid + missing-cost + currency-string + invalid-percentage + duplicate + empty row. No crash. Valid rows import; missing-cost becomes needs-review; currency string parses to 1250; invalid percentage reported with `fee-above-100` code; duplicate flagged for reconciliation; empty row skipped silently.
+  3. **Failed transaction** — pre-populate catalogue with 5 existing products, then close the database, then attempt to import 10 new products. `atomicImportProducts` rejects. Reopen the database and verify the 5 existing products are still there (no partial import). None of the 10 new products are present.
+  4. **Legacy migration** — set up localStorage with 3 legacy products (one valid, one missing cost, one missing identity) + business settings + pricing rules. Run `migrateLegacyDataIfNeeded`. Two products are migrated to IndexedDB (the third is hard-rejected because it has no name AND no sku). The valid product has safe nested fields even though the legacy data didn't. The missing-cost product is kept as needs-review.
+  5. **Migration failure preserves localStorage** — close the database, then run migration. Migration returns `status: 'failed'`. localStorage data is still present (not deleted).
+- Hardened `migrateLegacyDataIfNeeded` to wrap its entire body in a try/catch so that ANY error (including database-closed errors from metadata reads) results in a structured failure result instead of an unhandled rejection. The metadata write that marks the migration as failed is itself wrapped in a try/catch so it can't rethrow.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run test` — PASS (112 tests total, 4.96s)
+- `bun run build` — PASS
+
+**Commit**: `test: add import and persistence integration tests`
