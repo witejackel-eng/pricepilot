@@ -65,3 +65,8 @@ screenshot*.png
 # Upload/Download
 /upload/
 /download/
+
+# Playwright test artifacts
+/test-results/
+/playwright-report/
+/playwright/.cache/
