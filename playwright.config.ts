@@ -18,7 +18,17 @@ import { defineConfig, devices } from '@playwright/test';
  * mobile-flow.spec.ts.
  *
  * Tests live in tests/e2e/.
+ *
+ * Gate 3: CI runs against the production build (`bun run start`),
+ * not the dev server. The webServer is only launched when
+ * PLAYWRIGHT_BASE_URL is not provided (i.e., when testing locally).
+ *
+ * Gate 5: When PLAYWRIGHT_BASE_URL is set (e.g., a Vercel preview
+ * URL), no local web server is launched and tests run against that
+ * external URL.
  */
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000';
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
@@ -27,7 +37,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -77,10 +87,18 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
-    command: 'bun run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  // Gate 3 & Gate 5: When PLAYWRIGHT_BASE_URL is provided (e.g. a
+  // Vercel preview URL), do NOT launch a local web server — run
+  // tests against the external URL. When testing locally, CI uses
+  // `bun run start` (production build) and dev uses `bun run dev`.
+  ...(process.env.PLAYWRIGHT_BASE_URL
+    ? {}
+    : {
+        webServer: {
+          command: process.env.CI ? 'bun run start' : 'bun run dev',
+          url: 'http://localhost:3000',
+          reuseExistingServer: !process.env.CI,
+          timeout: 120_000,
+        },
+      }),
 });

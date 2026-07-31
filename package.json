@@ -12,6 +12,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:desktop": "playwright test tests/e2e/father-workflow.spec.ts tests/e2e/hydration-startup.spec.ts --project=chromium --project=firefox --project=webkit",
+    "test:e2e:mobile": "playwright test tests/e2e/mobile-flow.spec.ts --project=mobile-pixel-7 --project=mobile-iphone-14 --project=tablet-ipad",
+    "test:e2e:preview": "playwright test tests/e2e/father-workflow.spec.ts tests/e2e/hydration-startup.spec.ts --project=chromium",
     "verify": "bun run typecheck && bun run lint && bun run test && bun run build",
     "verify:full": "bun run verify && bun run test:e2e"
   },
