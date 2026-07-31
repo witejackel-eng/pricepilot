@@ -26,7 +26,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 /** Wait for the PricePilot app to be ready (not blank). */
 async function waitForAppReady(page: Page): Promise<void> {
-  await page.waitForURL('http://localhost:3000/', { timeout: 30_000 });
+  await page.waitForURL(/\/$/, { timeout: 30_000 });
   await page.waitForFunction(() => {
     const t = document.body.textContent ?? '';
     return t.length > 50;
@@ -151,7 +151,7 @@ async function completeOnboarding(page: Page): Promise<void> {
 
 test.describe('Mobile Flow E2E', () => {
   test('onboarding works on mobile viewport', async ({ page }) => {
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
     await waitForAppReady(page);
 
     await completeOnboarding(page);
@@ -164,7 +164,7 @@ test.describe('Mobile Flow E2E', () => {
   });
 
   test('owner home is visible and usable on mobile', async ({ page }) => {
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
     await waitForAppReady(page);
 
     // Complete onboarding if needed
@@ -185,7 +185,7 @@ test.describe('Mobile Flow E2E', () => {
   });
 
   test('add product dialog works on mobile', async ({ page }) => {
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
     await waitForAppReady(page);
 
     // Complete onboarding if needed
@@ -248,7 +248,7 @@ test.describe('Mobile Flow E2E', () => {
   });
 
   test('import upload works on mobile', async ({ page }) => {
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
     await waitForAppReady(page);
 
     // Complete onboarding if needed
@@ -270,7 +270,7 @@ test.describe('Mobile Flow E2E', () => {
   });
 
   test('products list is scrollable on mobile', async ({ page }) => {
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
     await waitForAppReady(page);
 
     // Complete onboarding if needed
@@ -308,7 +308,7 @@ test.describe('Mobile Flow E2E', () => {
   });
 
   test('review prices page is usable on mobile', async ({ page }) => {
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
     await waitForAppReady(page);
 
     // Complete onboarding if needed
@@ -333,7 +333,7 @@ test.describe('Mobile Flow E2E', () => {
   });
 
   test('export works on mobile', async ({ page }) => {
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
     await waitForAppReady(page);
 
     // Complete onboarding if needed
@@ -361,7 +361,7 @@ test.describe('Mobile Flow E2E', () => {
   });
 
   test('no horizontal overflow on any page', async ({ page }) => {
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
     await waitForAppReady(page);
 
     // Complete onboarding if needed
@@ -383,7 +383,7 @@ test.describe('Mobile Flow E2E', () => {
   });
 
   test('no clipped controls on mobile', async ({ page }) => {
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
     await waitForAppReady(page);
 
     // Complete onboarding if needed
@@ -405,7 +405,7 @@ test.describe('Mobile Flow E2E', () => {
   });
 
   test('dialogs fit on screen on mobile', async ({ page }) => {
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
     await waitForAppReady(page);
 
     // Complete onboarding if needed
@@ -440,7 +440,7 @@ test.describe('Mobile Flow E2E', () => {
   });
 
   test('buttons remain tappable on mobile', async ({ page }) => {
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
     await waitForAppReady(page);
 
     // Complete onboarding if needed
