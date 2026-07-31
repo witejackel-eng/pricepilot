@@ -45,7 +45,7 @@ import { SettingsPage } from './settings-page';
 import { AddProductDialog } from './add-product-dialog';
 import { KeyboardShortcuts, FloatingHelpButton } from './keyboard-shortcuts';
 import { HelpPanel } from './help-panel';
-import { GuidedTour } from './guided-tour';
+import { GuidedTour, TourInvitation } from './guided-tour';
 import { toast } from 'sonner';
 
 // Owner mode navigation items
@@ -139,6 +139,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
               key={item.view}
               variant="ghost"
               title={item.label}
+              data-testid={`nav-${item.view}`}
               className={`w-full justify-start gap-3 rounded-lg transition-all duration-200 ${
                 isActive
                   ? 'bg-emerald-600/40 text-white font-medium shadow-lg shadow-emerald-900/30 border-l-2 border-emerald-500'
@@ -181,6 +182,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
                     key={item.view}
                     variant="ghost"
                     title={item.label}
+                    data-testid={`nav-${item.view}`}
                     className={`w-full justify-start gap-3 rounded-lg transition-all duration-200 text-xs ${
                       isActive
                         ? 'bg-emerald-600/30 text-white font-medium'
@@ -330,7 +332,7 @@ export function AppShell() {
   const isOwnerMode = applicationMode === 'owner';
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen flex flex-col bg-background" data-testid="app-initialization-ready">
       {/* Add Product Dialog */}
       <AddProductDialog open={addProductOpen} onOpenChange={setAddProductOpen} />
 
@@ -346,7 +348,9 @@ export function AppShell() {
       {/* Help Panel */}
       <HelpPanel open={helpPanelOpen} onOpenChange={setHelpPanelOpen} />
 
-      {/* Guided Tour (auto-shows on first visit after onboarding) */}
+      {/* Non-blocking tour invitation */}
+      <TourInvitation />
+      {/* Guided Tour modal (only shown when explicitly started) */}
       <GuidedTour />
 
       {/* Desktop layout */}

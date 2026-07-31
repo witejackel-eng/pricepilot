@@ -213,6 +213,7 @@ interface PricePilotState {
   undoHistory: UndoAction[];
   autoBackups: AutoBackup[];
   helpPanelOpen: boolean;
+  guidedTourOpen: boolean;
 
   // Actions
   initialize: () => void;
@@ -222,6 +223,8 @@ interface PricePilotState {
   setSelectedProducts: (ids: string[]) => void;
   setInitialFilterTab: (tab: string | null) => void;
   setHelpPanelOpen: (open: boolean) => void;
+  setGuidedTourOpen: (open: boolean) => void;
+  startGuidedTour: () => void;
 
   // Business settings
   updateBusinessSettings: (settings: Partial<BusinessSettings>) => Promise<OperationResult>;
@@ -388,6 +391,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   undoHistory: [],
   autoBackups: [],
   helpPanelOpen: false,
+  guidedTourOpen: false,
 
   // Initialize from IndexedDB (single source of truth)
   initialize: async () => {
@@ -544,6 +548,8 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   setSelectedProducts: (ids) => set({ selectedProducts: ids }),
   setInitialFilterTab: (tab) => set({ initialFilterTab: tab }),
   setHelpPanelOpen: (open) => set({ helpPanelOpen: open }),
+  setGuidedTourOpen: (open) => set({ guidedTourOpen: open }),
+  startGuidedTour: () => set({ guidedTourOpen: true }),
 
   // Business settings
   updateBusinessSettings: async (updates) => {

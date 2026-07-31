@@ -42,7 +42,7 @@ export default function Home() {
     initialization.status === 'loading' ||
     initialization.status === 'failed'
   ) {
-    return <InitializationScreen />;
+    return <div data-testid="app-initialization-loading"><InitializationScreen /></div>;
   }
 
   if (!onboardingCompleted) {

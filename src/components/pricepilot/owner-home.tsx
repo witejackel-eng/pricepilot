@@ -234,7 +234,7 @@ export function OwnerHome() {
   const recentActivity = undoHistory.slice(0, 5);
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-6 max-w-5xl mx-auto" data-testid="owner-home">
       {/* Header */}
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">

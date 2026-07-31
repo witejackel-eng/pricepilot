@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { usePricePilotStore, AppView } from '@/store/pricepilot-store';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -52,22 +52,120 @@ const TOUR_STEPS: TourStep[] = [
   },
 ];
 
+/**
+ * Non-blocking tour invitation banner.
+ * Shows after onboarding if the user hasn't completed or dismissed the tour.
+ * Does NOT block any page interaction.
+ */
+export function TourInvitation() {
+  const { appSettings, updateAppSettings, startGuidedTour } = usePricePilotStore();
+
+  // Don't show if tour completed or dismissed
+  if (appSettings.tourCompleted || appSettings.tourDismissed) return null;
+
+  const handleStartTour = () => {
+    startGuidedTour();
+  };
+
+  const handleDismiss = () => {
+    updateAppSettings({ tourDismissed: true });
+  };
+
+  return (
+    <div
+      data-testid="tour-invitation"
+      className="fixed bottom-4 right-4 z-40 max-w-xs animate-fade-in"
+      role="complementary"
+      aria-label="Guided tour invitation"
+    >
+      <Card className="shadow-lg border border-emerald-200 dark:border-emerald-800 rounded-xl overflow-hidden">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="h-8 w-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
+              <Sparkles className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                New to PricePilot?
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Take a 2-minute guided tour.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              data-testid="start-tour-button"
+              onClick={handleStartTour}
+              className="bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-lg text-xs"
+            >
+              Start Tour
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="dismiss-tour-button"
+              onClick={handleDismiss}
+              className="text-slate-500 hover:text-slate-700 text-xs"
+            >
+              Not Now
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * Guided Tour modal dialog.
+ * Only shown when the user explicitly starts the tour.
+ * Uses proper dialog accessibility.
+ */
 export function GuidedTour() {
-  const { appSettings, updateAppSettings, setCurrentView } = usePricePilotStore();
+  const { appSettings, updateAppSettings, setCurrentView, guidedTourOpen, setGuidedTourOpen } = usePricePilotStore();
   const [stepIndex, setStepIndex] = useState(0);
-  const [isVisible, setIsVisible] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const startTourButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  // Show tour if onboarding completed, tour not yet completed, and not previously dismissed this session
+  const handleClose = useCallback(() => {
+    setGuidedTourOpen(false);
+    updateAppSettings({ tourCompleted: true });
+    setCurrentView('owner-home');
+    // Restore focus
+    setTimeout(() => {
+      startTourButtonRef.current?.focus();
+    }, 100);
+  }, [setGuidedTourOpen, updateAppSettings, setCurrentView]);
+
+  // Store the element that triggered the tour for focus restoration
   useEffect(() => {
-    // Only auto-show on first load if tour hasn't been completed
-    if (!appSettings.tourCompleted) {
-      // Small delay to let the app settle
-      const timer = setTimeout(() => setIsVisible(true), 800);
-      return () => clearTimeout(timer);
+    if (guidedTourOpen) {
+      startTourButtonRef.current = document.activeElement as HTMLButtonElement;
     }
-  }, [appSettings.tourCompleted]);
+  }, [guidedTourOpen]);
 
-  if (!isVisible) return null;
+  // Focus trap: focus the dialog when it opens
+  useEffect(() => {
+    if (guidedTourOpen && dialogRef.current) {
+      dialogRef.current.focus();
+    }
+  }, [guidedTourOpen]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!guidedTourOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [guidedTourOpen, stepIndex, handleClose]);
+
+  if (!guidedTourOpen) return null;
 
   const currentStep = TOUR_STEPS[stepIndex];
   const isLastStep = stepIndex === TOUR_STEPS.length - 1;
@@ -75,48 +173,46 @@ export function GuidedTour() {
 
   const handleNext = () => {
     if (isLastStep) {
-      handleFinish();
+      handleClose();
     } else {
-      setStepIndex(stepIndex + 1);
-      setCurrentView(TOUR_STEPS[stepIndex + 1].targetView);
+      const nextIndex = stepIndex + 1;
+      setStepIndex(nextIndex);
+      setCurrentView(TOUR_STEPS[nextIndex].targetView);
     }
   };
 
   const handleBack = () => {
     if (stepIndex > 0) {
-      setStepIndex(stepIndex - 1);
-      setCurrentView(TOUR_STEPS[stepIndex - 1].targetView);
+      const prevIndex = stepIndex - 1;
+      setStepIndex(prevIndex);
+      setCurrentView(TOUR_STEPS[prevIndex].targetView);
     }
   };
 
   const handleSkip = () => {
-    updateAppSettings({ tourCompleted: true });
-    setIsVisible(false);
-  };
-
-  const handleFinish = () => {
-    updateAppSettings({ tourCompleted: true });
-    setIsVisible(false);
-    // Return to home after tour
-    setCurrentView('owner-home');
-  };
-
-  const handleRestart = () => {
-    setStepIndex(0);
-    setCurrentView(TOUR_STEPS[0].targetView);
-    setIsVisible(true);
+    handleClose();
   };
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — only shown when user explicitly opened the tour */}
       <div
         className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm animate-fade-in"
         onClick={handleSkip}
+        aria-hidden="true"
       />
 
-      {/* Tour card */}
-      <div className="fixed bottom-6 right-6 z-[61] max-w-sm animate-fade-in">
+      {/* Tour dialog */}
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="PricePilot Guided Tour"
+        aria-describedby="guided-tour-description"
+        data-testid="guided-tour-dialog"
+        tabIndex={-1}
+        className="fixed bottom-6 right-6 z-[61] max-w-sm animate-fade-in outline-none"
+      >
         <Card className="shadow-2xl border-0 rounded-2xl overflow-hidden bg-white">
           {/* Header with gradient */}
           <div className={`bg-gradient-to-r ${currentStep.color} p-4 text-white relative`}>
@@ -141,7 +237,7 @@ export function GuidedTour() {
           </div>
 
           <CardContent className="p-4 space-y-4">
-            <p className="text-sm text-slate-600 leading-relaxed">{currentStep.description}</p>
+            <p id="guided-tour-description" className="text-sm text-slate-600 leading-relaxed">{currentStep.description}</p>
 
             {/* Progress dots */}
             <div className="flex items-center justify-center gap-2">
@@ -216,16 +312,11 @@ export function GuidedTour() {
  * Button to manually restart the guided tour from Settings or Help Panel.
  */
 export function RestartTourButton() {
-  const { updateAppSettings, setCurrentView } = usePricePilotStore();
+  const { updateAppSettings, startGuidedTour } = usePricePilotStore();
 
   const handleRestart = () => {
-    updateAppSettings({ tourCompleted: false });
-    setCurrentView('owner-home');
-    // The GuidedTour component will auto-show when tourCompleted becomes false
-    // Force a small delay then re-set to trigger the effect
-    setTimeout(() => {
-      updateAppSettings({ tourCompleted: false });
-    }, 100);
+    updateAppSettings({ tourCompleted: false, tourDismissed: false });
+    startGuidedTour();
   };
 
   return (

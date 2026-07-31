@@ -601,6 +601,7 @@ export interface AppSettings {
   
   // --- Onboarding ---
   tourCompleted: boolean;         // Whether guided tour has been completed
+  tourDismissed: boolean;       // Whether user dismissed the tour invitation
   sampleDataLoaded: boolean;      // Whether sample/demo data is currently loaded
   
   updatedAt: string;
@@ -929,6 +930,7 @@ export function createDefaultAppSettings(): AppSettings {
     defaultExportPreset: 'full',
     includeCalculatedInExport: true,
     tourCompleted: false,
+    tourDismissed: false,
     sampleDataLoaded: false,
     updatedAt: new Date().toISOString(),
   };
