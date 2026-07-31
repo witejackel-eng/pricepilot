@@ -454,3 +454,49 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `test: configure real automated test infrastructure`
+
+---
+
+## Phase 14 — test: add pricing and normalization unit tests
+
+- Created `src/lib/pricepilot/__tests__/formatting.test.ts` (58 tests):
+  - `isFiniteNumber` — accepts real numbers; rejects NaN, Infinity, -Infinity, undefined, null, strings, objects, arrays, booleans.
+  - `safeNumberValue` — returns the number when finite; returns fallback (default 0) for NaN, Infinity, -Infinity, undefined, null, strings.
+  - `formatCurrency` — INR with prefix symbol, negative INR with minus before symbol, ₹0.00 for NaN/Infinity/-Infinity/undefined/null, USD support, compact INR (L/Cr/K), and an explicit assertion that no formatter ever produces the strings `"NaN"`, `"Infinity"`, `"undefined"`, or `"null"`.
+  - `formatPercentage` / `formatNumber` — same NaN/Infinity/undefined/null safety.
+  - `formatCurrencyOrDash` / `formatPercentageOrDash` / `formatNumberOrDash` — return the em-dash placeholder for invalid inputs, formatted value for finite inputs.
+  - `roundToDecimals` / `roundTo2Decimals` / `roundTo4Decimals` — round-half-up behavior, return 0 for invalid inputs.
+- Created `src/lib/pricepilot/__tests__/product-normalizer.test.ts` (34 tests):
+  - Complete valid product (passes through cleanly with `success: true`).
+  - Legacy product missing `recommendedPrices`, `competitorPrices`, `tags`, `notes` — defaults applied.
+  - Currency string purchase cost (`"₹1,250"`), Indian comma-formatted (`"1,25,000"`), percentage strings (`"18%"`, `"5.5%"`).
+  - Empty string purchase cost → 0, lifecycle `needs-review`, `missing-data` status, `confidence: 'low'`.
+  - Identity rules: name-only, sku-only, neither (rejected).
+  - Negative cost clamped to 0 with warning; NaN/Infinity reset to 0; infinite selling price reset to 0.
+  - Fees above 100% rejected with error; negative fees rejected with error.
+  - Invalid tax treatment / sales channel / lifecycle status reset to defaults.
+  - Never throws: null, undefined, array, string, number inputs all return a result.
+  - Batch helper handles non-array input, keeps malformed products as needs-review, counts hard rejections.
+  - Preserves original ID; generates an ID when missing.
+- Created `src/lib/pricepilot/__tests__/safe-calculation.test.ts` (9 tests):
+  - Valid product returns `success: true` with finite numbers on every calculated field.
+  - Missing purchase cost returns `success: true` (recoverable) with `missing-data` status, `needs-review` lifecycle, `low` confidence, and zero recommendation prices.
+  - Impossible margin (fees + margin > 100%) does not crash; produces finite numbers.
+  - Fees above 100% still produce a safe product (no NaN, no Infinity).
+  - Engine exception (undefined settings) is caught; structured failure returned with `needs-review` product.
+  - Batch helper: one bad product does not abort the others; handles non-array input.
+- Created `src/lib/pricepilot/__tests__/financial-correctness.test.ts` (4 tests):
+  - **Scenario 1 (tax exempt)**: purchase ₹100, sell ₹125, no fees → profit ₹25, margin 20%.
+  - **Scenario 2 (tax inclusive)**: purchase ₹100, sell ₹150, GST 20% → net revenue ₹125, GST ₹25, profit ₹25.
+  - **Scenario 3 (tax exclusive)**: purchase ₹100, base sell ₹125, GST 20%, marketplace fee 10% → customer pays ₹150, marketplace fee ₹12.50, profit ₹12.50.
+  - Engine never produces NaN/Infinity on any calculated field for a normal product.
+
+**Total**: 107 tests, all passing.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run test` — PASS (107 tests, 4.17s)
+- `bun run build` — PASS
+
+**Commit**: `test: add pricing and normalization unit tests`
