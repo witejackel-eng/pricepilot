@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { ExportPreset } from '@/lib/pricepilot/types';
+import { createSpreadsheet, downloadSpreadsheet } from '@/lib/pricepilot/spreadsheet-adapter';
 import { Download, FileSpreadsheet, FileText, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
@@ -131,8 +132,6 @@ export function ExportPage() {
     }, 100);
 
     try {
-      const XLSX = await import('xlsx');
-
       // Build data rows
       const rows = exportProducts.map(p => {
         const row: Record<string, string | number> = {};
@@ -165,7 +164,7 @@ export function ExportPage() {
       });
 
       if (format === 'csv') {
-        // CSV export
+        // CSV export — build text inline, no spreadsheet library needed.
         if (rows.length === 0) return;
         const headers = Object.keys(rows[0]);
         const csvLines = [
@@ -187,13 +186,12 @@ export function ExportPage() {
         a.click();
         URL.revokeObjectURL(url);
       } else {
-        // XLSX export
-        const ws = XLSX.utils.json_to_sheet(rows);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Products');
+        // XLSX export via the spreadsheet adapter (ExcelJS).
+        const builder = createSpreadsheet();
+        builder.addSheet('Products', rows);
 
-        // Add summary sheet
-        const summaryData = [
+        // Summary sheet
+        const summaryData: Record<string, string | number>[] = [
           { Metric: 'Total Products', Value: exportProducts.length },
           { Metric: 'Total Inventory Cost', Value: exportProducts.reduce((s, p) => s + p.calculatedTotalLandedCost, 0) },
           { Metric: 'Total Revenue (Existing)', Value: exportProducts.reduce((s, p) => s + p.currentSellingPrice, 0) },
@@ -203,13 +201,12 @@ export function ExportPage() {
           { Metric: 'Export Date', Value: new Date().toISOString() },
           { Metric: 'Currency', Value: cc },
         ];
-        const wsSummary = XLSX.utils.json_to_sheet(summaryData);
-        XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+        builder.addSheet('Summary', summaryData);
 
         // Products requiring review sheet
         const reviewProducts = exportProducts.filter(p => p.calculatedPricingStatus === 'needs-review' || p.calculatedPricingStatus === 'loss-making');
         if (reviewProducts.length > 0) {
-          const reviewRows = reviewProducts.map(p => ({
+          const reviewRows: Record<string, string | number>[] = reviewProducts.map(p => ({
             'Product Name': p.name,
             'SKU': p.sku,
             'Status': p.calculatedPricingStatus,
@@ -218,11 +215,11 @@ export function ExportPage() {
             'Margin (%)': p.calculatedMarginPercent,
             'Profit': p.calculatedProfitPerUnit,
           }));
-          const wsReview = XLSX.utils.json_to_sheet(reviewRows);
-          XLSX.utils.book_append_sheet(wb, wsReview, 'Products Requiring Review');
+          builder.addSheet('Products Requiring Review', reviewRows);
         }
 
-        XLSX.writeFile(wb, `pricepilot-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+        const buffer = await builder.writeBuffer();
+        downloadSpreadsheet(buffer, `pricepilot-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
       }
 
       // Feature 4: Complete progress animation
@@ -257,10 +254,10 @@ export function ExportPage() {
     }, 100);
 
     try {
-      const XLSX = await import('xlsx');
+      const builder = createSpreadsheet();
 
       // Sheet 1: Updated Prices
-      const updatedPricesRows = products.map(p => ({
+      const updatedPricesRows: Record<string, string | number>[] = products.map(p => ({
         'Product Name': p.name,
         'SKU': p.sku,
         'Purchase Cost': p.purchaseCost,
@@ -274,7 +271,7 @@ export function ExportPage() {
         'Approval Date': p.approvedAt ? new Date(p.approvedAt).toLocaleDateString() : '',
         'Warning': p.calculatedProfitPerUnit < 0 ? 'Loss-making' : p.calculatedMarginPercent < businessSettings.defaultMinimumMarginPercent ? 'Low margin' : '',
       }));
-      const wsUpdated = XLSX.utils.json_to_sheet(updatedPricesRows);
+      builder.addSheet('Updated Prices', updatedPricesRows);
 
       // Sheet 2: Products Needing Attention
       const attentionProducts = products.filter(p =>
@@ -285,7 +282,7 @@ export function ExportPage() {
         p.calculatedPricingStatus === 'needs-review' ||
         p.recommendedPrices.confidence === 'low'
       );
-      const attentionRows = attentionProducts.map(p => ({
+      const attentionRows: Record<string, string | number>[] = attentionProducts.map(p => ({
         'Product Name': p.name,
         'SKU': p.sku,
         'Problem': !p.purchaseCost ? 'Missing cost' : !p.currentSellingPrice ? 'Missing price' : p.calculatedPricingStatus === 'loss-making' ? 'Loss-making' : p.calculatedPricingStatus === 'below-break-even' ? 'Below break-even' : p.calculatedPricingStatus === 'missing-data' ? 'Missing data' : p.calculatedPricingStatus === 'needs-review' ? 'Needs review' : p.recommendedPrices.confidence === 'low' ? 'Low confidence' : 'Unknown',
@@ -294,10 +291,10 @@ export function ExportPage() {
         'Margin (%)': p.calculatedMarginPercent,
         'Confidence': p.recommendedPrices.confidence || '',
       }));
-      const wsAttention = XLSX.utils.json_to_sheet(attentionRows);
+      builder.addSheet('Products Needing Attention', attentionRows);
 
       // Sheet 3: Summary
-      const summaryData = [
+      const summaryData: Record<string, string | number>[] = [
         { Metric: 'Total Products', Value: products.length },
         { Metric: 'Products Needing Attention', Value: attentionProducts.length },
         { Metric: 'Products Approved', Value: products.filter(p => p.priceApprovalStatus === 'approved').length },
@@ -307,10 +304,10 @@ export function ExportPage() {
         { Metric: 'Currency', Value: cc },
         { Metric: 'Export Date', Value: new Date().toISOString() },
       ];
-      const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+      builder.addSheet('Summary', summaryData);
 
       // Sheet 4: Export Information
-      const exportInfo = [
+      const exportInfo: Record<string, string | number>[] = [
         { Field: 'Application', Value: 'PricePilot v0.3' },
         { Field: 'Export Type', Value: 'Owner Mode - Updated Price List' },
         { Field: 'Export Date', Value: new Date().toISOString() },
@@ -323,15 +320,10 @@ export function ExportPage() {
         { Field: 'Target Margin (%)', Value: businessSettings.defaultTargetMarginPercent },
         { Field: 'Minimum Margin (%)', Value: businessSettings.defaultMinimumMarginPercent },
       ];
-      const wsInfo = XLSX.utils.json_to_sheet(exportInfo);
+      builder.addSheet('Export Information', exportInfo);
 
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, wsUpdated, 'Updated Prices');
-      XLSX.utils.book_append_sheet(wb, wsAttention, 'Products Needing Attention');
-      XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
-      XLSX.utils.book_append_sheet(wb, wsInfo, 'Export Information');
-
-      XLSX.writeFile(wb, `pricepilot-prices-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      const buffer = await builder.writeBuffer();
+      downloadSpreadsheet(buffer, `pricepilot-prices-${new Date().toISOString().slice(0, 10)}.xlsx`);
 
       clearInterval(progressInterval);
       setExportProgress(100);

@@ -4,8 +4,7 @@
  * Handles parsing of Excel and CSV files, automatic column
  * mapping detection, data cleaning, and formatted export.
  *
- * Uses the xlsx library for Excel operations and implements
- * intelligent column detection for common heading variations.
+ * Excel I/O is delegated to the spreadsheet-adapter (ExcelJS).
  */
 
 import {
@@ -26,17 +25,22 @@ import {
   DuplicateHandling,
 } from './types';
 import { parseNumericInput } from './formatting';
+import {
+  parseSpreadsheet,
+  createSpreadsheet,
+  type WorkbookBuilder,
+} from './spreadsheet-adapter';
 
 // ============================================================
 // Excel Parsing
 // ============================================================
 
 /**
- * Parse an Excel file (xlsx) and return sheets with rows.
+ * Parse an Excel file (xlsx/xls) and return sheets with rows.
  * Each sheet is returned as an array of objects where keys
  * are column headers and values are cell values (as strings).
  *
- * Uses the xlsx library which must be available at runtime.
+ * Excel I/O is delegated to the spreadsheet-adapter (ExcelJS).
  */
 export async function parseExcelFile(fileBuffer: ArrayBuffer): Promise<{
   sheets: Array<{
@@ -47,77 +51,8 @@ export async function parseExcelFile(fileBuffer: ArrayBuffer): Promise<{
   }>;
   errors: ImportError[];
 }> {
-  const errors: ImportError[] = [];
-
-  try {
-    // Dynamic import of xlsx (it's a large library)
-    const XLSX = await import('xlsx');
-
-    const workbook = XLSX.read(fileBuffer, { type: 'array' });
-
-    const sheets: Array<{
-      name: string;
-      headers: string[];
-      rows: Record<string, string>[];
-      rawRows: string[][];
-    }> = [];
-
-    for (const sheetName of workbook.SheetNames) {
-      const worksheet = workbook.Sheets[sheetName];
-
-      // First, get the raw 2D array of all rows (header: 1)
-      const rawRowsArray = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
-        defval: '',
-        raw: false,
-        header: 1,
-        blankrows: false,
-      }) as unknown[][];
-
-      // Convert to string[][]
-      const rawRows: string[][] = rawRowsArray.map(row =>
-        (row ?? []).map(cell => String(cell ?? '').trim())
-      );
-
-      if (rawRows.length === 0) continue;
-
-      // Use first row as headers (default behaviour)
-      const headers = rawRows[0];
-
-      // Build row objects keyed by header
-      const rows: Record<string, string>[] = [];
-      for (let i = 1; i < rawRows.length; i++) {
-        const rawRow = rawRows[i];
-        const stringRow: Record<string, string> = {};
-        for (let j = 0; j < headers.length; j++) {
-          stringRow[headers[j]] = j < rawRow.length ? rawRow[j] : '';
-        }
-        rows.push(stringRow);
-      }
-
-      sheets.push({ name: sheetName, headers, rows, rawRows });
-    }
-
-    if (sheets.length === 0) {
-      errors.push({
-        row: 0,
-        column: '',
-        value: '',
-        message: 'No data found in the Excel file. The file may be empty or all sheets are blank.',
-        severity: 'error',
-      });
-    }
-
-    return { sheets, errors };
-  } catch (error) {
-    errors.push({
-      row: 0,
-      column: '',
-      value: '',
-      message: `Failed to parse Excel file: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      severity: 'critical',
-    });
-    return { sheets: [], errors };
-  }
+  // Delegate to the adapter — same return shape, no caller changes needed.
+  return parseSpreadsheet(fileBuffer);
 }
 
 /**
@@ -866,11 +801,6 @@ export async function exportToExcel(
   preset: ExportPreset,
   config?: Partial<ExportConfig>
 ): Promise<Blob> {
-  const XLSX = await import('xlsx');
-
-  const workbook = XLSX.utils.book_new();
-  const currency = settings.currencyCode;
-
   // Determine columns based on preset
   const columns = getExportColumns(preset, config?.columns);
 
@@ -884,37 +814,23 @@ export async function exportToExcel(
     return row;
   });
 
-  const mainSheet = XLSX.utils.json_to_sheet(mainData);
-
-  // Set column widths
-  const colWidths = columns.map(col => ({
-    wch: Math.max(col.label.length + 2, 15),
-  }));
-  mainSheet['!cols'] = colWidths;
-
-  XLSX.utils.book_append_sheet(workbook, mainSheet, config?.sheetName ?? 'Products');
+  const builder = createSpreadsheet();
+  builder.addSheet(config?.sheetName ?? 'Products', mainData);
 
   // Add additional sheets based on preset
   if (preset === 'full' || preset === 'cost-analysis') {
-    const costSheet = createCostAnalysisSheet(products, settings, XLSX);
-    XLSX.utils.book_append_sheet(workbook, costSheet, 'Cost Analysis');
+    builder.addSheet('Cost Analysis', buildCostAnalysisRows(products, settings));
   }
 
   if (preset === 'full' || preset === 'competitor') {
-    const competitorSheet = createCompetitorSheet(products, settings, XLSX);
-    XLSX.utils.book_append_sheet(workbook, competitorSheet, 'Competitor Analysis');
+    builder.addSheet('Competitor Analysis', buildCompetitorRows(products, settings));
   }
 
   if (preset === 'full') {
-    const summarySheet = createSummarySheet(products, settings, XLSX);
-    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+    builder.addSheet('Summary', buildSummaryRows(products, settings));
   }
 
-  // Generate the workbook as an array buffer
-  const buffer = XLSX.write(workbook, {
-    bookType: 'xlsx',
-    type: 'array',
-  });
+  const buffer = await builder.writeBuffer();
 
   return new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -1093,12 +1009,16 @@ function getExportValue(
 // Additional Export Sheets
 // ============================================================
 
-function createCostAnalysisSheet(
+/**
+ * Build the rows for the Cost Analysis sheet.
+ * Returns plain row objects so the WorkbookBuilder can append them
+ * directly — no library-specific WorkSheet type needed.
+ */
+function buildCostAnalysisRows(
   products: Product[],
-  settings: BusinessSettings,
-  XLSX: typeof import('xlsx')
-): import('xlsx').WorkSheet {
-  const data = products.map(p => ({
+  _settings: BusinessSettings,
+): Record<string, string | number>[] {
+  return products.map(p => ({
     'SKU': p.sku,
     'Product': p.name,
     'Purchase Cost': p.purchaseCost,
@@ -1116,15 +1036,15 @@ function createCostAnalysisSheet(
     'Profit/Unit': p.calculatedProfitPerUnit,
     'Margin %': p.calculatedMarginPercent,
   }));
-
-  return XLSX.utils.json_to_sheet(data);
 }
 
-function createCompetitorSheet(
+/**
+ * Build the rows for the Competitor Analysis sheet.
+ */
+function buildCompetitorRows(
   products: Product[],
-  settings: BusinessSettings,
-  XLSX: typeof import('xlsx')
-): import('xlsx').WorkSheet {
+  _settings: BusinessSettings,
+): Record<string, string | number>[] {
   const data: Record<string, string | number>[] = [];
 
   for (const p of products) {
@@ -1153,14 +1073,16 @@ function createCompetitorSheet(
     data.push(baseRow);
   }
 
-  return XLSX.utils.json_to_sheet(data);
+  return data;
 }
 
-function createSummarySheet(
+/**
+ * Build the rows for the Summary sheet.
+ */
+function buildSummaryRows(
   products: Product[],
-  settings: BusinessSettings,
-  XLSX: typeof import('xlsx')
-): import('xlsx').WorkSheet {
+  _settings: BusinessSettings,
+): Record<string, string | number>[] {
   const totalProducts = products.length;
   const lossMaking = products.filter(p => p.calculatedPricingStatus === 'loss-making').length;
   const belowBreakEven = products.filter(p => p.calculatedPricingStatus === 'below-break-even').length;
@@ -1173,7 +1095,7 @@ function createSummarySheet(
     ? products.reduce((sum, p) => sum + p.calculatedProfitPerUnit, 0) / products.length
     : 0;
 
-  const data = [
+  return [
     { 'Metric': 'Total Products', 'Value': totalProducts },
     { 'Metric': 'Loss-Making Products', 'Value': lossMaking },
     { 'Metric': 'Below Break-Even', 'Value': belowBreakEven },
@@ -1183,6 +1105,9 @@ function createSummarySheet(
     { 'Metric': 'Average Profit/Unit', 'Value': Number(avgProfit.toFixed(2)) },
     { 'Metric': 'Export Date', 'Value': new Date().toISOString() },
   ];
-
-  return XLSX.utils.json_to_sheet(data);
 }
+
+// `WorkbookBuilder` is re-exported here so legacy callers that imported
+// the type from excel.ts can still resolve it. Kept as a private alias
+// to avoid introducing a new public API surface.
+export type { WorkbookBuilder };

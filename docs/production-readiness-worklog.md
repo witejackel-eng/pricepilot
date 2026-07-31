@@ -266,3 +266,32 @@ Each phase records the actual command output below.
 **Commit**: `fix: validate and normalize backup restoration`
 
 ---
+
+## Phase 13 — security: replace vulnerable spreadsheet parser
+
+- Removed `"xlsx": "^0.18.5"` from `package.json` — the package has known CVEs (CVE-2024-22363 ReDoS, prototype pollution, plus the upstream SheetJS distribution model is no longer trustworthy).
+- Installed `exceljs@4.4.0` as the maintained replacement. ExcelJS is widely deployed, has an active maintainer, supports XLSX + CSV read/write, multi-sheet workbooks, browser operation, and a reasonable bundle size.
+- Created `src/lib/pricepilot/spreadsheet-adapter.ts`:
+  - `parseSpreadsheet(fileBuffer)` — wraps `ExcelJS.Workbook.xlsx.load()`, iterates sheets with `eachSheet` + `eachRow`, returns the same shape as the old `parseExcelFile` (`{ sheets: [{ name, headers, rows, rawRows }], errors }`).
+  - `parseCsvFile(fileBuffer)` — simple CSV parser (no library needed).
+  - `createSpreadsheet()` → `WorkbookBuilder` — builder pattern with `addSheet(name, rows)` and `writeBuffer()`.
+  - `downloadSpreadsheet(buffer, filename)` — browser download trigger.
+- Migrated `src/lib/pricepilot/excel.ts`:
+  - `parseExcelFile` now delegates to `parseSpreadsheet` from the adapter. Same public API, same return shape — callers (import-flow.tsx) unchanged.
+  - `exportToExcel` now uses `createSpreadsheet` from the adapter. Helper functions renamed `createCostAnalysisSheet` → `buildCostAnalysisRows`, `createCompetitorSheet` → `buildCompetitorRows`, `createSummarySheet` → `buildSummaryRows` — they now return plain `Record<string, string | number>[]` instead of XLSX WorkSheet objects.
+  - All `await import('xlsx')` calls and all `XLSX.utils.*` / `XLSX.write` / `XLSX.read` references removed.
+- Updated `src/components/pricepilot/export-page.tsx`:
+  - `handleExport` and `handleOwnerExport` no longer dynamic-import xlsx.
+  - Both now build workbooks via `createSpreadsheet` + `downloadSpreadsheet` from the adapter (or call `exportToExcel` from excel.ts which uses the adapter internally).
+- Regenerated `bun.lock` (1 package removed, 0 added beyond what was already installed).
+- Verified no remaining `from 'xlsx'` / `require('xlsx')` / `await import('xlsx')` / `XLSX.utils` references anywhere in `src/`. Only benign string-literal mentions of `.xlsx` as a file extension remain.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (0 errors, 0 warnings)
+- `bun run test` — PASS (115 tests, ~6.2s)
+- `bun run build` — PASS
+
+**Commit**: `security: replace vulnerable spreadsheet parser`
+
+---
