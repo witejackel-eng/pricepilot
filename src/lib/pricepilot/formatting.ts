@@ -319,11 +319,10 @@ export function parseNumericInput(value: string): number {
     cleaned = dotParts[0] + '.' + dotParts.slice(1).join('');
   }
 
-  // Handle multiple minus signs (keep only one at the start)
-  if (cleaned.indexOf('-') > 0) {
-    // Minus not at start — invalid
-    cleaned = cleaned.replace(/-/g, '');
-  }
+  // Handle multiple minus signs: keep one at the start, and one
+  // immediately after 'e' or 'E' (for scientific notation like 1.23e-1).
+  // Any other minus signs are invalid and should be removed.
+  cleaned = cleaned.replace(/(?<!^)(?<!^e)(?<!^E)(?<!e)(?<!E)-/g, '');
 
   const parsed = parseFloat(cleaned);
 

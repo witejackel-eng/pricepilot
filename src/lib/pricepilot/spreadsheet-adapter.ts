@@ -292,7 +292,43 @@ export function parseCsvFile(fileBuffer: ArrayBuffer): ParseCsvResult {
 
   try {
     const text = new TextDecoder('utf-8').decode(fileBuffer);
-    const lines = text.split(/\r?\n/).filter((line) => line.trim() !== '');
+
+    // Split into logical lines respecting quoted cells that may
+    // contain embedded newlines. A line break inside a quoted cell
+    // does NOT end the row.
+    const lines: string[] = [];
+    let currentLine = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+
+      if (char === '"') {
+        // Check for escaped double quote
+        if (inQuotes && i + 1 < text.length && text[i + 1] === '"') {
+          currentLine += '""';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+          currentLine += char;
+        }
+      } else if ((char === '\n' || char === '\r') && !inQuotes) {
+        // End of a logical line (but skip \r\n as one break)
+        if (char === '\r' && i + 1 < text.length && text[i + 1] === '\n') {
+          i++;
+        }
+        if (currentLine.trim() !== '') {
+          lines.push(currentLine);
+        }
+        currentLine = '';
+      } else {
+        currentLine += char;
+      }
+    }
+    // Push the last line if non-empty
+    if (currentLine.trim() !== '') {
+      lines.push(currentLine);
+    }
 
     if (lines.length < 2) {
       errors.push({
@@ -437,12 +473,21 @@ export function sanitizeSpreadsheetCell(value: unknown): string | number {
   // (defence already applied), leave it alone.
   if (str.startsWith("'")) return str;
 
-  // Check the first non-whitespace character.
-  const trimmedStart = str.replace(/^[\s]+/, '');
-  if (trimmedStart.length > 0 && FORMULA_INJECTION_PREFIXES.has(trimmedStart[0])) {
+  // Check the first character of the original string (before any
+  // whitespace stripping). Tab (\t) and carriage return (\r) are
+  // formula-injection vectors when they appear at the very start
+  // of a cell, so we must check them BEFORE stripping.
+  if (str.length > 0 && FORMULA_INJECTION_PREFIXES.has(str[0])) {
     // Prefix with apostrophe. The spreadsheet app will display the
     // string without the apostrophe but will NOT evaluate it as a
     // formula.
+    return `'${str}`;
+  }
+
+  // Also check the first non-whitespace character — formulas may
+  // be preceded by spaces as an evasion technique.
+  const trimmedStart = str.replace(/^[\s]+/, '');
+  if (trimmedStart.length > 0 && FORMULA_INJECTION_PREFIXES.has(trimmedStart[0])) {
     return `'${str}`;
   }
 

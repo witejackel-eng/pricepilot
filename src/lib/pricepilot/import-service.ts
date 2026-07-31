@@ -26,6 +26,26 @@ import { normalizeProduct, ProductNormalizationIssue } from './product-normalize
 import { safelyRecalculateProduct } from './safe-calculation';
 
 // ============================================================
+// SKU Normalisation (trim → Unicode NFC → case-fold)
+// ============================================================
+
+/**
+ * Normalise a SKU for comparison purposes.
+ *
+ * Order: trim → Unicode NFC normalisation → case-insensitive (lowercase).
+ *
+ * This is the canonical comparison used for both:
+ *   - duplicate detection against the existing catalogue, and
+ *   - duplicate detection within the same import file.
+ */
+export function normalizeSkuForComparison(sku: string): string {
+  if (typeof sku !== 'string') return '';
+  const trimmed = sku.trim();
+  const nfc = trimmed.normalize('NFC');
+  return nfc.toLowerCase();
+}
+
+// ============================================================
 // Types
 // ============================================================
 
@@ -62,6 +82,48 @@ export interface ImportBatchResult {
     duplicates: number;
     message: string;
   };
+}
+
+// ============================================================
+// Internal: detect extra heading rows
+// ============================================================
+
+/**
+ * Common column names that indicate a heading row rather than a data row.
+ * Used to detect extra heading rows that appear in the middle of data.
+ */
+const HEADING_KEYWORDS = new Set([
+  'sku', 'name', 'product', 'product name', 'productname',
+  'purchase cost', 'purchasecost', 'cost', 'price',
+  'selling price', 'sellingprice', 'current price',
+  'tax', 'tax rate', 'taxrate', 'tax %',
+  'fee', 'marketplace fee', 'marketplacefee', 'payment fee', 'paymentfee',
+  'category', 'brand', 'description', 'quantity', 'stock',
+  'margin', 'profit', 'discount',
+]);
+
+/**
+ * Detect whether a row looks like an extra heading row.
+ * A row is considered a heading row if:
+ *   - All non-empty values are strings
+ *   - At least 2 values match common column heading keywords
+ *   - No value is a plain number
+ */
+function isExtraHeadingRow(row: Record<string, unknown>): boolean {
+  const values = Object.values(row).filter(v => v !== null && v !== undefined && String(v).trim() !== '');
+  if (values.length < 2) return false;
+
+  // If any value is a plain number, it's not a heading row.
+  const hasNumber = values.some(v => typeof v === 'number' && Number.isFinite(v));
+  if (hasNumber) return false;
+
+  // Count how many values match heading keywords.
+  const matchingKeywords = values.filter(v => {
+    const str = String(v).trim().toLowerCase();
+    return HEADING_KEYWORDS.has(str);
+  });
+
+  return matchingKeywords.length >= 2;
 }
 
 // ============================================================
@@ -144,6 +206,9 @@ export function processImportRows(
   const needsReviewProducts: Product[] = [];
   const duplicateProducts: Product[] = [];
   const existingSkus = options?.existingSkus ?? new Set<string>();
+  // Track SKUs seen in the current file for within-file duplicate detection.
+  // Normalised keys (trim → NFC → lowercase) are used for comparison.
+  const withinFileSkus = new Set<string>();
   let rejectedCount = 0;
 
   if (!Array.isArray(rows)) {
@@ -193,6 +258,23 @@ export function processImportRows(
       continue;
     }
 
+    // Detect extra heading rows embedded in the data.
+    if (isExtraHeadingRow(originalRow)) {
+      results.push({
+        rowNumber,
+        status: 'rejected',
+        issues: [{
+          code: 'extra-heading-row',
+          message: `Row ${rowNumber} appears to be a heading row, not a data row. It was skipped.`,
+          severity: 'warning',
+          suggestedAction: 'Remove extra heading rows from the spreadsheet or select the correct heading row.',
+        }],
+        originalRow,
+      });
+      rejectedCount++;
+      continue;
+    }
+
     // Normalize the row. This never throws.
     const normResult = normalizeProduct(originalRow, {
       source: 'import',
@@ -216,9 +298,12 @@ export function processImportRows(
       continue;
     }
 
-    // Duplicate detection by SKU.
+    // Duplicate detection by SKU (normalised: trim → NFC → case-insensitive).
     const sku = normResult.product.sku?.trim();
-    if (sku && existingSkus.has(sku.toLowerCase())) {
+    const normalizedSku = normalizeSkuForComparison(sku ?? '');
+
+    // Check against existing catalogue SKUs.
+    if (normalizedSku && existingSkus.has(normalizedSku)) {
       // We still produce the product so the caller can offer reconciliation
       // (update / fill-missing / keep-existing / create-copy / skip).
       duplicateProducts.push(normResult.product);
@@ -238,7 +323,39 @@ export function processImportRows(
         ],
         originalRow,
       });
+      // Still track this SKU in the file-level set so subsequent rows
+      // within the same file are also flagged as within-file duplicates.
+      withinFileSkus.add(normalizedSku);
       continue;
+    }
+
+    // Check for within-file duplicate SKUs.
+    // Two rows in the same file that share a normalised SKU require a
+    // decision — we do NOT silently accept the last row.
+    if (normalizedSku && withinFileSkus.has(normalizedSku)) {
+      duplicateProducts.push(normResult.product);
+      results.push({
+        rowNumber,
+        status: 'duplicate',
+        product: normResult.product,
+        issues: [
+          ...importIssues,
+          {
+            code: 'duplicate-sku-within-file',
+            message: `This SKU "${sku}" appears more than once in the import file. Decide how to handle the duplicate.`,
+            severity: 'warning',
+            originalValue: sku,
+            suggestedAction: 'Resolve the duplicate: keep only one row, or assign different SKUs to each product.',
+          },
+        ],
+        originalRow,
+      });
+      continue;
+    }
+
+    // Track this SKU in the file-level set.
+    if (normalizedSku) {
+      withinFileSkus.add(normalizedSku);
     }
 
     // Recalculate using the safe wrapper. This never throws.
