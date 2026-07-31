@@ -158,7 +158,21 @@ export async function navigateTo(
     await page.waitForTimeout(500);
   }
 
+  // In owner mode, some nav items (Settings, Pricing Rules, etc.) are
+  // inside an "Advanced Tools" collapsible section. Expand it if the
+  // target button is not already visible.
   const button = page.getByTestId(testId);
+  const isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
+
+  if (!isButtonVisible) {
+    // Try expanding the "Advanced Tools" collapsible section
+    const advancedToolsTrigger = page.getByRole('button', { name: /Advanced Tools/i }).first();
+    if (await advancedToolsTrigger.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await advancedToolsTrigger.click();
+      await page.waitForTimeout(500);
+    }
+  }
+
   await expect(button, `Navigation button "${target}" (${testId}) must be visible`).toBeVisible({ timeout: 10_000 });
   await expect(button, `Navigation button "${target}" must be enabled`).toBeEnabled();
   await button.click();
