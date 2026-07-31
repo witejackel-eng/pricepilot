@@ -76,3 +76,28 @@ Each phase records the actual command output below.
 - `bun run build` — PASS (Next.js 16.1.3, 3 static routes)
 
 **Commit**: `fix: add safe finite-number formatting`
+
+---
+
+## Phase 2 — fix: normalize legacy and malformed product records
+
+- Created `src/lib/pricepilot/product-normalizer.ts`.
+- Exports:
+  - `ProductNormalizationIssue` — `{ field?, code, message, severity: 'warning' | 'error' }`
+  - `ProductNormalizationResult` — discriminated union with `success: true/false`. **Always** carries a `product` that is safe to render.
+  - `normalizeProduct(raw, context?)` — never throws. Accepts `unknown` and returns a complete `Product` with finite numbers on every field.
+  - `normalizeProducts(rawList, context?)` — batch helper returning `{ successfulProducts, failedProducts, issues, rejectedCount, needsReviewCount }`.
+- Numeric coercion handles: real numbers, numeric strings, Indian comma-formatted strings (`1,25,000`), currency strings (`₹1,250`), percentage strings (`18%`), empty strings, null, undefined. NaN / Infinity / -Infinity are rejected with a warning and reset to 0.
+- Negative costs and prices are clamped to 0 with a warning.
+- Fees below 0% or above 100% are reported as errors and reset to 0%.
+- Nested objects guaranteed on every returned product: `competitorPrices: []`, `tags: []`, `notes: ''`, `recommendedPrices: { breakEven: 0, minimum: 0, competitive: 0, balanced: 0, premium: 0, confidence: 'low' }`.
+- Identity rule: a product is acceptable with EITHER a name OR a sku. When both are missing, the row is rejected (counted in `rejectedCount`) instead of being silently added to the catalogue.
+- Missing purchase cost => recoverable: the product is kept, marked `lifecycleStatus: 'needs-review'`, `calculatedPricingStatus: 'missing-data'`, `recommendedPrices.confidence: 'low'`. No trusted recommendation is generated downstream.
+- Hard rejections (no identity) return a placeholder product that is safe to render but kept out of the catalogue list.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run build` — PASS
+
+**Commit**: `fix: normalize legacy and malformed product records`
