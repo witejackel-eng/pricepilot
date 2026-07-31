@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Undo2,
   HelpCircle,
+  Search,
 } from 'lucide-react';
 import { SUPPORTED_CURRENCIES } from '@/lib/pricepilot/types';
 import { DashboardPage } from './dashboard-page';
@@ -46,6 +47,7 @@ import { AddProductDialog } from './add-product-dialog';
 import { KeyboardShortcuts, FloatingHelpButton } from './keyboard-shortcuts';
 import { HelpPanel } from './help-panel';
 import { GuidedTour, TourInvitation } from './guided-tour';
+import { CommandPalette } from './command-palette';
 import { toast } from 'sonner';
 
 // Owner mode navigation items
@@ -274,6 +276,19 @@ export function AppShell() {
   }, [appSettings.theme]);
 
   const [addProductOpen, setAddProductOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  // Cmd+K / Ctrl+K to open command palette
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
 
   const renderView = () => {
     switch (currentView) {
@@ -336,6 +351,13 @@ export function AppShell() {
       {/* Add Product Dialog */}
       <AddProductDialog open={addProductOpen} onOpenChange={setAddProductOpen} />
 
+      {/* Command Palette (Cmd+K) */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        onAddProduct={() => setAddProductOpen(true)}
+      />
+
       {/* Keyboard Shortcuts */}
       <KeyboardShortcuts
         onNavigate={(view) => setCurrentView(view as AppView)}
@@ -387,6 +409,19 @@ export function AppShell() {
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Command Palette trigger button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCommandPaletteOpen(true)}
+                className="hidden md:flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors duration-200"
+                title="Open Command Palette (Ctrl+K)"
+              >
+                <Search className="h-3.5 w-3.5" />
+                <span>Search...</span>
+                <kbd className="ml-1 px-1.5 py-0.5 text-[10px] font-mono bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded">⌘K</kbd>
+              </Button>
+
               {/* Undo button in header */}
               {undoHistory.length > 0 && (
                 <Button variant="outline" size="sm" onClick={handleUndo} className="hidden sm:flex transition-colors duration-200 text-xs">
