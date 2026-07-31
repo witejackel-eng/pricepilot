@@ -160,24 +160,23 @@ export async function navigateTo(
 
   // In owner mode, some nav items (Settings, Pricing Rules, etc.) are
   // inside an "Advanced Tools" collapsible section. Expand it if the
-  // target button is not already visible.
+  // target button is not already in the DOM.
   let button = page.getByTestId(testId);
-  let isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
+  let isButtonAttached = await button.count().catch(() => 0);
 
-  if (!isButtonVisible) {
+  if (isButtonAttached === 0) {
     // Try expanding the "Advanced Tools" collapsible section using its testid
     const advancedToolsTrigger = page.getByTestId('nav-advanced-tools').first();
     if (await advancedToolsTrigger.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await advancedToolsTrigger.click();
-      await page.waitForTimeout(1000);
-      // Re-check if the button is now visible
-      button = page.getByTestId(testId);
-      isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
+      // Wait for the button to be attached to the DOM (not just visible)
+      await button.waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
+      isButtonAttached = await button.count().catch(() => 0);
 
-      // If still not visible, try clicking again (sometimes the first click doesn't register)
-      if (!isButtonVisible) {
-        await advancedToolsTrigger.click();
-        await page.waitForTimeout(1000);
+      // If still not attached, try clicking again with force
+      if (isButtonAttached === 0) {
+        await advancedToolsTrigger.click({ force: true }).catch(() => {});
+        await button.waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
       }
     }
   }
