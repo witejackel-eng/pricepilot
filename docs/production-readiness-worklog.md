@@ -459,3 +459,31 @@ Each phase records the actual command output below.
 **Commit**: `ci: enforce full verification before merge`
 
 ---
+
+## Phase 22 — chore: complete production preview verification
+
+- Pushed all 14 commits to `origin/fix/pricepilot-production-readiness`.
+- Created `docs/production-readiness-verification.md` documenting:
+  - Starting and final commit SHAs.
+  - Every phase commit (14 total) with SHAs and messages.
+  - Verification command results (typecheck, lint, test, coverage, build — all PASS).
+  - Test counts (156 tests across 9 files).
+  - Coverage table with per-file numbers.
+  - Storage architecture: IndexedDB single-source-of-truth, localStorage for UI preferences only, 9 IndexedDB tables.
+  - Store-action → IndexedDB-method mapping table (28 actions).
+  - Security: xlsx removed, ExcelJS in place, formula-injection sanitization on every export path, 7 security headers verified live.
+  - CI: GitHub Actions workflow with verify + e2e jobs, branch-protection guidance.
+  - Manual preview QA checklist (pending Vercel preview deployment).
+  - 12 remaining limitations documented honestly.
+  - Final verdict: NOT production-ready — significant progress but Phases 7–9, 16–17, 19–21 are deferred.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run test` — PASS (156 tests)
+- `bun run test:coverage` — PASS (thresholds met at 25/25/25/25)
+- `bun run build` — PASS
+
+**Commit**: `chore: complete production preview verification`
+
+---
