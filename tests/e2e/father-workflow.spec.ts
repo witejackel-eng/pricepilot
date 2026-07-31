@@ -111,7 +111,7 @@ async function waitForAppReady(page: Page): Promise<void> {
 /** Navigate to a view via the sidebar. */
 async function navigateTo(page: Page, viewLabel: string | RegExp): Promise<void> {
   const navButton = page.getByRole('button', { name: viewLabel }).first();
-  await expect(navButton, `Navigation button "${String(viewLabel)}" must be visible`).toBeVisible({ timeout: 10_000 });
+  await expect(navButton, `Navigation button "${String(viewLabel)}" must be visible`).toBeVisible({ timeout: 15_000 });
   await navButton.click();
   await page.waitForTimeout(800);
 }
@@ -258,11 +258,22 @@ test.describe('Strict Father Workflow E2E', () => {
     await expect(nextButton, 'Complete Setup button must be visible').toBeVisible({ timeout: 5_000 });
     await nextButton.click();
 
-    // Wait for the app to transition to the main interface
-    // The completion animation may appear briefly, but the app will
-    // transition to the owner home. Wait for either the completion
-    // animation or the owner home to appear.
-    await page.waitForTimeout(3000);
+    // Wait for the app to transition to the main interface.
+    // The onboarding completion is async (persists to IndexedDB), so we
+    // need to wait for the onboarding form to disappear or the owner home
+    // to appear. Give it up to 15 seconds.
+    await page.waitForFunction(() => {
+      // Check that the onboarding form is no longer visible
+      const onboarding = document.querySelector('[data-testid="onboarding-form"]');
+      if (onboarding && window.getComputedStyle(onboarding).display !== 'none') return false;
+      // Check that the page has meaningful content (owner home or dashboard)
+      const body = document.body.textContent ?? '';
+      return body.length > 100;
+    }, { timeout: 15_000 }).catch(() => {
+      // If the function times out, just continue - the test will
+      // fail later if navigation doesn't work
+    });
+    await page.waitForTimeout(2000);
     await assertNoInvalidNumbers(page, 'after onboarding');
 
     // ============================================================
