@@ -165,11 +165,11 @@ export async function navigateTo(
   let isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
 
   if (!isButtonVisible) {
-    // Try expanding the "Advanced Tools" collapsible section
-    const advancedToolsTrigger = page.getByRole('button', { name: /Advanced Tools/i }).first();
+    // Try expanding the "Advanced Tools" collapsible section using its testid
+    const advancedToolsTrigger = page.getByTestId('nav-advanced-tools').first();
     if (await advancedToolsTrigger.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await advancedToolsTrigger.click();
-      await page.waitForTimeout(800);
+      await page.waitForTimeout(1000);
       // Re-check if the button is now visible
       button = page.getByTestId(testId);
       isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
@@ -177,7 +177,7 @@ export async function navigateTo(
       // If still not visible, try clicking again (sometimes the first click doesn't register)
       if (!isButtonVisible) {
         await advancedToolsTrigger.click();
-        await page.waitForTimeout(800);
+        await page.waitForTimeout(1000);
       }
     }
   }

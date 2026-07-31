@@ -168,7 +168,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
         {applicationMode === 'owner' && (
           <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
             <CollapsibleTrigger asChild>
-              <Button variant="ghost" className="w-full justify-start gap-2 text-emerald-300/60 hover:text-emerald-200 text-xs rounded-lg mt-2">
+              <Button variant="ghost" data-testid="nav-advanced-tools" className="w-full justify-start gap-2 text-emerald-300/60 hover:text-emerald-200 text-xs rounded-lg mt-2">
                 {advancedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                 Advanced Tools
               </Button>
