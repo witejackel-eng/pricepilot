@@ -34,8 +34,11 @@ const securityHeaders = [
       "font-src 'self' data:",
       // Images may be data URIs (base64) or same-origin.
       "img-src 'self' data: blob:",
-      // Scripts must come from self only. No 'unsafe-inline'.
-      "script-src 'self'",
+      // Next.js injects inline framework and hydration scripts during
+      // SSR. For a statically generated application, 'unsafe-inline' is
+      // the documented non-nonce approach that permits these scripts.
+      // Do NOT add 'unsafe-eval' in production.
+      "script-src 'self' 'unsafe-inline'",
       // Connections (fetch, XHR, WebSocket) — self only.
       "connect-src 'self'",
       // No external frames allowed.
