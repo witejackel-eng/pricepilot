@@ -59,3 +59,20 @@ Each phase records the actual command output below.
 - Recorded baseline state in this worklog.
 
 **Commit**: `chore: capture stability baseline`
+
+---
+
+## Phase 1 — fix: add safe finite-number formatting
+
+- Added `isFiniteNumber(value): value is number` — strict type guard rejecting undefined, null, NaN, Infinity, -Infinity, strings, objects.
+- Added `safeNumberValue(value, fallback = 0): number` — never throws; central coercion entry point.
+- Added `UNAVAILABLE_PLACEHOLDER = '—'` and three `formatCurrencyOrDash` / `formatPercentageOrDash` / `formatNumberOrDash` variants so callers can render an em-dash instead of misleading `₹0` when the real value is genuinely unavailable.
+- Widened `formatCurrency`, `formatPercentage`, `formatNumber`, `roundToDecimals`, `roundTo2Decimals`, `roundTo4Decimals` to accept `unknown` and route through `safeNumberValue`. NaN/Infinity/undefined/null now produce finite output (`0` by default, `—` via the *OrDash variants) — never the strings `"NaN"`, `"Infinity"`, `"undefined"`.
+- Replaced unsafe manual formatting in `calculations.ts` (`formatCostValue`), `pricing-engine.ts` (loss-making warning), `store/pricepilot-store.ts` (undo descriptions), `app-shell.tsx` (avg margin), `product-detail-drawer.tsx` (diff display), and `dashboard-page.tsx` (insight cards) with the canonical safe formatters.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run build` — PASS (Next.js 16.1.3, 3 static routes)
+
+**Commit**: `fix: add safe finite-number formatting`

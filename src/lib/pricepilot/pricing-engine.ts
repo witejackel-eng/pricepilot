@@ -33,7 +33,7 @@ import {
   RoundingRule,
   FeeBasePolicy,
 } from './types';
-import { roundTo2Decimals, roundTo4Decimals } from './formatting';
+import { roundTo2Decimals, roundTo4Decimals, safeNumberValue } from './formatting';
 
 // ============================================================
 // Percentage Convention Helpers
@@ -905,7 +905,7 @@ function generatePricingWarnings(
     warnings.push({
       type: 'loss-making',
       severity: 'critical',
-      message: `Product is loss-making at this price. You lose ${Math.abs(roundTo2Decimals(outcomeData.netProfit)).toFixed(2)} per unit.`,
+      message: `Product is loss-making at this price. You lose ${Math.abs(roundTo2Decimals(safeNumberValue(outcomeData.netProfit, 0))).toFixed(2)} per unit.`,
       field: 'netProfit',
       value: roundTo2Decimals(outcomeData.netProfit),
     });

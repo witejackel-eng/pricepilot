@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from './status-badge';
-import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
+import { formatCurrency, formatPercentage, safeNumberValue } from '@/lib/pricepilot/formatting';
 import { toast } from 'sonner';
 import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target, RefreshCw, CheckCircle2, HeartPulse, Lightbulb } from 'lucide-react';
 import {
@@ -665,7 +665,7 @@ export function DashboardPage() {
                       <div className={`mt-0.5 ${toneClasses.icon}`}><CheckCircle2 className="h-4 w-4" /></div>
                       <div className="flex-1">
                         <p className="text-xs font-medium text-slate-500">Profitable Products</p>
-                        <p className={`text-sm font-semibold ${toneClasses.text}`}>{pct.toFixed(0)}% of your products are profitable</p>
+                        <p className={`text-sm font-semibold ${toneClasses.text}`}>{formatPercentage(safeNumberValue(pct, 0), 0)} of your products are profitable</p>
                       </div>
                     </div>
                   );
@@ -683,8 +683,8 @@ export function DashboardPage() {
                     red: { bg: 'bg-red-50 border-red-100', icon: 'text-red-600', text: 'text-red-700' },
                   }[tone];
                   const cmpText = diff >= 0
-                    ? `${diff.toFixed(1)}% above target`
-                    : `${Math.abs(diff).toFixed(1)}% below target`;
+                    ? `${formatPercentage(safeNumberValue(diff, 0), 1)} above target`
+                    : `${formatPercentage(safeNumberValue(Math.abs(diff), 0), 1)} below target`;
                   return (
                     <div className={`flex items-start gap-3 rounded-lg p-3 border ${toneClasses.bg}`}>
                       <div className={`mt-0.5 ${toneClasses.icon}`}><Target className="h-4 w-4" /></div>

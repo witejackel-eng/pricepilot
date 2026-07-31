@@ -27,7 +27,7 @@ import {
   RecommendedPrices,
   CompetitorStrategy,
 } from './types';
-import { roundTo2Decimals, roundTo4Decimals } from './formatting';
+import { roundTo2Decimals, roundTo4Decimals, formatCurrency } from './formatting';
 
 // ============================================================
 // Decimal-Safe Arithmetic Helpers
@@ -891,12 +891,9 @@ export function generatePricingExplanation(
 }
 
 function formatCostValue(value: number, settings: BusinessSettings): string {
-  // Simple inline formatting — full formatting should use the formatting.ts module
-  const symbol = getCurrencySymbolForCode(settings.currencyCode);
-  if (value < 0) {
-    return `-${symbol}${Math.abs(value).toFixed(2)}`;
-  }
-  return `${symbol}${value.toFixed(2)}`;
+  // Use the canonical safe formatters — never let NaN/Infinity leak into
+  // recommendation warning messages shown to the business owner.
+  return formatCurrency(value, settings.currencyCode, { decimals: 2 });
 }
 
 function getCurrencySymbolForCode(code: string): string {

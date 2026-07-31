@@ -3,9 +3,49 @@
  *
  * Handles formatting of currencies, percentages, and numbers
  * with proper locale awareness and symbol placement.
+ *
+ * CRITICAL CONTRACT:
+ *   No function in this module may ever return a string containing
+ *   `NaN`, `Infinity`, `-Infinity`, `undefined`, or `null` to the UI.
+ *   Invalid inputs are converted to a finite fallback (default 0)
+ *   before formatting. For "no value available" semantics, callers
+ *   should use `formatCurrencyOrDash` / `formatPercentageOrDash`
+ *   which render an em-dash so the user can see that data is missing
+ *   instead of being misled by `₹0`.
  */
 
 import { SUPPORTED_CURRENCIES, CurrencyInfo } from './types';
+
+// ============================================================
+// Finite-Number Guards (central source of truth)
+// ============================================================
+
+/**
+ * Type guard: returns true ONLY when value is a real, finite number.
+ *
+ * Rejects: undefined, null, NaN, Infinity, -Infinity, strings, objects.
+ */
+export function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/**
+ * Coerce any value to a finite number, falling back to `fallback`
+ * (default 0) when the value is not a finite number.
+ *
+ * This never throws. It is the single entry point used by every
+ * formatter in this module.
+ */
+export function safeNumberValue(value: unknown, fallback: number = 0): number {
+  return isFiniteNumber(value) ? value : fallback;
+}
+
+/**
+ * Placeholder string used when a financial value is genuinely
+ * unavailable (e.g. product has no purchase cost). The em-dash is
+ * visually distinct from `0` so the owner is never misled.
+ */
+export const UNAVAILABLE_PLACEHOLDER = '—';
 
 // ============================================================
 // Currency Lookup
@@ -42,13 +82,18 @@ export function getCurrencyOptions(): Array<{ code: string; symbol: string; name
 /**
  * Format an amount as currency with proper symbol placement and decimals.
  *
+ * CRITICAL: `amount` is coerced through `safeNumberValue` so that
+ * NaN / Infinity / undefined / null / strings never reach the UI.
+ * If you need to render a "value not available" placeholder instead of
+ * `₹0`, call `formatCurrencyOrDash`.
+ *
  * @param amount - The numeric amount to format
  * @param currencyCode - Currency code (INR, GBP, USD, EUR, AED)
  * @param options - Optional overrides for decimals, showSymbol, showCode
  * @returns Formatted currency string
  */
 export function formatCurrency(
-  amount: number,
+  amount: unknown,
   currencyCode: string = 'INR',
   options?: {
     decimals?: number;
@@ -62,8 +107,8 @@ export function formatCurrency(
   const showSymbol = options?.showSymbol ?? true;
   const showCode = options?.showCode ?? false;
 
-  // Handle NaN / undefined / null
-  const safeAmount = typeof amount === 'number' && !isNaN(amount) ? amount : 0;
+  // Coerce to a finite number — NaN/Infinity/undefined/null all become 0.
+  const safeAmount = safeNumberValue(amount, 0);
 
   // For INR compact notation (lakhs / crores)
   if (currencyCode === 'INR' && options?.compact) {
@@ -109,8 +154,11 @@ export function formatCurrency(
  * - 1,00,00,000+: e.g., ₹1.2Cr (crores)
  */
 function formatINRCompact(amount: number, showSymbol: boolean): string {
-  const abs = Math.abs(amount);
-  const sign = amount < 0 ? '-' : '';
+  // Defensive: even though callers route through safeNumberValue, this
+  // helper is also called directly by some legacy paths — guarantee finiteness.
+  const safeAmount = safeNumberValue(amount, 0);
+  const abs = Math.abs(safeAmount);
+  const sign = safeAmount < 0 ? '-' : '';
   const symbol = showSymbol ? '₹' : '';
 
   if (abs < 1000) {
@@ -184,26 +232,34 @@ function applyDigitGrouping(digits: string): string {
 /**
  * Format a percentage value.
  *
+ * CRITICAL: `value` is coerced through `safeNumberValue`. NaN / Infinity /
+ * undefined / null all become `0%`. Use `formatPercentageOrDash` when the
+ * caller wants to surface "no value" instead of misleading `0%`.
+ *
  * @param value - Percentage value (e.g., 18.5 for 18.5%)
  * @param decimals - Number of decimal places (default: 1)
  * @returns Formatted percentage string (e.g., "18.5%")
  */
-export function formatPercentage(value: number, decimals: number = 1): string {
-  if (typeof value !== 'number' || isNaN(value)) return '0%';
-  const rounded = roundToDecimals(value, decimals);
+export function formatPercentage(value: unknown, decimals: number = 1): string {
+  const safeValue = safeNumberValue(value, 0);
+  const rounded = roundToDecimals(safeValue, decimals);
   return `${rounded}%`;
 }
 
 /**
  * Format a general number.
  *
+ * CRITICAL: `value` is coerced through `safeNumberValue`. NaN / Infinity /
+ * undefined / null all become `0`. Use `formatNumberOrDash` for the
+ * "no value" variant.
+ *
  * @param value - The number to format
  * @param decimals - Number of decimal places (default: 2)
  * @returns Formatted number string
  */
-export function formatNumber(value: number, decimals: number = 2): string {
-  if (typeof value !== 'number' || isNaN(value)) return '0';
-  return roundToDecimals(value, decimals).toString();
+export function formatNumber(value: unknown, decimals: number = 2): string {
+  const safeValue = safeNumberValue(value, 0);
+  return roundToDecimals(safeValue, decimals).toString();
 }
 
 // ============================================================
@@ -300,28 +356,76 @@ export function parsePercentageInput(value: string): number {
 /**
  * Round a number to a specified number of decimal places.
  * Uses the "round half away from zero" method to avoid floating point issues.
+ *
+ * CRITICAL: NaN / Infinity / undefined inputs return 0 instead of poisoning
+ * downstream calculations with NaN propagation.
  */
-export function roundToDecimals(value: number, decimals: number): number {
+export function roundToDecimals(value: unknown, decimals: number): number {
+  if (!isFiniteNumber(value)) return 0;
+  const safeValue = value as number;
   if (decimals < 0) decimals = 0;
   const factor = Math.pow(10, decimals);
   // Use string-based rounding to avoid IEEE 754 floating point issues
   // Math.round handles ties by rounding to nearest even, but for business
   // logic we want "round half up"
-  const scaled = value * factor;
+  const scaled = safeValue * factor;
   const rounded = Math.round(scaled);
-  return rounded / factor;
+  const result = rounded / factor;
+  // Guard against rounding producing NaN/Infinity (shouldn't happen, but
+  // be defensive — this is the foundation of every financial display).
+  return isFiniteNumber(result) ? result : 0;
 }
 
 /**
  * Round to 2 decimal places (common for currency).
  */
-export function roundTo2Decimals(value: number): number {
+export function roundTo2Decimals(value: unknown): number {
   return roundToDecimals(value, 2);
 }
 
 /**
  * Round to 4 decimal places (for intermediate calculations).
  */
-export function roundTo4Decimals(value: number): number {
+export function roundTo4Decimals(value: unknown): number {
   return roundToDecimals(value, 4);
+}
+
+// ============================================================
+// "Unavailable" Variants — render `—` instead of misleading `0`
+// ============================================================
+
+/**
+ * Format a currency amount, returning the unavailable placeholder
+ * (`—`) when the value is not a finite number. Use this whenever the
+ * caller cannot confidently produce a real number (e.g. missing purchase
+ * cost, calculation failure) — NEVER silently show `₹0` in that case.
+ */
+export function formatCurrencyOrDash(
+  amount: unknown,
+  currencyCode: string = 'INR',
+  options?: {
+    decimals?: number;
+    showSymbol?: boolean;
+    showCode?: boolean;
+    compact?: boolean;
+  }
+): string {
+  if (!isFiniteNumber(amount)) return UNAVAILABLE_PLACEHOLDER;
+  return formatCurrency(amount, currencyCode, options);
+}
+
+/**
+ * Format a percentage, returning `—` when the value is not finite.
+ */
+export function formatPercentageOrDash(value: unknown, decimals: number = 1): string {
+  if (!isFiniteNumber(value)) return UNAVAILABLE_PLACEHOLDER;
+  return formatPercentage(value, decimals);
+}
+
+/**
+ * Format a number, returning `—` when the value is not finite.
+ */
+export function formatNumberOrDash(value: unknown, decimals: number = 2): string {
+  if (!isFiniteNumber(value)) return UNAVAILABLE_PLACEHOLDER;
+  return formatNumber(value, decimals);
 }

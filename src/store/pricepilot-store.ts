@@ -45,6 +45,7 @@ import { calculateAllRecommendations, mapRecommendationsToProduct } from '@/lib/
 import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
 import { SAMPLE_PRODUCTS, SAMPLE_PRICING_RULES } from '@/lib/pricepilot/sample-data';
 import { RecommendationResult, RecommendedOutcomes } from '@/lib/pricepilot/types';
+import { safeNumberValue } from '@/lib/pricepilot/formatting';
 
 /**
  * Helper: Calculate product using the new recommendations engine.
@@ -400,7 +401,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       productId,
       previousState: { ...product },
       timestamp: new Date().toISOString(),
-      description: `Approved price for ${product.name || 'product'}: ${approvedPrice.toFixed(2)}`,
+      description: `Approved price for ${product.name || 'product'}: ${safeNumberValue(approvedPrice, 0).toFixed(2)}`,
     });
     const updated = products.map(p => {
       if (p.id === productId) {
@@ -431,7 +432,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       productId,
       previousState: { ...product },
       timestamp: new Date().toISOString(),
-      description: `Applied approved price for ${product.name || 'product'}: ${product.finalApprovedPrice.toFixed(2)}`,
+      description: `Applied approved price for ${product.name || 'product'}: ${safeNumberValue(product.finalApprovedPrice, 0).toFixed(2)}`,
     });
     const updated = products.map(p => {
       if (p.id === productId) {

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { usePricePilotStore, AppView } from '@/store/pricepilot-store';
 import { ApplicationMode } from '@/lib/pricepilot/types';
+import { formatPercentage, safeNumberValue } from '@/lib/pricepilot/formatting';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
@@ -446,7 +447,12 @@ export function AppShell() {
                 <div className="flex items-center justify-center gap-4 text-xs text-emerald-800 dark:text-emerald-200 pb-1 border-b border-emerald-300/50 dark:border-emerald-700/40">
                   <span className="font-medium">{products.length} products</span>
                   <span className="text-emerald-400 dark:text-emerald-600">•</span>
-                  <span>{(products.reduce((sum, p) => sum + p.calculatedMarginPercent, 0) / products.length).toFixed(1)}% avg margin</span>
+                  <span>{(() => {
+                    const avg = products.length > 0
+                      ? products.reduce((sum, p) => sum + safeNumberValue(p.calculatedMarginPercent, 0), 0) / products.length
+                      : 0;
+                    return formatPercentage(avg, 1);
+                  })()}</span>
                   <span className="text-emerald-400 dark:text-emerald-600">•</span>
                   <span className="text-amber-700 dark:text-amber-400 font-medium">{products.filter(p => p.calculatedPricingStatus === 'loss-making' || p.calculatedPricingStatus === 'below-break-even' || p.calculatedPricingStatus === 'missing-data' || p.calculatedPricingStatus === 'needs-review' || p.calculatedPricingStatus === 'low-margin' || p.recommendedPrices.confidence === 'low').length} need attention</span>
                 </div>

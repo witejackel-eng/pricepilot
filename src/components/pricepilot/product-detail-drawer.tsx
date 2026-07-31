@@ -18,7 +18,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { StatusBadge } from './status-badge';
-import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
+import { formatCurrency, formatPercentage, safeNumberValue } from '@/lib/pricepilot/formatting';
 import {
   Product,
   RecommendationMode,
@@ -235,7 +235,7 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
   const sliderStep = sliderBase < 100 ? 1 : 10;
   const minMargin = effectiveRule?.minimumMarginPercent ?? businessSettings.defaultMinimumMarginPercent;
   const targetMargin = effectiveRule?.targetMarginPercent ?? businessSettings.defaultTargetMarginPercent;
-  const currencyDiff = whatIfPrice - product.currentSellingPrice;
+  const currencyDiff = safeNumberValue(whatIfPrice, 0) - safeNumberValue(product.currentSellingPrice, 0);
   const diffPercent = product.currentSellingPrice > 0 ? (currencyDiff / product.currentSellingPrice) * 100 : 0;
   const whatIfStatusBadge = (() => {
     if (!whatIfOutcome) return <Badge className="bg-slate-100 text-slate-600 border-slate-200">—</Badge>;
