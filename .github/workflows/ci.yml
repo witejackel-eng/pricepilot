@@ -2,10 +2,13 @@
 #
 # Phase 3: Complete desktop and mobile browser matrix.
 #
-# Three jobs:
+# Three independent jobs:
 #   1. Verification: typecheck + lint + unit tests + coverage + build
 #   2. Desktop E2E: Chromium, Firefox, WebKit against production build
 #   3. Mobile E2E: Pixel 7, iPhone 14, iPad against production build
+#
+# Desktop and Mobile E2E are independent required checks.
+# A failure in one does NOT cancel the other.
 #
 # Vercel preview deployments are triggered automatically by the Vercel
 # GitHub integration — they are not duplicated here.
@@ -18,7 +21,8 @@ on:
   push:
     branches: [main]
 
-# Cancel in-progress runs when a new commit is pushed.
+# Cancel in-progress runs when a new commit is pushed to the SAME ref.
+# Do NOT cancel individual jobs within a run — they must all complete.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -69,7 +73,7 @@ jobs:
   e2e-desktop:
     name: Desktop E2E
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -139,7 +143,7 @@ jobs:
   e2e-mobile:
     name: Mobile E2E
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4

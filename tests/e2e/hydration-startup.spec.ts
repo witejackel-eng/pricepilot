@@ -1,7 +1,7 @@
 /**
  * PricePilot — Hydration and Startup Recovery E2E Test
  *
- * Phase 1: Verify that the production build hydrates correctly
+ * Verifies that the production build hydrates correctly
  * and that no CSP violations or framework errors occur.
  *
  * The test must fail if:
@@ -14,80 +14,22 @@
  * - An unhandled Promise rejection occurs
  */
 
-import { test, expect, type Page } from '@playwright/test';
-
-// ============================================================
-// Helpers
-// ============================================================
-
-function attachErrorWatchers(page: Page): string[] {
-  const errors: string[] = [];
-
-  page.on('console', (msg) => {
-    if (msg.type() === 'error') {
-      const text = msg.text();
-      if (text.includes('Download the React DevTools')) return;
-      if (text.includes('fake-indexeddb')) return;
-      errors.push(`[console.error] ${text}`);
-    }
-  });
-
-  page.on('pageerror', (err) => {
-    errors.push(`[pageerror] ${err.message}`);
-  });
-
-  page.on('crash', () => {
-    errors.push('[crash] Page crashed');
-  });
-
-  // Monitor CSP violations
-  page.on('console', (msg) => {
-    const text = msg.text();
-    if (text.includes('Content Security Policy') || text.includes('Refused to execute inline script')) {
-      errors.push(`[csp] ${text}`);
-    }
-  });
-
-  // Monitor hydration failures
-  page.on('console', (msg) => {
-    const text = msg.text();
-    if (text.includes('Hydration failed') || text.includes(' hydration')) {
-      errors.push(`[hydration] ${text}`);
-    }
-  });
-
-  // Monitor unhandled rejections
-  page.on('pageerror', (err) => {
-    if (err.message.includes('Unhandled') || err.message.includes('unhandled')) {
-      errors.push(`[unhandled] ${err.message}`);
-    }
-  });
-
-  return errors;
-}
-
-// ============================================================
-// Tests
-// ============================================================
+import { test, expect } from '@playwright/test';
+import {
+  resetPricePilotState,
+  waitForAppStartup,
+  attachErrorWatchers,
+} from './helpers/reset-app-state';
 
 test.describe('Hydration and Startup Recovery', () => {
-  test('application hydrates without errors on fresh load', async ({ page }) => {
+  test('application hydrates without errors on fresh load', async ({ page, context }) => {
     const errors = attachErrorWatchers(page);
 
-    // Navigate to the application
-    await page.goto('/', { waitUntil: 'networkidle' });
+    await resetPricePilotState(page, context);
 
-    // Wait for the application to render — either onboarding or owner home
-    // must appear within 10 seconds. Use a broad selector to catch any
-    // rendered content.
-    await page.waitForFunction(() => {
-      const t = document.body.textContent ?? '';
-      return t.length > 50;
-    }, { timeout: 10_000 });
-
-    // Verify the page is not stuck on a loading screen
-    const bodyText = await page.locator('body').textContent() ?? '';
-    expect(bodyText.length, 'Page must have rendered content').toBeGreaterThan(50);
+    // Wait for the application to render
+    const startupState = await waitForAppStartup(page);
+    expect(['onboarding', 'owner-home'], `Expected valid startup state, got: ${startupState}`).toContain(startupState);
 
     // Check for CSP violations
     const cspErrors = errors.filter(e => e.includes('[csp]'));
@@ -109,16 +51,11 @@ test.describe('Hydration and Startup Recovery', () => {
     expect(unhandledErrors, `No unhandled rejections should occur. Found: ${unhandledErrors.join('; ')}`).toHaveLength(0);
   });
 
-  test('application renders without blocked scripts', async ({ page }) => {
+  test('application renders without blocked scripts', async ({ page, context }) => {
     const errors = attachErrorWatchers(page);
 
-    await page.goto('/', { waitUntil: 'networkidle' });
-
-    // Wait for content to render
-    await page.waitForFunction(() => {
-      const t = document.body.textContent ?? '';
-      return t.length > 50;
-    }, { timeout: 10_000 });
+    await resetPricePilotState(page, context);
+    await waitForAppStartup(page);
 
     // Check for "Refused to execute" errors
     const blockedScripts = errors.filter(e =>
@@ -129,16 +66,15 @@ test.describe('Hydration and Startup Recovery', () => {
     expect(blockedScripts, `No scripts should be blocked. Found: ${blockedScripts.join('; ')}`).toHaveLength(0);
   });
 
-  test('application persists after refresh', async ({ page }) => {
+  test('application persists after refresh', async ({ page, context }) => {
     const errors = attachErrorWatchers(page);
 
-    // First load
-    await page.goto('/', { waitUntil: 'networkidle' });
-    await page.locator('h1, h2, [data-testid]').first().waitFor({ state: 'visible', timeout: 10_000 });
+    await resetPricePilotState(page, context);
+    await waitForAppStartup(page);
 
     // Refresh
-    await page.reload({ waitUntil: 'networkidle' });
-    await page.locator('h1, h2, [data-testid]').first().waitFor({ state: 'visible', timeout: 10_000 });
+    await page.reload();
+    await waitForAppStartup(page);
 
     // Check for errors after refresh
     const criticalErrors = errors.filter(e =>
@@ -149,18 +85,44 @@ test.describe('Hydration and Startup Recovery', () => {
     expect(criticalErrors, `No critical errors after refresh. Found: ${criticalErrors.join('; ')}`).toHaveLength(0);
   });
 
-  test('no NaN or Infinity in rendered content', async ({ page }) => {
-    await page.goto('/', { waitUntil: 'networkidle' });
-    await page.waitForFunction(() => {
-      const t = document.body.textContent ?? '';
-      return t.length > 50;
-    }, { timeout: 10_000 });
+  test('no NaN or Infinity in rendered content', async ({ page, context }) => {
+    await resetPricePilotState(page, context);
+    await waitForAppStartup(page);
 
     const bodyText = await page.locator('body').textContent() ?? '';
     expect(bodyText, 'Page must not display "Infinity"').not.toContain('Infinity');
     expect(bodyText, 'Page must not display "NaN"').not.toContain('NaN');
-    // Note: "undefined" may appear in non-visible React error overlays or
-    // SSR content; we only check for NaN and Infinity as these are the
-    // critical financial safety indicators.
+  });
+
+  test('guided tour does not auto-open after onboarding', async ({ page, context }) => {
+    await resetPricePilotState(page, context);
+    const startupState = await waitForAppStartup(page);
+    expect(startupState, 'Fresh browser must show onboarding').toBe('onboarding');
+
+    // Complete onboarding quickly
+    const businessNameInput = page.locator('#businessName');
+    await expect(businessNameInput, 'Business name input must be visible').toBeVisible({ timeout: 10_000 });
+    await businessNameInput.fill('Tour Test Business');
+
+    // Click through all steps
+    for (let i = 0; i < 4; i++) {
+      const nextBtn = page.locator('[data-testid="onboarding-next"]');
+      if (await nextBtn.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        await nextBtn.click();
+      }
+    }
+
+    // Wait for owner home
+    const ownerHome = page.locator('[data-testid="owner-home"]');
+    await expect(ownerHome, 'Owner Home must be visible after onboarding').toBeVisible({ timeout: 15_000 });
+
+    // Verify the guided tour dialog does NOT auto-open
+    const tourDialog = page.locator('[data-testid="guided-tour-dialog"]');
+    await expect(tourDialog, 'Guided tour dialog must NOT auto-open after onboarding').not.toBeVisible({ timeout: 5_000 });
+
+    // Refresh and verify tour still does not auto-open
+    await page.reload();
+    await waitForAppStartup(page);
+    await expect(tourDialog, 'Guided tour dialog must NOT auto-open after refresh').not.toBeVisible({ timeout: 5_000 });
   });
 });

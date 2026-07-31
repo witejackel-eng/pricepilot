@@ -3,27 +3,23 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Playwright configuration for PricePilot.
  *
- * Phase 19: Cross-browser and mobile testing.
+ * Cross-browser and mobile testing.
  *
  * Projects:
- *   - Desktop Chrome   (existing)
+ *   - Desktop Chrome
  *   - Desktop Firefox
  *   - Desktop WebKit
  *   - Mobile: Pixel 7
  *   - Mobile: iPhone 14
  *   - Tablet: iPad-like viewport
  *
- * Mobile and tablet projects include metadata.name that can be used
- * to filter tests with --project. Mobile-focused tests live in
- * mobile-flow.spec.ts.
- *
  * Tests live in tests/e2e/.
  *
- * Gate 3: CI runs against the production build (`bun run start`),
+ * CI runs against the production build (`bun run start`),
  * not the dev server. The webServer is only launched when
  * PLAYWRIGHT_BASE_URL is not provided (i.e., when testing locally).
  *
- * Gate 5: When PLAYWRIGHT_BASE_URL is set (e.g., a Vercel preview
+ * When PLAYWRIGHT_BASE_URL is set (e.g., a Vercel preview
  * URL), no local web server is launched and tests run against that
  * external URL.
  */
@@ -33,7 +29,9 @@ export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  // Strict: no retries in CI — every test must pass on the first attempt.
+  // If a test is flaky, fix the root cause, don't mask it with retries.
+  retries: 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: 'list',
   use: {
@@ -58,8 +56,6 @@ export default defineConfig({
     },
 
     // ── Mobile devices ───────────────────────────────────────────
-    // Run mobile-only tests with: npx playwright test --project=mobile-pixel-7
-    // Exclude mobile tests in CI with: npx playwright test --project=chromium
     {
       name: 'mobile-pixel-7',
       use: {
@@ -77,9 +73,6 @@ export default defineConfig({
     {
       name: 'tablet-ipad',
       use: {
-        // iPad Pro 11 landscape — close enough for a general tablet
-        // viewport check. Uses a custom viewport since Playwright's
-        // built-in iPad descriptors are portrait-only.
         viewport: { width: 1194, height: 834 },
         deviceScaleFactor: 2,
         isMobile: false,
@@ -87,10 +80,10 @@ export default defineConfig({
       },
     },
   ],
-  // Gate 3 & Gate 5: When PLAYWRIGHT_BASE_URL is provided (e.g. a
-  // Vercel preview URL), do NOT launch a local web server — run
-  // tests against the external URL. When testing locally, CI uses
-  // `bun run start` (production build) and dev uses `bun run dev`.
+  // When PLAYWRIGHT_BASE_URL is provided (e.g. a Vercel preview URL),
+  // do NOT launch a local web server — run tests against the external URL.
+  // When testing locally, CI uses `bun run start` (production build) and
+  // dev uses `bun run dev`.
   ...(process.env.PLAYWRIGHT_BASE_URL
     ? {}
     : {
