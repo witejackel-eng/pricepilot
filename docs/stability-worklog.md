@@ -244,3 +244,30 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `fix: make imports row-safe`
+
+---
+
+## Phase 8 — fix: reconcile duplicate SKUs during import
+
+- Created `src/lib/pricepilot/duplicate-reconciliation.ts`.
+- Five resolution strategies:
+  - `update-existing`: Replace financial inputs on the existing product with the uploaded values.
+  - `fill-missing`: Only fill fields that are currently empty/zero on the existing product.
+  - `keep-existing`: Skip this row entirely (no change).
+  - `create-copy`: Create a new product with a new SKU suffix (`-COPY`).
+  - `skip`: Same as keep-existing but tracked separately.
+- `computeDuplicateDiff(existing, uploaded)` — produces a per-field diff list with labels like "Purchase Cost", "Current Selling Price", etc., flagged with `affectsCalculation: boolean` so the UI can show only financial changes prominently.
+- `reconcileDuplicate(input, businessSettings, pricingRules)`:
+  - **update-existing** preserves: internal product ID, notes (only if non-empty on existing), tags (only if non-empty on existing), `createdAt`.
+  - When any financial input changes: invalidates the previous approval (`priceApprovalStatus: 'none'`, `finalApprovedPrice: 0`, `approvedAt: ''`, `isApproved: false`) and returns the message "Updated the existing product. The previous approval was removed because the product cost changed."
+  - When no financial inputs changed: preserves the existing approval and returns "Updated the existing product. No financial inputs changed, so the existing approval was preserved."
+  - **fill-missing** only copies uploaded values for fields that are empty/zero on the existing product. Invalidates approval only if any financial field was newly filled.
+  - **create-copy** always creates a new product with `id: prod-<timestamp>-<random>`, `sku: <uploaded-sku>-COPY`, `priceApprovalStatus: 'none'`, `finalApprovedPrice: 0`, `approvedAt: ''`.
+- `reconcileDuplicates(inputs, businessSettings, pricingRules)` — batch helper returning `{ updatedProducts, newProducts, skippedSkus, messages, anyApprovalInvalidated }`.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run build` — PASS
+
+**Commit**: `fix: reconcile duplicate SKUs during import`
