@@ -138,16 +138,16 @@ export async function navigateTo(
   const testId = navigationIds[target];
 
   // Dismiss any open dialogs/sheets/drawers that might intercept clicks.
-  // Press Escape to close any open overlay.
-  await page.keyboard.press('Escape').catch(() => {});
-  // Wait briefly for any overlay to close
-  await page.waitForTimeout(300);
-
-  // Check if there's still a sheet overlay open and try to close it
+  // Only press Escape if there's actually an overlay open.
   const overlay = page.locator('[data-slot="sheet-overlay"][data-state="open"], [role="dialog"][data-state="open"]').first();
   if (await overlay.isVisible({ timeout: 500 }).catch(() => false)) {
     await page.keyboard.press('Escape').catch(() => {});
     await page.waitForTimeout(500);
+    // Press Escape again if still open
+    if (await overlay.isVisible({ timeout: 500 }).catch(() => false)) {
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(500);
+    }
   }
 
   // On mobile, the sidebar may be hidden behind a hamburger menu.
@@ -161,15 +161,24 @@ export async function navigateTo(
   // In owner mode, some nav items (Settings, Pricing Rules, etc.) are
   // inside an "Advanced Tools" collapsible section. Expand it if the
   // target button is not already visible.
-  const button = page.getByTestId(testId);
-  const isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
+  let button = page.getByTestId(testId);
+  let isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
 
   if (!isButtonVisible) {
     // Try expanding the "Advanced Tools" collapsible section
     const advancedToolsTrigger = page.getByRole('button', { name: /Advanced Tools/i }).first();
     if (await advancedToolsTrigger.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await advancedToolsTrigger.click();
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(800);
+      // Re-check if the button is now visible
+      button = page.getByTestId(testId);
+      isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
+
+      // If still not visible, try clicking again (sometimes the first click doesn't register)
+      if (!isButtonVisible) {
+        await advancedToolsTrigger.click();
+        await page.waitForTimeout(800);
+      }
     }
   }
 
