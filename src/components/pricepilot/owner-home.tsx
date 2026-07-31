@@ -235,14 +235,23 @@ export function OwnerHome() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto" data-testid="owner-home">
-      {/* Header */}
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">
-          {getGreeting()}, {businessName}
-        </h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          What would you like to do today?
-        </p>
+      {/* Header with gradient banner */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 dark:from-emerald-700 dark:via-emerald-600 dark:to-teal-600 p-6 shadow-lg shadow-emerald-500/20">
+        {/* Decorative circles */}
+        <div className="absolute top-0 right-0 -mt-8 -mr-8 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
+        <div className="absolute bottom-0 left-0 -mb-8 -ml-8 h-24 w-24 rounded-full bg-white/10 blur-xl" />
+        <div className="relative space-y-1">
+          <div className="flex items-center gap-2 text-emerald-100 text-xs font-medium uppercase tracking-wider">
+            <span className="h-2 w-2 rounded-full bg-emerald-200 animate-pulse" />
+            {getGreeting()}
+          </div>
+          <h1 className="text-2xl font-bold text-white">
+            {businessName}
+          </h1>
+          <p className="text-sm text-emerald-50/90">
+            What would you like to do today?
+          </p>
+        </div>
       </div>
 
       {/* Four action cards */}
@@ -254,12 +263,12 @@ export function OwnerHome() {
               key={idx}
               onClick={card.onClick}
               disabled={card.disabled}
-              className={`text-left transition-all ${card.disabled ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-md hover:-translate-y-0.5'}`}
+              className={`text-left transition-all duration-200 group ${card.disabled ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-lg hover:-translate-y-1 active:translate-y-0'}`}
             >
-              <Card className="overflow-hidden border-slate-200 dark:border-slate-800 h-full">
+              <Card className="overflow-hidden border-slate-200 dark:border-slate-800 h-full transition-colors group-hover:border-emerald-300 dark:group-hover:border-emerald-700">
                 <CardContent className="p-0">
                   <div className="flex items-start gap-4 p-5">
-                    <div className={`h-12 w-12 rounded-lg flex items-center justify-center shrink-0 ${card.iconBg}`}>
+                    <div className={`h-12 w-12 rounded-xl flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-110 ${card.iconBg}`}>
                       <Icon className="h-6 w-6" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -268,7 +277,7 @@ export function OwnerHome() {
                           {card.title}
                         </h3>
                         {card.badge !== undefined && card.badge > 0 && (
-                          <Badge className={`${card.badgeColor} text-white text-xs`}>
+                          <Badge className={`${card.badgeColor} text-white text-xs animate-pulse`}>
                             {card.badge}
                           </Badge>
                         )}
@@ -277,6 +286,7 @@ export function OwnerHome() {
                         {card.description}
                       </p>
                     </div>
+                    <ArrowRight className="h-4 w-4 text-slate-300 dark:text-slate-600 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
                   </div>
                 </CardContent>
               </Card>

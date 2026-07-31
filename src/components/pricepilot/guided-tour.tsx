@@ -78,18 +78,18 @@ export function TourInvitation() {
       role="complementary"
       aria-label="Guided tour invitation"
     >
-      <Card className="shadow-lg border border-emerald-200 dark:border-emerald-800 rounded-xl overflow-hidden pointer-events-auto">
+      <Card className="shadow-xl border border-emerald-200 dark:border-emerald-800 rounded-2xl overflow-hidden pointer-events-auto bg-gradient-to-br from-white to-emerald-50/30 dark:from-slate-900 dark:to-emerald-950/30">
         <CardContent className="p-4 space-y-3">
           <div className="flex items-start gap-3">
-            <div className="h-8 w-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
-              <Sparkles className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 dark:from-emerald-500 dark:to-emerald-700 flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/20">
+              <Sparkles className="h-5 w-5 text-white" />
             </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            <div className="space-y-1 flex-1">
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
                 New to PricePilot?
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Take a 2-minute guided tour.
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Take a 2-minute guided tour to get started.
               </p>
             </div>
           </div>
@@ -98,16 +98,16 @@ export function TourInvitation() {
               size="sm"
               data-testid="start-tour-button"
               onClick={handleStartTour}
-              className="bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-lg text-xs"
+              className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-lg text-xs shadow-md shadow-emerald-500/20"
             >
-              Start Tour
+              <Sparkles className="h-3 w-3 mr-1" /> Start Tour
             </Button>
             <Button
               variant="ghost"
               size="sm"
               data-testid="dismiss-tour-button"
               onClick={handleDismiss}
-              className="text-slate-500 hover:text-slate-700 text-xs"
+              className="text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs"
             >
               Not Now
             </Button>

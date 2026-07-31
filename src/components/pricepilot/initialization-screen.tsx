@@ -32,6 +32,8 @@ export function InitializationScreen() {
               </div>
               {/* Pulse ring around the brand mark */}
               <div className="absolute inset-0 h-16 w-16 rounded-2xl bg-emerald-400/20 animate-ping" />
+              {/* Secondary pulse */}
+              <div className="absolute -inset-2 h-20 w-20 rounded-2xl bg-emerald-400/10 animate-pulse" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50 tracking-tight">PricePilot</h1>
@@ -42,11 +44,14 @@ export function InitializationScreen() {
           {/* Loading indicator */}
           <div className="flex flex-col items-center gap-4">
             <div className="relative">
-              <Loader2 className="h-8 w-8 text-emerald-600 animate-spin" />
-              {/* Subtle pulse behind the spinner */}
-              <div className="absolute inset-0 h-8 w-8 rounded-full bg-emerald-200/50 animate-pulse" />
+              {/* Outer ring */}
+              <div className="h-10 w-10 rounded-full border-4 border-emerald-100 dark:border-emerald-900/50" />
+              {/* Spinning ring */}
+              <div className="absolute inset-0 h-10 w-10 rounded-full border-4 border-transparent border-t-emerald-500 animate-spin" />
+              {/* Inner pulse */}
+              <div className="absolute inset-2 h-6 w-6 rounded-full bg-emerald-200/50 animate-pulse" />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
                 Opening your workspace…
               </h2>
@@ -56,11 +61,20 @@ export function InitializationScreen() {
             </div>
           </div>
 
-          {/* Subtle decorative dots */}
-          <div className="flex items-center justify-center gap-1.5">
-            <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-            <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-            <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+          {/* Animated progress bar */}
+          <div className="max-w-xs mx-auto">
+            <div className="h-1.5 w-full rounded-full bg-emerald-100 dark:bg-emerald-900/30 overflow-hidden">
+              <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 animate-[loading_1.5s_ease-in-out_infinite]" style={{
+                animation: 'loading 1.5s ease-in-out infinite',
+              }} />
+            </div>
+            <style>{`
+              @keyframes loading {
+                0% { transform: translateX(-100%); }
+                50% { transform: translateX(100%); }
+                100% { transform: translateX(200%); }
+              }
+            `}</style>
           </div>
         </div>
       </div>
