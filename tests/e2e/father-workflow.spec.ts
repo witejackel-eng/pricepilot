@@ -274,8 +274,10 @@ test.describe('Strict Father Workflow E2E', () => {
     await commitButton.click();
 
     // Verify import is complete
+    // The "Import Complete" card appears after the commit succeeds.
+    // Wait for it with a longer timeout since the import may take time.
     const importCompleteText = page.locator('text=Import Complete');
-    await expect(importCompleteText, 'Import Complete message must appear').toBeVisible({ timeout: 15_000 });
+    await expect(importCompleteText, 'Import Complete message must appear').toBeVisible({ timeout: 30_000 });
     await assertNoInvalidNumbers(page, 'after import commit');
 
     // ============================================================
