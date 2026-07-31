@@ -154,3 +154,28 @@ Each phase records the actual command output below.
 **Commit**: `fix: persist every product mutation atomically`
 
 ---
+
+## Phase 3 — fix: persist settings rules and scenarios atomically
+
+- Added three new atomic helpers in `database.ts`:
+  - `atomicUpdateSettingsAndProducts(settings, products)` — settings + recalculated products in one Dexie transaction. Prevents the catalogue from ending up with new settings but stale calculations (or vice versa).
+  - `atomicUpdateRulesAndProducts(rules, products)` — pricing rules + recalculated products in one transaction. Used by add/update/delete pricing rule.
+  - `atomicRestoreScenario(products, rules, settings)` — replaces all three tables in one transaction. Used by restoreScenario.
+- Updated store type signatures to return `Promise<OperationResult>` for:
+  - `updateBusinessSettings`, `completeOnboarding`
+  - `addPricingRule`, `updatePricingRule`, `deletePricingRule`, `duplicatePricingRule`
+  - `addScenario`, `updateScenario`, `deleteScenario`, `restoreScenario`
+- `updateBusinessSettings` now uses `atomicUpdateSettingsAndProducts` — settings + recalculated products commit or roll back together.
+- `addPricingRule` / `updatePricingRule` / `deletePricingRule` now use `atomicUpdateRulesAndProducts` — rules + recalculated products commit together. Previously these actions called `recalculateProducts()` as a separate step AFTER saving the rule, which meant a crash between the two writes could leave the catalogue in an inconsistent state.
+- `restoreScenario` now uses `atomicRestoreScenario` — all three datasets are replaced atomically. Snapshot products are recalculated under the snapshot's own settings/rules before the write so the restored state is internally consistent.
+- `completeOnboarding` now awaits `persistBusinessSettings` and returns `OperationResult` — onboarding is only marked complete if the IndexedDB write succeeds.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (0 errors, 0 warnings)
+- `bun run test` — PASS (115 tests, ~6.4s)
+- `bun run build` — PASS
+
+**Commit**: `fix: persist settings rules and scenarios atomically`
+
+---

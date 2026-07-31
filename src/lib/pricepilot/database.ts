@@ -412,6 +412,64 @@ export async function clearProductsInDb(): Promise<void> {
 }
 
 /**
+ * Phase 3 (production-readiness): atomically update business settings
+ * AND the recalculated products that depend on those settings in one
+ * Dexie transaction. Either both commit or neither does.
+ *
+ * Use this whenever business settings change — the affected products
+ * must be recalculated, and the recalculation + settings persistence
+ * must be a single atomic unit so a crash mid-write cannot leave the
+ * catalogue in an inconsistent state.
+ */
+export async function atomicUpdateSettingsAndProducts(
+  settings: BusinessSettings,
+  products: Product[],
+): Promise<void> {
+  const db = getDb();
+  await db.transaction('rw', db.businessSettings, db.products, async () => {
+    await db.businessSettings.put({ ...settings, id: BUSINESS_SETTINGS_ID });
+    await db.products.clear();
+    await db.products.bulkPut(products);
+  });
+}
+
+/**
+ * Phase 3: atomically update pricing rules AND the recalculated
+ * products in one Dexie transaction.
+ */
+export async function atomicUpdateRulesAndProducts(
+  rules: PricingRule[],
+  products: Product[],
+): Promise<void> {
+  const db = getDb();
+  await db.transaction('rw', db.pricingRules, db.products, async () => {
+    await db.pricingRules.clear();
+    await db.pricingRules.bulkPut(rules);
+    await db.products.clear();
+    await db.products.bulkPut(products);
+  });
+}
+
+/**
+ * Phase 3: atomically restore a scenario — products, pricing rules,
+ * and business settings are all replaced in one transaction.
+ */
+export async function atomicRestoreScenario(
+  products: Product[],
+  rules: PricingRule[],
+  settings: BusinessSettings,
+): Promise<void> {
+  const db = getDb();
+  await db.transaction('rw', db.products, db.pricingRules, db.businessSettings, async () => {
+    await db.products.clear();
+    await db.products.bulkPut(products);
+    await db.pricingRules.clear();
+    await db.pricingRules.bulkPut(rules);
+    await db.businessSettings.put({ ...settings, id: BUSINESS_SETTINGS_ID });
+  });
+}
+
+/**
  * Canonical export — reads the entire primary state from IndexedDB in
  * one read transaction so the resulting snapshot is internally
  * consistent. Used by backup/export paths.

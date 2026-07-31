@@ -62,6 +62,9 @@ import {
   atomicRestoreBackup,
   atomicBulkUpdateProducts,
   atomicApplyApprovedPrices,
+  atomicUpdateSettingsAndProducts,
+  atomicUpdateRulesAndProducts,
+  atomicRestoreScenario,
   clearProductsInDb,
   exportAllDataFromDb,
   getMetadata,
@@ -200,8 +203,8 @@ interface PricePilotState {
   setHelpPanelOpen: (open: boolean) => void;
 
   // Business settings
-  updateBusinessSettings: (settings: Partial<BusinessSettings>) => void;
-  completeOnboarding: (settings: Partial<BusinessSettings>) => void;
+  updateBusinessSettings: (settings: Partial<BusinessSettings>) => Promise<OperationResult>;
+  completeOnboarding: (settings: Partial<BusinessSettings>) => Promise<OperationResult>;
 
   // Products
   addProduct: (product: Product) => Promise<OperationResult>;
@@ -231,16 +234,16 @@ interface PricePilotState {
   resetImportState: () => void;
 
   // Pricing rules
-  addPricingRule: (rule: PricingRule) => void;
-  updatePricingRule: (id: string, updates: Partial<PricingRule>) => void;
-  deletePricingRule: (id: string) => void;
-  duplicatePricingRule: (id: string) => void;
+  addPricingRule: (rule: PricingRule) => Promise<OperationResult>;
+  updatePricingRule: (id: string, updates: Partial<PricingRule>) => Promise<OperationResult>;
+  deletePricingRule: (id: string) => Promise<OperationResult>;
+  duplicatePricingRule: (id: string) => Promise<OperationResult>;
 
   // Scenarios
-  addScenario: (scenario: Scenario) => void;
-  updateScenario: (id: string, updates: Partial<Scenario>) => void;
-  deleteScenario: (id: string) => void;
-  restoreScenario: (id: string) => void;
+  addScenario: (scenario: Scenario) => Promise<OperationResult>;
+  updateScenario: (id: string, updates: Partial<Scenario>) => Promise<OperationResult>;
+  deleteScenario: (id: string) => Promise<OperationResult>;
+  restoreScenario: (id: string) => Promise<OperationResult>;
 
   // Settings
   updateAppSettings: (settings: Partial<AppSettings>) => void;
@@ -514,37 +517,38 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   setHelpPanelOpen: (open) => set({ helpPanelOpen: open }),
 
   // Business settings
-  updateBusinessSettings: (updates) => {
+  updateBusinessSettings: async (updates) => {
     const newSettings = { ...get().businessSettings, ...updates, updatedAt: new Date().toISOString() };
     // Recalculate all products with new settings using the SAFE batch helper
     const { products, pricingRules } = get();
     const batchResult = safelyRecalculateProducts(products, newSettings, pricingRules);
     const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    // Persist to IndexedDB. If the write fails, the UI keeps the old
-    // state (we don't `set` until the write succeeds).
-    persistBusinessSettings(newSettings)
-      .then(() => persistProducts(recalculated))
-      .then(() => {
-        const ts = new Date().toISOString();
-        set({ businessSettings: newSettings, products: recalculated, lastSaved: ts });
-      })
-      .catch((err) => {
-        console.error('[PricePilot] updateBusinessSettings failed; UI state unchanged.', err);
-      });
+    // ATOMIC: persist settings + recalculated products in ONE Dexie
+    // transaction so the catalogue can never end up with new settings
+    // but stale calculations (or vice versa).
+    try {
+      await atomicUpdateSettingsAndProducts(newSettings, recalculated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ businessSettings: newSettings, products: recalculated });
+      return ok(undefined, 'Settings saved.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not save settings.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  completeOnboarding: (settings) => {
+  completeOnboarding: async (settings) => {
     const newSettings = { ...get().businessSettings, ...settings, onboardingCompleted: true, updatedAt: new Date().toISOString() };
-    // Persist to IndexedDB first; only navigate to the workspace on success.
-    persistBusinessSettings(newSettings)
-      .then(() => {
-        const mode = get().appSettings.applicationMode || 'owner';
-        const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
-        set({ businessSettings: newSettings, onboardingCompleted: true, currentView: defaultView });
-      })
-      .catch((err) => {
-        console.error('[PricePilot] completeOnboarding failed; onboarding not marked complete.', err);
-      });
+    try {
+      await persistBusinessSettings(newSettings);
+      const mode = get().appSettings.applicationMode || 'owner';
+      const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
+      set({ businessSettings: newSettings, onboardingCompleted: true, currentView: defaultView });
+      return ok(undefined, 'Onboarding complete.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not complete onboarding.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
   // Products
@@ -946,44 +950,63 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   // Pricing rules
-  addPricingRule: (rule) => {
-    const rules = [...get().pricingRules, rule];
-    persistPricingRules(rules)
-      .then(() => {
-        set({ pricingRules: rules });
-        get().recalculateProducts();
-      })
-      .catch(() => { /* logged */ });
+  addPricingRule: async (rule) => {
+    const { businessSettings, products, pricingRules } = get();
+    const newRules = [...pricingRules, rule];
+    // Recalculate products under the new rule set.
+    const batchResult = safelyRecalculateProducts(products, businessSettings, newRules);
+    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    try {
+      await atomicUpdateRulesAndProducts(newRules, recalculated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ pricingRules: newRules, products: recalculated });
+      return ok(undefined, 'Pricing rule added.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not add the pricing rule.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  updatePricingRule: (id, updates) => {
-    const { pricingRules } = get();
+  updatePricingRule: async (id, updates) => {
+    const { pricingRules, businessSettings, products } = get();
     const updated = pricingRules.map(r =>
       r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r
     );
-    persistPricingRules(updated)
-      .then(() => {
-        set({ pricingRules: updated });
-        get().recalculateProducts();
-      })
-      .catch(() => { /* logged */ });
+    const batchResult = safelyRecalculateProducts(products, businessSettings, updated);
+    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    try {
+      await atomicUpdateRulesAndProducts(updated, recalculated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ pricingRules: updated, products: recalculated });
+      return ok(undefined, 'Pricing rule saved.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not save the pricing rule.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  deletePricingRule: (id) => {
-    const { pricingRules } = get();
+  deletePricingRule: async (id) => {
+    const { pricingRules, businessSettings, products } = get();
     const updated = pricingRules.filter(r => r.id !== id);
-    persistPricingRules(updated)
-      .then(() => {
-        set({ pricingRules: updated });
-        get().recalculateProducts();
-      })
-      .catch(() => { /* logged */ });
+    const batchResult = safelyRecalculateProducts(products, businessSettings, updated);
+    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    try {
+      await atomicUpdateRulesAndProducts(updated, recalculated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ pricingRules: updated, products: recalculated });
+      return ok(undefined, 'Pricing rule deleted.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not delete the pricing rule.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  duplicatePricingRule: (id) => {
+  duplicatePricingRule: async (id) => {
     const { pricingRules } = get();
     const original = pricingRules.find(r => r.id === id);
-    if (!original) return;
+    if (!original) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Pricing rule not found.');
+    }
     const newRule: PricingRule = {
       ...original,
       id: `rule-${Date.now()}`,
@@ -992,55 +1015,92 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       updatedAt: new Date().toISOString(),
     };
     const updated = [...pricingRules, newRule];
-    persistPricingRules(updated)
-      .then(() => set({ pricingRules: updated }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistPricingRules(updated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ pricingRules: updated });
+      return ok(undefined, 'Pricing rule duplicated.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not duplicate the pricing rule.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
   // Scenarios
-  addScenario: (scenario) => {
+  addScenario: async (scenario) => {
     const scenarios = [...get().scenarios, scenario];
-    persistScenarios(scenarios)
-      .then(() => set({ scenarios }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistScenarios(scenarios);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ scenarios });
+      return ok(undefined, 'Scenario saved.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not save the scenario.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  updateScenario: (id, updates) => {
+  updateScenario: async (id, updates) => {
     const { scenarios } = get();
     const updated = scenarios.map(s =>
       s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s
     );
-    persistScenarios(updated)
-      .then(() => set({ scenarios: updated }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistScenarios(updated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ scenarios: updated });
+      return ok(undefined, 'Scenario saved.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not save the scenario.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  deleteScenario: (id) => {
+  deleteScenario: async (id) => {
     const { scenarios } = get();
     const updated = scenarios.filter(s => s.id !== id);
-    persistScenarios(updated)
-      .then(() => set({ scenarios: updated }))
-      .catch(() => { /* logged */ });
+    try {
+      await persistScenarios(updated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ scenarios: updated });
+      return ok(undefined, 'Scenario deleted.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not delete the scenario.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  restoreScenario: (id) => {
+  restoreScenario: async (id) => {
     const { scenarios, businessSettings, pricingRules } = get();
     const scenario = scenarios.find(s => s.id === id);
-    if (!scenario) return;
-    // Persist all three datasets to IndexedDB in parallel.
-    Promise.all([
-      persistProducts(scenario.snapshotProducts),
-      persistPricingRules(scenario.snapshotPricingRules),
-      persistBusinessSettings(scenario.snapshotBusinessSettings),
-    ])
-      .then(() => {
-        set({
-          products: scenario.snapshotProducts,
-          pricingRules: scenario.snapshotPricingRules,
-          businessSettings: scenario.snapshotBusinessSettings,
-        });
-      })
-      .catch(() => { /* logged */ });
+    if (!scenario) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Scenario not found.');
+    }
+    // Recalculate snapshot products under the snapshot's own settings/rules
+    // so the restored state is internally consistent.
+    const batchResult = safelyRecalculateProducts(
+      scenario.snapshotProducts,
+      scenario.snapshotBusinessSettings,
+      scenario.snapshotPricingRules,
+    );
+    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    try {
+      await atomicRestoreScenario(
+        recalculated,
+        scenario.snapshotPricingRules,
+        scenario.snapshotBusinessSettings,
+      );
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({
+        products: recalculated,
+        pricingRules: scenario.snapshotPricingRules,
+        businessSettings: scenario.snapshotBusinessSettings,
+      });
+      return ok(undefined, 'Scenario restored.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not restore the scenario.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
   // Settings (UI preferences only — these stay in localStorage)
