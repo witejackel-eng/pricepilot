@@ -325,3 +325,30 @@ Each phase records the actual command output below.
 **Commit**: `security: prevent spreadsheet formula injection`
 
 ---
+
+## Phase 15 — security: add production response headers
+
+- Rewrote `next.config.ts` with an `async headers()` function that applies security headers to every route (`/:path*`).
+- Removed the stale `allowedDevOrigins: ["21.0.20.245"]` entry — it was a development-only IP address that has no purpose in production and was a minor information leak.
+- Security headers added:
+  - **Content-Security-Policy**: `default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests`. No `'unsafe-inline'` for scripts. `'unsafe-inline'` for styles is required because Next.js + Tailwind inject inline styles during hydration.
+  - **X-Content-Type-Options**: `nosniff`
+  - **X-Frame-Options**: `DENY` (defence in depth alongside CSP `frame-ancestors 'none'`)
+  - **Referrer-Policy**: `strict-origin-when-cross-origin`
+  - **Permissions-Policy**: `camera=(), microphone=(), geolocation=(), browsing-topics=(), interest-cohort=()` — the app does not use any of these APIs.
+  - **Strict-Transport-Security**: `max-age=63072000; includeSubDomains; preload`
+  - **X-DNS-Prefetch-Control**: `on`
+- Verified the headers are actually emitted by the production build:
+  - `bun run build` → `bun run start` → `curl -sI http://localhost:3000/`
+  - All 7 headers present in the HTTP response.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (0 errors, 0 warnings)
+- `bun run test` — PASS (141 tests, ~7.2s)
+- `bun run build` — PASS
+- Live header check via `curl -sI http://localhost:3000/` — all 7 security headers present.
+
+**Commit**: `security: add production response headers`
+
+---
