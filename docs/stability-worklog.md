@@ -412,3 +412,45 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `refactor: simplify owner home workflow`
+
+---
+
+## Phase 13 — test: configure real automated test infrastructure
+
+- Installed dev dependencies:
+  - `vitest@4.1.10`, `@vitest/coverage-v8@4.1.10`
+  - `jsdom@30.0.1`
+  - `@testing-library/react@16.3.2`, `@testing-library/jest-dom@7.0.0`, `@testing-library/user-event@14.6.1`
+  - `@playwright/test@1.62.1` (with Chromium browser binary installed via `bunx playwright install chromium`)
+  - `fake-indexeddb@6.2.5`
+- Created `vitest.config.ts`:
+  - `environment: 'jsdom'`
+  - `setupFiles: ['./vitest.setup.ts']`
+  - Includes `src/**/*.{test,spec}.{ts,tsx}`, excludes `node_modules`, `.next`, `tests/e2e/**`.
+  - V8 coverage on `src/lib/pricepilot/**/*.ts` and `src/store/**/*.ts`.
+  - `@` alias resolves to `./src`.
+- Created `vitest.setup.ts`:
+  - Imports `beforeEach` from `vitest`.
+  - Registers `fake-indexeddb/auto` so database tests work in jsdom.
+  - Registers `@testing-library/jest-dom/vitest` matchers.
+  - Resets the `pricepilot` IndexedDB database between tests so each test starts fresh.
+- Created `playwright.config.ts`:
+  - `testDir: './tests/e2e'`, fully parallel, 2 retries on CI.
+  - Chromium project only (desktop).
+  - `webServer` launches `bun run dev` on port 3000 with a 120-second startup timeout.
+- Updated `package.json` scripts:
+  - `test` → `vitest run`
+  - `test:coverage` → `vitest run --coverage`
+  - `test:e2e` → `playwright test`
+  - `verify` → `bun run typecheck && bun run lint && bun run test && bun run build`
+  - `verify:full` → `bun run verify && bun run test:e2e` (separate because Playwright is slow).
+- Created `src/lib/pricepilot/__tests__/smoke.test.ts` as a smoke test confirming vitest + fake-indexeddb work.
+- `bun run test` now PASSES (2 tests, 795ms).
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run test` — PASS (2 tests)
+- `bun run build` — PASS
+
+**Commit**: `test: configure real automated test infrastructure`
