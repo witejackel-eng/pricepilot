@@ -99,6 +99,13 @@ import {
   buildRestorePreview,
   RestorePreview,
 } from '@/lib/pricepilot/backup-service';
+import {
+  invalidateApproval,
+  invalidateIfStale,
+  invalidateApprovalsForSettingsChange,
+  invalidateApprovalsForRulesChange,
+  shouldInvalidateApproval,
+} from '@/lib/pricepilot/approval-invalidation';
 
 /**
  * Helper: Calculate product using the new recommendations engine.
@@ -519,7 +526,11 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     // Recalculate all products with new settings using the SAFE batch helper
     const { products, pricingRules } = get();
     const batchResult = safelyRecalculateProducts(products, newSettings, pricingRules);
-    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    let recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    // Phase 10: invalidate approvals when settings change — every
+    // approved price is now suspect because the recommendation inputs
+    // changed.
+    recalculated = invalidateApprovalsForSettingsChange(recalculated);
     // ATOMIC: persist settings + recalculated products in ONE Dexie
     // transaction so the catalogue can never end up with new settings
     // but stale calculations (or vice versa).
@@ -579,7 +590,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const updated = products.map(p => {
       if (p.id === id) {
         const merged = { ...p, ...updates, updatedAt: new Date().toISOString() };
-        return recalcProduct(merged, businessSettings, pricingRules);
+        const recalculated = recalcProduct(merged, businessSettings, pricingRules);
+        // Phase 10: invalidate prior approval if a financial field changed.
+        return invalidateIfStale(p, recalculated);
       }
       return p;
     });
@@ -952,7 +965,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const newRules = [...pricingRules, rule];
     // Recalculate products under the new rule set.
     const batchResult = safelyRecalculateProducts(products, businessSettings, newRules);
-    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    let recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    // Phase 10: invalidate approvals when rules change.
+    recalculated = invalidateApprovalsForRulesChange(recalculated);
     try {
       await atomicUpdateRulesAndProducts(newRules, recalculated);
       await saveLastSavedTimestampToDb(new Date().toISOString());
@@ -970,7 +985,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r
     );
     const batchResult = safelyRecalculateProducts(products, businessSettings, updated);
-    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    let recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    // Phase 10: invalidate approvals when rules change.
+    recalculated = invalidateApprovalsForRulesChange(recalculated);
     try {
       await atomicUpdateRulesAndProducts(updated, recalculated);
       await saveLastSavedTimestampToDb(new Date().toISOString());
@@ -986,7 +1003,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const { pricingRules, businessSettings, products } = get();
     const updated = pricingRules.filter(r => r.id !== id);
     const batchResult = safelyRecalculateProducts(products, businessSettings, updated);
-    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    let recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    // Phase 10: invalidate approvals when rules change.
+    recalculated = invalidateApprovalsForRulesChange(recalculated);
     try {
       await atomicUpdateRulesAndProducts(updated, recalculated);
       await saveLastSavedTimestampToDb(new Date().toISOString());

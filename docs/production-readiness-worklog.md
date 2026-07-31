@@ -352,3 +352,35 @@ Each phase records the actual command output below.
 **Commit**: `security: add production response headers`
 
 ---
+
+## Phase 10 — fix: invalidate stale price approvals
+
+- Created `src/lib/pricepilot/approval-invalidation.ts`:
+  - `FINANCIAL_DEPENDENCIES` — array of 17 product fields that affect a recommendation: `purchaseCost`, `shippingCost`, `packagingCost`, `handlingCost`, `otherCosts`, `returnRatePercent`, `damageRatePercent`, `marketplaceFeePercent`, `marketplaceFeeFixed`, `paymentFeePercent`, `paymentFeeFixed`, `taxRatePercent`, `taxTreatment`, `purchaseTaxRatePercent`, `purchaseCostTaxMode`, `inputTaxCreditRecoverable`, `currentSellingPrice`.
+  - `SETTINGS_FINANCIAL_DEPENDENCIES` — array of 18 business settings fields that affect recommendations: all default tax/fee/cost fields, target/minimum margin, minimum profit, rounding rule, fee-base policy, currency.
+  - `invalidateApproval(product)` — returns a new product with `priceApprovalStatus: 'none'`, `finalApprovedPrice: 0`, `approvedAt: ''`, `isApproved: false`, `lifecycleStatus: 'needs-review'`.
+  - `shouldInvalidateApproval(before, after)` — true if ANY financial field changed (with 1e-9 epsilon for floats).
+  - `invalidateIfStale(before, after)` — invalidates only if an approval existed AND a financial field changed.
+  - `invalidateApprovalsForSettingsChange(products)` — bulk invalidation of every approved product (used when settings change).
+  - `invalidateApprovalsForRulesChange(products)` — bulk invalidation when any pricing rule changes.
+  - `didRuleChangeSubstantively(before, after)` — compares two rules ignoring `updatedAt`.
+- Wired invalidation into the store:
+  - `updateProduct` — calls `invalidateIfStale(before, recalculated)` so editing a cost clears the approval.
+  - `updateBusinessSettings` — calls `invalidateApprovalsForSettingsChange(recalculated)` so every approved product is marked needs-review.
+  - `addPricingRule`, `updatePricingRule`, `deletePricingRule` — each calls `invalidateApprovalsForRulesChange(recalculated)`.
+- Created `src/lib/pricepilot/__tests__/approval-invalidation.test.ts` (15 tests):
+  - Coverage of `invalidateApproval` (clears fields, sets needs-review, doesn't mutate input).
+  - Coverage of `shouldInvalidateApproval` (every financial field triggers, non-financial fields don't, float epsilon, string fields).
+  - Coverage of `invalidateIfStale` (invalidates when approval + change, doesn't invalidate when no approval, doesn't invalidate when nothing changed).
+  - Coverage of bulk invalidation helpers (mutate every approved product, don't mutate input).
+  - Coverage of `SETTINGS_FINANCIAL_DEPENDENCIES` contents.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (0 errors, 0 warnings)
+- `bun run test` — PASS (156 tests, ~7.8s — 15 new tests added)
+- `bun run build` — PASS
+
+**Commit**: `fix: invalidate stale price approvals`
+
+---
