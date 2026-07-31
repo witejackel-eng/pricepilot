@@ -329,3 +329,135 @@ export function removeLegacyLocalStorageCopy(): string[] {
 export function isLegacyDataStillPresent(): boolean {
   return hasLegacyLocalStorageData();
 }
+
+// ============================================================
+// Migration Verification (Phase 4)
+// ============================================================
+
+export interface MigrationVerificationReport {
+  /** True when every check passed and it is safe to remove the legacy copy. */
+  canRemoveLegacy: boolean;
+  /** ISO timestamp of the verification. */
+  verifiedAt: string;
+  /** Migration status as recorded in metadata. */
+  migrationStatus: MigrationStatus | 'unknown';
+  /** Number of products in IndexedDB. */
+  indexedDbProductCount: number;
+  /** Number of products in legacy localStorage (or null if missing). */
+  legacyProductCount: number | null;
+  /** True if business settings exist in IndexedDB. */
+  indexedDbHasSettings: boolean;
+  /** True if business settings exist in legacy localStorage. */
+  legacyHasSettings: boolean;
+  /** Number of pricing rules in IndexedDB. */
+  indexedDbRuleCount: number;
+  /** Number of pricing rules in legacy localStorage (or null if missing). */
+  legacyRuleCount: number | null;
+  /** Number of scenarios in IndexedDB. */
+  indexedDbScenarioCount: number;
+  /** Number of scenarios in legacy localStorage (or null if missing). */
+  legacyScenarioCount: number | null;
+  /** List of human-readable issue strings — empty if all checks passed. */
+  issues: string[];
+}
+
+/**
+ * Phase 4: verify that the IndexedDB migration is complete and the
+ * data matches the legacy localStorage copy. Returns a structured
+ * report that the UI can show before allowing the user to remove the
+ * old localStorage copy.
+ *
+ * Checks:
+ *   1. Migration status metadata is 'complete'.
+ *   2. IndexedDB has at least one product (or both sides have zero).
+ *   3. Product count matches.
+ *   4. Business settings exist in IndexedDB.
+ *   5. Pricing rules count matches.
+ *   6. Scenarios count matches.
+ */
+export async function verifyMigration(): Promise<MigrationVerificationReport> {
+  const issues: string[] = [];
+
+  // Read migration status.
+  let migrationStatus: MigrationStatus | 'unknown' = 'unknown';
+  try {
+    const status = await getMetadata<MigrationStatus>(METADATA_KEY_MIGRATION_STATUS);
+    migrationStatus = status ?? 'not-started';
+    if (status !== 'complete') {
+      issues.push(`Migration status is "${status ?? 'not-started'}", not "complete".`);
+    }
+  } catch (err) {
+    issues.push('Could not read migration status from IndexedDB metadata.');
+  }
+
+  // Read IndexedDB state.
+  let indexedDbProductCount = 0;
+  let indexedDbHasSettings = false;
+  let indexedDbRuleCount = 0;
+  let indexedDbScenarioCount = 0;
+  try {
+    const db = getDb();
+    indexedDbProductCount = await db.products.count();
+    const settingsRecord = await db.businessSettings.get(BUSINESS_SETTINGS_ID);
+    indexedDbHasSettings = !!settingsRecord;
+    indexedDbRuleCount = await db.pricingRules.count();
+    indexedDbScenarioCount = await db.scenarios.count();
+  } catch (err) {
+    issues.push('Could not read counts from IndexedDB.');
+  }
+
+  // Read legacy localStorage state.
+  const legacy = readLegacyData();
+  let legacyProductCount: number | null = null;
+  let legacyHasSettings = false;
+  let legacyRuleCount: number | null = null;
+  let legacyScenarioCount: number | null = null;
+  if (legacy) {
+    legacyProductCount = legacy.products.length;
+    legacyHasSettings = !!legacy.businessSettings;
+    legacyRuleCount = legacy.pricingRules.length;
+    legacyScenarioCount = legacy.scenarios.length;
+
+    // Compare counts (only flag mismatches when legacy data exists).
+    if (legacyProductCount !== indexedDbProductCount) {
+      issues.push(`Product count mismatch: IndexedDB has ${indexedDbProductCount}, legacy has ${legacyProductCount}.`);
+    }
+    if (!indexedDbHasSettings && legacyHasSettings) {
+      issues.push('Business settings missing from IndexedDB but present in legacy.');
+    }
+    if (legacyRuleCount !== indexedDbRuleCount) {
+      issues.push(`Pricing rules count mismatch: IndexedDB has ${indexedDbRuleCount}, legacy has ${legacyRuleCount}.`);
+    }
+    if (legacyScenarioCount !== indexedDbScenarioCount) {
+      issues.push(`Scenarios count mismatch: IndexedDB has ${indexedDbScenarioCount}, legacy has ${legacyScenarioCount}.`);
+    }
+  } else {
+    issues.push('Could not read legacy localStorage data (it may already be removed).');
+  }
+
+  const canRemoveLegacy = issues.length === 0;
+
+  const report: MigrationVerificationReport = {
+    canRemoveLegacy,
+    verifiedAt: new Date().toISOString(),
+    migrationStatus,
+    indexedDbProductCount,
+    legacyProductCount,
+    indexedDbHasSettings,
+    legacyHasSettings,
+    indexedDbRuleCount,
+    legacyRuleCount,
+    indexedDbScenarioCount,
+    legacyScenarioCount,
+    issues,
+  };
+
+  // Persist the report to metadata so it can be inspected later.
+  try {
+    await setMetadata('migrationVerificationReport', report);
+  } catch (err) {
+    console.warn('[PricePilot Migration] Could not persist verification report.', err);
+  }
+
+  return report;
+}

@@ -179,3 +179,31 @@ Each phase records the actual command output below.
 **Commit**: `fix: persist settings rules and scenarios atomically`
 
 ---
+
+## Phase 4 — feat: complete legacy storage migration cleanup
+
+- Added `verifyMigration()` and `MigrationVerificationReport` to `src/lib/pricepilot/migration.ts`:
+  - Reads migration status metadata from IndexedDB (must be `'complete'`).
+  - Counts products, pricing rules, scenarios in BOTH IndexedDB and legacy localStorage.
+  - Checks that business settings exist in IndexedDB.
+  - Compares counts and produces a list of human-readable issue strings.
+  - Returns `canRemoveLegacy: true` only when every check passed.
+  - Persists the report to the metadata table under key `migrationVerificationReport` so it can be inspected later.
+- Created `src/components/pricepilot/legacy-data-cleanup-card.tsx`:
+  - Renders ONLY when `isLegacyDataStillPresent()` is true — hidden otherwise.
+  - Emerald/amber visual identity preserved.
+  - Three actions:
+    1. **Download Old Data** — triggers `downloadExistingData()` (canonical IndexedDB export) and instructs the user that the legacy localStorage copy is also accessible via DevTools.
+    2. **Verify Migration** — runs `verifyMigration()` and displays the structured report inline (counts, status, issues list).
+    3. **Remove Old Storage Copy** — disabled until verification passes. Clicking opens an AlertDialog confirmation. On confirm, calls `removeLegacyLocalStorageCopy()` and refreshes.
+- Wired `<LegacyDataCleanupCard />` into `settings-page.tsx` between the Backup section and the Danger Zone.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (0 errors, 0 warnings)
+- `bun run test` — PASS (115 tests, ~6.1s)
+- `bun run build` — PASS
+
+**Commit**: `feat: complete legacy storage migration cleanup`
+
+---

@@ -18,6 +18,7 @@ import { SUPPORTED_CURRENCIES, RoundingRule, TaxTreatment, ApplicationMode } fro
 import { AutoBackup } from '@/store/pricepilot-store';
 import { HelpSection } from './help-section';
 import { RestartTourButton } from './guided-tour';
+import { LegacyDataCleanupCard } from './legacy-data-cleanup-card';
 import { Building2, Coins, Palette, Database, Download, Upload, Trash2, RefreshCw, Shield, ChevronDown, ChevronRight, AlertTriangle, FileDown, Eye, Clock, Info } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -471,6 +472,9 @@ export function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Phase 4 — Legacy storage cleanup (only shown when legacy data is present) */}
+      <LegacyDataCleanupCard />
 
       {/* Danger Zone */}
       <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-red-50/5 hover:shadow-lg transition-shadow duration-200 border-t-2 border-red-200">
