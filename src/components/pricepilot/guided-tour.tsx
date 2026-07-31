@@ -74,11 +74,11 @@ export function TourInvitation() {
   return (
     <div
       data-testid="tour-invitation"
-      className="fixed bottom-4 right-4 z-40 max-w-xs animate-fade-in"
+      className="fixed bottom-4 right-4 z-40 max-w-xs animate-fade-in pointer-events-none"
       role="complementary"
       aria-label="Guided tour invitation"
     >
-      <Card className="shadow-lg border border-emerald-200 dark:border-emerald-800 rounded-xl overflow-hidden">
+      <Card className="shadow-lg border border-emerald-200 dark:border-emerald-800 rounded-xl overflow-hidden pointer-events-auto">
         <CardContent className="p-4 space-y-3">
           <div className="flex items-start gap-3">
             <div className="h-8 w-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
