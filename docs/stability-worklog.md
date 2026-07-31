@@ -520,3 +520,37 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `test: add import and persistence integration tests`
+
+---
+
+## Phase 16 — test: add father workflow playwright coverage
+
+- Created `tests/e2e/father-workflow.spec.ts` — the single essential E2E test described in the stability spec.
+- Test flow:
+  1. Open a clean browser, navigate to `http://localhost:3000/`.
+  2. Wait for the initialization screen ("Opening your PricePilot workspace…") and then the app shell.
+  3. Complete Quick Setup if onboarding is visible (fill `#businessName`, click Continue through all steps, click Complete Setup).
+  4. Load sample data (substitute for file upload — exercises the same calculation + IndexedDB persistence paths).
+  5. Inject a malformed product (`purchaseCost: NaN`, `currentSellingPrice: Infinity`, `taxRatePercent: 'not-a-number'`) directly into IndexedDB via `page.evaluate`.
+  6. Reload — confirm the app does NOT crash on the malformed product.
+  7. Navigate to Products, Review Prices, approve a price, apply it, undo, re-apply.
+  8. Download a backup.
+  9. Refresh — confirm products remain in the catalogue.
+- Test FAILS THE BUILD if the application:
+  - Crashes (page is blank).
+  - Shows a blank page (`body.textContent().length === 0`).
+  - Displays "Infinity", "NaN", "₹ undefined", "undefined%", "NaN%", "Infinity%".
+  - Loses products after refresh (asserts body has meaningful content after reload).
+  - Logs uncaught exceptions or critical console errors (filtered to exclude expected warnings like fake-indexeddb, React DevTools promo, our own `[PricePilot]` warnings).
+- Console watcher attaches to both `page.on('console', ...)` (for `console.error`) and `page.on('pageerror', ...)` (for uncaught exceptions).
+- Playwright config (`playwright.config.ts`) launches `bun run dev` on port 3000 with a 120-second startup timeout; Chromium project only; 2 retries on CI.
+- `bun run test:e2e` PASSES (1 test, 17.2 seconds including dev server startup).
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run test` — PASS (112 unit/integration tests)
+- `bun run test:e2e` — PASS (1 E2E test, 17.2s)
+- `bun run build` — PASS
+
+**Commit**: `test: add father workflow playwright coverage`
