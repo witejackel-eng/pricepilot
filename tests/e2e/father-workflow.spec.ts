@@ -258,26 +258,25 @@ test.describe('Strict Father Workflow E2E', () => {
     await expect(nextButton, 'Complete Setup button must be visible').toBeVisible({ timeout: 5_000 });
     await nextButton.click();
 
-    // Wait for the app to transition to the main interface.
-    // The onboarding completion is async (persists to IndexedDB), so we
-    // need to wait for the onboarding form to disappear or the owner home
-    // to appear. Give it up to 15 seconds.
-    await page.waitForFunction(() => {
-      // Check that the onboarding form is no longer visible
-      const onboarding = document.querySelector('[data-testid="onboarding-form"]');
-      if (onboarding && window.getComputedStyle(onboarding).display !== 'none') return false;
-      // Check that the page has meaningful content (owner home or dashboard)
-      const body = document.body.textContent ?? '';
-      return body.length > 100;
-    }, { timeout: 15_000 }).catch(() => {
-      // If the function times out, just continue - the test will
-      // fail later if navigation doesn't work
-    });
-    await page.waitForTimeout(2000);
+    // Wait for the onboarding completion to persist to IndexedDB.
+    // The completion animation runs briefly, then the app state updates.
+    // Give it a few seconds for the async persistence to complete.
+    await page.waitForTimeout(5000);
+
+    // Reload the page to ensure the onboarding state is properly persisted.
+    // This is the most reliable way to verify the onboarding actually
+    // completed, since the app reads from IndexedDB on startup.
+    await page.reload();
+    await waitForAppReady(page);
+    await page.waitForTimeout(3000);
+
+    // Onboarding should NOT be shown again
+    const onboardingAfterComplete = page.locator('[data-testid="onboarding-form"]');
+    await expect(onboardingAfterComplete, 'Onboarding must not reappear after completion').not.toBeVisible({ timeout: 5_000 });
     await assertNoInvalidNumbers(page, 'after onboarding');
 
     // ============================================================
-    // Step 3: Refresh and verify onboarding remains complete
+    // Step 3: Verify onboarding persists after refresh
     // ============================================================
     await page.reload();
     await waitForAppReady(page);
