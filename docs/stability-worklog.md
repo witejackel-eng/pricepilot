@@ -132,3 +132,36 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `fix: isolate individual product calculation failures`
+
+---
+
+## Phase 4 — fix: make application startup recoverable
+
+- Created `src/lib/pricepilot/initialization.ts` with:
+  - `AppInitializationStatus = 'idle' | 'loading' | 'ready' | 'ready-with-warnings' | 'failed'`
+  - `AppInitializationSummary` carrying counts (`successfulCount`, `needsReviewCount`, `failedCount`) and a human-readable message.
+  - Factory helpers `makeIdleSummary`, `makeLoadingSummary`, `makeReadySummary`, `makeFailedSummary`.
+- Added `initialization`, `retryInitialize`, `startEmptyWorkspace`, `downloadExistingData` to the Zustand store.
+- Rewrote `initialize()`:
+  1. Sets `initialization: loading` BEFORE doing any work, so the UI shows "Opening your PricePilot workspace…" instead of briefly flashing onboarding.
+  2. Wraps `initializeStorage()` and the recalculation in a single try/catch.
+  3. On success: counts needs-review products and produces a `ready` or `ready-with-warnings` summary.
+  4. On failure: sets `initialization: failed` with the error message — **does NOT delete old localStorage data**.
+  5. Persisting recalculated products is best-effort (wrapped in its own try/catch) — a save failure does not blank the in-memory state.
+- `startEmptyWorkspace()` DOES NOT delete old data — it bypasses storage for this session so the owner can keep working while the old data remains recoverable.
+- `downloadExistingData()` exports whatever is in localStorage as a JSON recovery file. Never throws.
+- Created `src/components/pricepilot/initialization-screen.tsx`:
+  - Loading state: emerald spinner, "Opening your PricePilot workspace…"
+  - Failure state: red AlertTriangle, "PricePilot could not open your saved workspace. Your browser data has not been deleted." with three buttons: Try Again, Download Existing Data, Start Empty Workspace.
+- Updated `src/app/page.tsx`:
+  - Renders `<InitializationScreen />` while status is `idle` / `loading` / `failed`.
+  - On `ready-with-warnings`, fires a `toast.warning` telling the owner how many products need review.
+  - On `ready`, fires a `toast.success`.
+  - Hooks are called in stable order (no conditional hooks).
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (after fixing a rules-of-hooks violation)
+- `bun run build` — PASS
+
+**Commit**: `fix: make application startup recoverable`

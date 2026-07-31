@@ -4,13 +4,46 @@ import { useEffect } from 'react';
 import { usePricePilotStore } from '@/store/pricepilot-store';
 import { OnboardingFlow } from '@/components/pricepilot/onboarding-flow';
 import { AppShell } from '@/components/pricepilot/app-shell';
+import { InitializationScreen } from '@/components/pricepilot/initialization-screen';
+import { toast } from 'sonner';
 
 export default function Home() {
-  const { onboardingCompleted, initialize } = usePricePilotStore();
+  const {
+    onboardingCompleted,
+    initialization,
+    initialize,
+  } = usePricePilotStore();
 
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  // Phase 4: surface a toast when initialization succeeds (with or
+  // without warnings) so the owner knows the workspace is ready.
+  // This must run before any early return so the hook order is stable.
+  useEffect(() => {
+    if (initialization.status === 'ready-with-warnings' && initialization.message) {
+      toast.warning('PricePilot opened successfully', {
+        description: `${initialization.needsReviewCount} ${initialization.needsReviewCount === 1 ? 'product needs' : 'products need'} review because some saved values could not be understood.`,
+        duration: 8000,
+      });
+    } else if (initialization.status === 'ready') {
+      toast.success('PricePilot opened successfully', {
+        duration: 2500,
+      });
+    }
+  }, [initialization.status, initialization.message, initialization.needsReviewCount]);
+
+  // Never briefly render onboarding while initialization is still in
+  // flight. The owner sees "Opening your PricePilot workspace…"
+  // instead of a flash of the onboarding wizard.
+  if (
+    initialization.status === 'idle' ||
+    initialization.status === 'loading' ||
+    initialization.status === 'failed'
+  ) {
+    return <InitializationScreen />;
+  }
 
   if (!onboardingCompleted) {
     return <OnboardingFlow />;

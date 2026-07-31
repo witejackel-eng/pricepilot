@@ -47,6 +47,14 @@ import { SAMPLE_PRODUCTS, SAMPLE_PRICING_RULES } from '@/lib/pricepilot/sample-d
 import { RecommendationResult, RecommendedOutcomes } from '@/lib/pricepilot/types';
 import { safeNumberValue } from '@/lib/pricepilot/formatting';
 import { safelyRecalculateProducts, safelyRecalculateProduct } from '@/lib/pricepilot/safe-calculation';
+import {
+  AppInitializationSummary,
+  makeIdleSummary,
+  makeLoadingSummary,
+  makeReadySummary,
+  makeFailedSummary,
+} from '@/lib/pricepilot/initialization';
+import { normalizeProduct } from '@/lib/pricepilot/product-normalizer';
 
 /**
  * Helper: Calculate product using the new recommendations engine.
@@ -102,6 +110,12 @@ interface PricePilotState {
   scenarios: Scenario[];
   appSettings: AppSettings;
   onboardingCompleted: boolean;
+
+  // Initialization lifecycle (Phase 4)
+  initialization: AppInitializationSummary;
+  retryInitialize: () => void;
+  startEmptyWorkspace: () => void;
+  downloadExistingData: () => void;
 
   // Navigation
   currentView: AppView;
@@ -228,6 +242,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   scenarios: [],
   appSettings: createDefaultAppSettings(),
   onboardingCompleted: false,
+  initialization: makeIdleSummary(),
   currentView: 'owner-home',
   selectedProductId: null,
   selectedProducts: [],
@@ -243,34 +258,110 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   // Initialize from localStorage
   initialize: () => {
-    const data = initializeStorage();
-    // Run calculations on all loaded products using the SAFE batch helper
-    // so a single malformed stored product cannot blank the whole app.
-    const batchResult = safelyRecalculateProducts(
-      data.products, data.businessSettings, data.pricingRules
-    );
-    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    if (batchResult.issues.length > 0) {
-      console.warn(
-        `[PricePilot] ${batchResult.issues.length} product(s) had calculation issues during startup.`,
-        batchResult.issues
+    // Mark as loading FIRST so the UI can render the "Opening your
+    // PricePilot workspace…" screen instead of briefly flashing
+    // onboarding.
+    set({ initialization: makeLoadingSummary() });
+
+    try {
+      const data = initializeStorage();
+
+      // Run calculations on all loaded products using the SAFE batch helper
+      // so a single malformed stored product cannot blank the whole app.
+      const batchResult = safelyRecalculateProducts(
+        data.products, data.businessSettings, data.pricingRules
       );
+      const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+      if (batchResult.issues.length > 0) {
+        console.warn(
+          `[PricePilot] ${batchResult.issues.length} product(s) had calculation issues during startup.`,
+          batchResult.issues
+        );
+      }
+
+      const mode = data.appSettings.applicationMode || 'owner';
+      const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
+
+      // Build the initialization summary.
+      const needsReviewCount = recalculated.filter(
+        p => p.lifecycleStatus === 'needs-review' || p.calculatedPricingStatus === 'missing-data'
+      ).length;
+      const successfulCount = recalculated.length - needsReviewCount;
+      const summary = makeReadySummary(successfulCount, needsReviewCount);
+
+      set({
+        businessSettings: data.businessSettings,
+        products: recalculated,
+        pricingRules: data.pricingRules,
+        scenarios: data.scenarios,
+        appSettings: data.appSettings,
+        onboardingCompleted: data.onboardingCompleted,
+        lastSaved: getLastSavedTimestamp(),
+        currentView: data.onboardingCompleted ? defaultView : 'dashboard',
+        autoBackups: loadAutoBackups(),
+        initialization: summary,
+      });
+
+      // Save recalculated products (best-effort; failure here is not fatal
+      // because we already have the data in memory).
+      try {
+        saveProducts(recalculated);
+      } catch (saveErr) {
+        console.warn('[PricePilot] Could not persist recalculated products on startup.', saveErr);
+      }
+    } catch (err) {
+      // Storage initialization failed entirely. DO NOT delete the old
+      // data — surface a failure summary so the UI can offer recovery
+      // options (Try Again / Download Existing Data / Start Empty).
+      console.error('[PricePilot] Initialization failed.', err);
+      set({ initialization: makeFailedSummary(err) });
     }
-    const mode = data.appSettings.applicationMode || 'owner';
-    const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
-    set({
-      businessSettings: data.businessSettings,
-      products: recalculated,
-      pricingRules: data.pricingRules,
-      scenarios: data.scenarios,
-      appSettings: data.appSettings,
-      onboardingCompleted: data.onboardingCompleted,
-      lastSaved: getLastSavedTimestamp(),
-      currentView: data.onboardingCompleted ? defaultView : 'dashboard',
-      autoBackups: loadAutoBackups(),
-    });
-    // Save recalculated products
-    saveProducts(recalculated);
+  },
+
+  retryInitialize: () => {
+    // The user clicked "Try Again" on the failure screen.
+    get().initialize();
+  },
+
+  startEmptyWorkspace: () => {
+    // The user clicked "Start Empty Workspace". We DO NOT delete the
+    // old localStorage data — we just bypass it for this session so
+    // the owner can keep using the app while the old data remains
+    // available for download or a later retry.
+    try {
+      const defaults = createDefaultBusinessSettings();
+      const appDefaults = createDefaultAppSettings();
+      set({
+        businessSettings: defaults,
+        products: [],
+        pricingRules: [],
+        scenarios: [],
+        appSettings: appDefaults,
+        onboardingCompleted: false,
+        currentView: 'dashboard',
+        initialization: makeReadySummary(0, 0),
+      });
+    } catch (err) {
+      console.error('[PricePilot] Could not start empty workspace.', err);
+      set({ initialization: makeFailedSummary(err) });
+    }
+  },
+
+  downloadExistingData: () => {
+    // Best-effort: try to export whatever is in localStorage so the
+    // owner has a recovery file. This must never throw into the UI.
+    try {
+      const data = exportAllData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pricepilot-recovery-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('[PricePilot] Could not download existing data.', err);
+    }
   },
 
   // Navigation
