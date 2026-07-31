@@ -36,6 +36,7 @@ import { OwnerHome } from './owner-home';
 import { ReviewPricesPage } from './review-prices-page';
 import { ProductsPage } from './products-page';
 import { ImportFlow } from './import-flow';
+import { PricePilotErrorBoundary } from './error-boundary';
 import { PricingRulesPage } from './pricing-rules-page';
 import { PriceSimulator } from './price-simulator';
 import { ScenariosPage } from './scenarios-page';
@@ -278,7 +279,15 @@ export function AppShell() {
       case 'review-prices': return <ReviewPricesPage />;
       case 'dashboard': return <DashboardPage />;
       case 'products': return <ProductsPage />;
-      case 'import': return <ImportFlow />;
+      case 'import':
+        // Phase 5: wrap the import flow in an error boundary so a
+        // single thrown error during import (e.g. malformed spreadsheet)
+        // does not blank the whole app.
+        return (
+          <PricePilotErrorBoundary boundaryName="Import Flow">
+            <ImportFlow />
+          </PricePilotErrorBoundary>
+        );
       case 'pricing-rules': return <PricingRulesPage />;
       case 'price-simulator': return <PriceSimulator />;
       case 'scenarios': return <ScenariosPage />;

@@ -13,6 +13,7 @@ import { StatusBadge } from './status-badge';
 import { ProductDetailDrawer } from './product-detail-drawer';
 import { ProductComparisonDrawer } from './product-comparison-drawer';
 import { BulkAdjustDialog } from './bulk-adjust-dialog';
+import { PricePilotErrorBoundary } from './error-boundary';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { Product, SalesChannel } from '@/lib/pricepilot/types';
 import { Package, FileUp, Plus, Search, Trash2, CheckCircle, Eye, MoreHorizontal, Pencil, ArrowLeftRight, SlidersHorizontal, Columns3 } from 'lucide-react';
@@ -563,8 +564,15 @@ export function ProductsPage() {
         </CardContent>
       </Card>
 
-      {/* Product Detail Drawer */}
-      <ProductDetailDrawer productId={selectedProduct} onClose={() => setSelectedProduct(null)} />
+      {/* Product Detail Drawer — wrapped in an error boundary so a
+          malformed product cannot blank the whole Products page. */}
+      <PricePilotErrorBoundary
+        boundaryName="Product Detail Drawer"
+        contextProductId={selectedProduct ?? undefined}
+        onReturnHome={() => setSelectedProduct(null)}
+      >
+        <ProductDetailDrawer productId={selectedProduct} onClose={() => setSelectedProduct(null)} />
+      </PricePilotErrorBoundary>
 
       {/* Product Comparison Drawer */}
       <ProductComparisonDrawer productIds={compareIds} onClose={() => setCompareIds(null)} />

@@ -165,3 +165,25 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `fix: make application startup recoverable`
+
+---
+
+## Phase 5 — fix: add client error recovery boundaries
+
+- Created `src/components/pricepilot/error-boundary.tsx`:
+  - `PricePilotErrorBoundary` class component.
+  - Props: `children`, `boundaryName`, `contextProductId`, `contextImportRow`, `onReturnHome`.
+  - On caught error: logs full details (error message, component stack, boundary name, active product ID, import row when relevant) to the console for development debugging.
+  - Renders a friendly recovery UI: "PricePilot could not complete this action. Your existing catalogue has not been deleted." with three buttons: Return Home, Try Again, Download Backup.
+  - NEVER exposes raw stack traces to the business user — developer details only appear in a `<details>` element when `NODE_ENV === 'development'`.
+- Created `src/app/error.tsx` — Next.js route-level error boundary. Same recovery UI; logs message/stack/digest to console.
+- Created `src/app/global-error.tsx` — Next.js global error boundary. Self-contained (renders its own `<html>` and `<body>`) because the regular layout may be what failed. Backup download reads `pricepilot_v1_products` directly from localStorage to avoid depending on the store.
+- Wrapped the Import Flow in `app-shell.tsx` with `<PricePilotErrorBoundary boundaryName="Import Flow">`.
+- Wrapped the Product Detail Drawer in `products-page.tsx` with `<PricePilotErrorBoundary boundaryName="Product Detail Drawer" contextProductId={selectedProduct}>`.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run build` — PASS
+
+**Commit**: `fix: add client error recovery boundaries`
