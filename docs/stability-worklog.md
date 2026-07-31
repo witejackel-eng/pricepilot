@@ -376,3 +376,39 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `fix: make backups and undo reliable`
+
+---
+
+## Phase 12 — refactor: simplify owner home workflow
+
+- Rewrote `src/components/pricepilot/owner-home.tsx` to the father-level four-task design.
+- Header: "Good morning, [Business Name] — What would you like to do today?" (time-of-day aware greeting).
+- Exactly four action cards (was a complex grid with revenue / profit / projections):
+  1. **Upload Latest Price List** — "Import an Excel or CSV file from your supplier." → navigates to Import.
+  2. **Fix Products Needing Information** — "N products need a cost or tax setting." → navigates to Review. Disabled when count is 0.
+  3. **Review Suggested Prices** — "N products are ready for approval." → navigates to Review. Disabled when count is 0.
+  4. **Download Updated Excel** — "N approved prices are ready." → navigates to Export. Disabled when there is nothing to download.
+- Removed from Owner Home:
+  - Potential revenue
+  - Potential profit
+  - Monthly projections
+  - Top performers
+  - Health analytics
+  - Advanced charts
+  - Detailed fee statistics
+  - Sample-data demo controls (those still exist in Settings, just not on the home screen)
+- Plain-language review group summary with four tiles:
+  - Needs Information
+  - Ready to Review
+  - Approved, Not Applied
+  - Applied
+- Footer actions: Undo last action, Help, Download backup.
+- Plain language used throughout: Purchase Cost, Current Selling Price, Suggested Selling Price, Expected Profit, Expected Margin. Advanced accounting language (GST composition, input tax credit, fee-base policy, etc.) is NOT surfaced on this screen.
+- Existing Emerald branding, typography, sidebar identity, and card styling preserved.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run build` — PASS
+
+**Commit**: `refactor: simplify owner home workflow`
