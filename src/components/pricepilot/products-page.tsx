@@ -620,6 +620,8 @@ export function ProductsPage() {
                   pageData.map(p => (
                     <TableRow
                       key={p.id}
+                      data-testid="product-row"
+                      data-sku={p.sku}
                       className={`cursor-pointer transition-all duration-200 ${
                         selectedProducts.includes(p.id)
                           ? 'bg-emerald-50/50 border-l-3 border-l-emerald-500 hover:bg-emerald-50/70'

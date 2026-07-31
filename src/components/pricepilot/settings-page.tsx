@@ -423,7 +423,7 @@ export function SettingsPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Button variant="outline" onClick={handleExportData} className="rounded-xl shadow-sm h-12 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+            <Button variant="outline" data-testid="download-backup-button" onClick={handleExportData} className="rounded-xl shadow-sm h-12 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
               <FileDown className="h-4 w-4 mr-2" /> Download Backup
             </Button>
             <div>
@@ -431,13 +431,14 @@ export function SettingsPage() {
               <Input
                 type="file"
                 accept=".json"
+                data-testid="restore-file-input"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
                     const reader = new FileReader();
                     reader.onload = async (ev) => {
                       const text = ev.target?.result as string;
-                      const preview = previewBackupRestore(text);
+                      const preview = await previewBackupRestore(text);
                       if (!preview.valid) {
                         toast.error('Restore failed', { description: preview.issues[0] ?? 'The backup file is not valid.' });
                         return;

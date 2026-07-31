@@ -767,9 +767,9 @@ export function OnboardingFlow() {
         )}
 
         {/* Main card */}
-        <Card className="shadow-xl shadow-emerald-500/5 border-0 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm transition-all duration-300 hover:shadow-2xl">
+        <Card className="shadow-xl shadow-emerald-500/5 border-0 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm transition-all duration-300 hover:shadow-2xl" data-testid="onboarding-form">
           {showCompletion ? (
-            <CardContent className="p-8">
+            <CardContent className="p-8" data-testid="onboarding-complete">
               <CompletionAnimation />
             </CardContent>
           ) : (
@@ -800,7 +800,7 @@ export function OnboardingFlow() {
                       <SkipForward className="h-4 w-4 mr-1.5" /> Skip setup
                     </Button>
                   )}
-                  <Button onClick={handleNext} className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-md shadow-emerald-500/20 rounded-xl transition-all duration-200 hover:shadow-lg hover:translate-x-0.5">
+                  <Button data-testid="onboarding-next" onClick={handleNext} className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-md shadow-emerald-500/20 rounded-xl transition-all duration-200 hover:shadow-lg hover:translate-x-0.5">
                     {step === totalSteps ? 'Complete Setup' : 'Continue'}
                     {step < totalSteps && <ArrowRight className="h-4 w-4 ml-1.5" />}
                   </Button>

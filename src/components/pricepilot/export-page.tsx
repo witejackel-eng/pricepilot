@@ -413,6 +413,7 @@ export function ExportPage() {
             <Button
               onClick={handleOwnerExport}
               disabled={products.length === 0 || exportProgress !== null}
+              data-testid="export-button"
               className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-md shadow-emerald-500/20 rounded-lg font-semibold text-lg px-6 py-3 w-full"
             >
               <Download className="h-5 w-5 mr-2" /> Download Updated Price List

@@ -826,7 +826,7 @@ export function ImportFlow() {
               <p className="text-xs text-muted-foreground mt-1">
                 Supports .xlsx, .xls, .csv, .tsv — Max {MAX_FILE_SIZE_MB} MB
               </p>
-              <input id="file-upload" type="file" accept=".xlsx,.xls,.csv,.tsv" className="hidden" onChange={handleFileInput} />
+              <input id="file-upload" type="file" accept=".xlsx,.xls,.csv,.tsv" className="hidden" onChange={handleFileInput} data-testid="import-file-input" />
             </div>
             <div className="mt-4 flex justify-center">
               <Button variant="outline" size="sm" onClick={downloadTemplate} className="rounded-lg shadow-sm hover:shadow-md transition-all duration-200 border-slate-200 hover:border-emerald-300">
@@ -966,7 +966,7 @@ export function ImportFlow() {
 
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep('upload')} className="rounded-lg shadow-sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
-              <Button onClick={() => setStep('mapping')} className="rounded-lg shadow-md">Map Columns <ArrowRight className="h-4 w-4 ml-1" /></Button>
+              <Button data-testid="import-continue-to-mapping" onClick={() => setStep('mapping')} className="rounded-lg shadow-md">Map Columns <ArrowRight className="h-4 w-4 ml-1" /></Button>
             </div>
           </CardContent>
         </Card>
@@ -1006,7 +1006,7 @@ export function ImportFlow() {
 
             <div className="flex justify-between mt-4">
               <Button variant="outline" onClick={() => setStep('preview')} className="rounded-lg shadow-sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
-              <Button onClick={handleProcessRows} className="rounded-lg shadow-md">Process Rows <ArrowRight className="h-4 w-4 ml-1" /></Button>
+              <Button data-testid="import-process-rows" onClick={handleProcessRows} className="rounded-lg shadow-md">Process Rows <ArrowRight className="h-4 w-4 ml-1" /></Button>
             </div>
           </CardContent>
         </Card>
@@ -1190,7 +1190,7 @@ export function ImportFlow() {
 
       {/* Step 5: Duplicate Resolution */}
       {step === 'duplicate-resolution' && batchResult && (
-        <Card className="shadow-md border-0 rounded-xl">
+        <Card className="shadow-md border-0 rounded-xl" data-testid="import-duplicate-resolution">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><GitMerge className="h-5 w-5" /> Duplicate Resolution</CardTitle>
             <CardDescription>
@@ -1369,7 +1369,7 @@ export function ImportFlow() {
 
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep('row-review')} className="rounded-lg shadow-sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
-              <Button onClick={handleResolveDuplicates} className="rounded-lg shadow-md">
+              <Button data-testid="import-resolve-duplicates" onClick={handleResolveDuplicates} className="rounded-lg shadow-md">
                 Continue to Confirm <ArrowRight className="h-4 w-4 ml-1" />
               </Button>
             </div>
@@ -1476,6 +1476,7 @@ export function ImportFlow() {
                 <ArrowLeft className="h-4 w-4 mr-1" /> Back
               </Button>
               <Button
+                data-testid="import-commit-button"
                 onClick={handleImport}
                 disabled={isImporting || (groupedResults.valid.length === 0 && groupedResults.needsReview.length === 0 && groupedResults.duplicate.length === 0)}
                 className="rounded-lg shadow-md"

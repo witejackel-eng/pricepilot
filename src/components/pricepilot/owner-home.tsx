@@ -508,6 +508,7 @@ export function OwnerHome() {
           size="sm"
           onClick={handleUndo}
           disabled={!hasUndo}
+          data-testid="undo-button"
         >
           <Undo2 className="h-4 w-4 mr-2" />
           Undo last action
@@ -524,6 +525,7 @@ export function OwnerHome() {
           variant="ghost"
           size="sm"
           onClick={downloadBackup}
+          data-testid="download-backup-button"
         >
           <Download className="h-4 w-4 mr-2" />
           Download backup
