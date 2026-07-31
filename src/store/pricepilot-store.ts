@@ -225,15 +225,15 @@ interface PricePilotState {
   pushUndoAction: (action: UndoAction) => void;
 
   // Backup
-  createAutoBackup: (trigger: AutoBackup['trigger'], description: string) => void;
+  createAutoBackup: (trigger: AutoBackup['trigger'], description: string) => Promise<void>;
   downloadBackup: () => void;
-  restoreBackup: (dataString: string) => boolean;
+  restoreBackup: (dataString: string) => Promise<boolean>;
   getBackupList: () => AutoBackup[];
 
   // Data management
   exportData: () => string;
   importData: (data: string) => boolean;
-  resetApplication: () => void;
+  resetApplication: () => Promise<void>;
 }
 
 const MAX_UNDO_HISTORY = 20;
@@ -859,6 +859,10 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const { undoHistory } = get();
     const newHistory = [action, ...undoHistory].slice(0, MAX_UNDO_HISTORY);
     set({ undoHistory: newHistory });
+    // Phase 11: persist undo history to IndexedDB (best-effort).
+    saveUndoHistoryToDb(newHistory).catch((err) => {
+      console.warn('[PricePilot] Could not persist undo history to IndexedDB.', err);
+    });
   },
 
   undoLastAction: () => {
@@ -867,57 +871,82 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const lastAction = undoHistory[0];
     const remainingHistory = undoHistory.slice(1);
 
+    let newProducts: Product[] = products;
+
     if (lastAction.type === 'price-approve' || lastAction.type === 'price-apply' || lastAction.type === 'product-edit') {
       // Restore the product from previousState
       const previousProduct = lastAction.previousState as Product;
-      const updated = products.map(p => {
+      newProducts = products.map(p => {
         if (p.id === lastAction.productId) {
           return recalcProduct(previousProduct, businessSettings, pricingRules);
         }
         return p;
       });
-      saveProducts(updated);
-      set({ products: updated, undoHistory: remainingHistory, lastSaved: getLastSavedTimestamp() });
     } else if (lastAction.type === 'product-delete') {
       // Re-add the deleted product
       const previousProduct = lastAction.previousState as Product;
       const recalculated = recalcProduct(previousProduct, businessSettings, pricingRules);
-      const newProducts = [...products, recalculated];
-      saveProducts(newProducts);
-      set({ products: newProducts, undoHistory: remainingHistory, lastSaved: getLastSavedTimestamp() });
+      newProducts = [...products, recalculated];
     } else if (lastAction.type === 'bulk-approve') {
       // Restore all products from previousState
       const previousProducts = lastAction.previousState as Product[];
-      const updated = products.map(p => {
+      newProducts = products.map(p => {
         const prev = previousProducts.find(pp => pp.id === p.id);
         if (prev) return recalcProduct(prev, businessSettings, pricingRules);
         return p;
       });
-      saveProducts(updated);
-      set({ products: updated, undoHistory: remainingHistory, lastSaved: getLastSavedTimestamp() });
     } else if (lastAction.type === 'import') {
       // Remove imported products (restore to pre-import state)
       const previousProducts = lastAction.previousState as Product[];
-      const recalculated = previousProducts.map(p => recalcProduct(p, businessSettings, pricingRules));
-      saveProducts(recalculated);
-      set({ products: recalculated, undoHistory: remainingHistory, lastSaved: getLastSavedTimestamp() });
+      newProducts = previousProducts.map(p => recalcProduct(p, businessSettings, pricingRules));
     }
+
+    // Phase 11: persist to BOTH localStorage (legacy compatibility) and
+    // IndexedDB (the new source of truth). Best-effort — failures are
+    // logged but do not block the undo.
+    saveProducts(newProducts);
+    saveProductsToDb(newProducts).catch((err) => {
+      console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
+    });
+    saveUndoHistoryToDb(remainingHistory).catch((err) => {
+      console.warn('[PricePilot] Could not persist undo history to IndexedDB.', err);
+    });
+    set({ products: newProducts, undoHistory: remainingHistory, lastSaved: getLastSavedTimestamp() });
   },
 
   // Backup
-  createAutoBackup: (trigger, description) => {
-    const dataString = get().exportData();
-    const backup: AutoBackup = {
-      id: `backup-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      trigger,
-      dataString,
-      description,
-    };
-    const { autoBackups } = get();
-    const newBackups = [backup, ...autoBackups].slice(0, MAX_AUTO_BACKUPS);
-    saveAutoBackups(newBackups);
-    set({ autoBackups: newBackups });
+  createAutoBackup: async (trigger, description) => {
+    // Phase 11: backups now live in IndexedDB. Backup creation must
+    // NOT crash the operation it was called from. If backup creation
+    // fails, we surface a warning to the user and DO NOT continue
+    // with any destructive action that depended on the backup.
+    try {
+      const dataString = get().exportData();
+      const backup: AutoBackup = {
+        id: `backup-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        trigger,
+        dataString,
+        description,
+      };
+      const { autoBackups } = get();
+      // Keep the latest 10.
+      const newBackups = [backup, ...autoBackups].slice(0, MAX_AUTO_BACKUPS);
+      // Persist to IndexedDB.
+      await saveBackupsToDb(newBackups);
+      // Also persist to localStorage for legacy compatibility / quick reads.
+      saveAutoBackups(newBackups);
+      set({ autoBackups: newBackups });
+    } catch (err) {
+      console.error('[PricePilot] Could not create safety backup.', err);
+      // Surface the failure to the user.
+      // The caller is responsible for deciding whether to proceed.
+      // For destructive actions (import, bulk apply, restore, reset,
+      // migration), the caller MUST abort.
+      throw new Error(
+        'PricePilot could not create a safety backup. The requested change has not been applied.'
+      );
+    }
   },
 
   downloadBackup: () => {
@@ -931,16 +960,36 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     URL.revokeObjectURL(url);
   },
 
-  restoreBackup: (dataString) => {
+  restoreBackup: async (dataString) => {
+    // Phase 11: restore is now atomic via IndexedDB transactions.
     try {
       const data = JSON.parse(dataString);
+      // Create a safety backup first.
+      try {
+        await get().createAutoBackup('manual', 'Before restoring backup');
+      } catch (backupErr) {
+        // Backup failed — abort the restore.
+        console.error('[PricePilot] Restore aborted because backup creation failed.', backupErr);
+        return false;
+      }
+      // Atomic restore via IndexedDB.
+      if (data.products && data.businessSettings && data.pricingRules !== undefined) {
+        await atomicRestoreBackup({
+          products: data.products,
+          businessSettings: data.businessSettings,
+          pricingRules: data.pricingRules ?? [],
+          scenarios: data.scenarios ?? [],
+        });
+      }
+      // Also write to localStorage for legacy compatibility.
       const success = importAllData(data);
       if (success) {
-        get().initialize();
+        await get().initialize();
         return true;
       }
       return false;
-    } catch {
+    } catch (err) {
+      console.error('[PricePilot] Restore failed.', err);
       return false;
     }
   },
@@ -969,9 +1018,23 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     }
   },
 
-  resetApplication: () => {
-    get().createAutoBackup('reset', 'Before application reset');
-    resetAllStorage();
+  resetApplication: async () => {
+    // Phase 11: create a safety backup BEFORE the reset. If backup
+    // creation fails, the reset is aborted.
+    try {
+      await get().createAutoBackup('reset', 'Before application reset');
+    } catch (err) {
+      console.error('[PricePilot] Reset aborted because backup creation failed.', err);
+      // Surface to the UI.
+      throw err;
+    }
+    // Atomic reset via IndexedDB.
+    try {
+      await atomicResetAll();
+    } catch (err) {
+      console.error('[PricePilot] IndexedDB reset failed; falling back to localStorage reset.', err);
+      resetAllStorage();
+    }
     set({
       businessSettings: createDefaultBusinessSettings(),
       products: [],

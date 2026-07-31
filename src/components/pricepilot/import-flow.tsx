@@ -221,11 +221,14 @@ export function ImportFlow() {
    * Actually perform the restore after the user confirms in the AlertDialog.
    * Creates a fresh safety backup first, then restores from the selected snapshot.
    */
-  const confirmRestore = () => {
+  const confirmRestore = async () => {
     if (!restoreTarget) return;
     // Create a safety backup of the CURRENT state so the user can undo the restore
-    createAutoBackup('manual', `Safety snapshot before restoring "${restoreTarget.description}"`);
-    const success = restoreBackup(restoreTarget.dataString);
+    // (fire-and-forget; if it throws, restoreBackup will abort separately).
+    createAutoBackup('manual', `Safety snapshot before restoring "${restoreTarget.description}"`)
+      .catch((err) => console.warn('[PricePilot] Pre-restore backup failed.', err));
+    // Phase 11: restoreBackup is now async.
+    const success = await restoreBackup(restoreTarget.dataString);
     if (success) {
       toast.success('Backup restored', {
         description: `Restored snapshot from ${formatBackupTimestamp(restoreTarget.timestamp)}`,

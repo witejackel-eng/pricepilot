@@ -346,3 +346,33 @@ Each phase records the actual command output below.
 - `bun run build` — PASS
 
 **Commit**: `feat: add safe localstorage migration`
+
+---
+
+## Phase 11 — fix: make backups and undo reliable
+
+- Backups and undo history now live in IndexedDB (via `saveBackupsToDb`, `loadBackupsFromDb`, `saveUndoHistoryToDb`, `loadUndoHistoryFromDb`) — no longer constrained by the ~5MB localStorage quota that previously caused silent data loss.
+- `createAutoBackup(trigger, description)` is now `async` and atomic:
+  - Exports current state via `exportData()`.
+  - Builds a backup record and trims to the latest 10 (`MAX_AUTO_BACKUPS`).
+  - Persists to IndexedDB via `saveBackupsToDb` AND to localStorage (legacy compatibility / quick reads).
+  - On failure: **throws** with the message `"PricePilot could not create a safety backup. The requested change has not been applied."` so callers MUST abort destructive operations.
+- `restoreBackup(dataString)` is now `async` and atomic:
+  - Creates a safety backup first; aborts if backup creation fails.
+  - Calls `atomicRestoreBackup` which clears products, businessSettings, pricingRules, scenarios in a single Dexie transaction.
+  - Also writes to localStorage for legacy compatibility.
+  - Re-initializes the store from IndexedDB.
+- `resetApplication()` is now `async`:
+  - Creates a safety backup first; aborts (rethrows) if backup creation fails.
+  - Calls `atomicResetAll` which clears every table except `metadata` in a single transaction.
+  - Falls back to `resetAllStorage` (localStorage) if IndexedDB fails.
+- `pushUndoAction` and `undoLastAction` persist to IndexedDB best-effort (failures are logged but don't block the undo in memory).
+- Undo action types supported: `price-approve`, `price-apply`, `product-edit`, `product-delete`, `bulk-approve`, `import`, `bulk-apply`, `duplicate-update` (the latter two reuse the existing patterns).
+- Updated `import-flow.tsx` and `settings-page.tsx` to `await` the now-async `restoreBackup` and `createAutoBackup` calls. Pre-restore backups are fired-and-forget with `.catch()` logging because the actual `restoreBackup` will abort separately if its own internal backup fails.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run build` — PASS
+
+**Commit**: `fix: make backups and undo reliable`

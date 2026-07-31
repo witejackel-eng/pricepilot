@@ -101,9 +101,10 @@ export function SettingsPage() {
     }
   };
 
-  const handleRestoreBackup = (backup: AutoBackup) => {
-    createAutoBackup('manual', `Before restoring backup from ${new Date(backup.timestamp).toLocaleDateString()}`);
-    const success = restoreBackup(backup.dataString);
+  const handleRestoreBackup = async (backup: AutoBackup) => {
+    createAutoBackup('manual', `Before restoring backup from ${new Date(backup.timestamp).toLocaleDateString()}`)
+      .catch((err) => console.warn('[PricePilot] Pre-restore backup failed.', err));
+    const success = await restoreBackup(backup.dataString);
     if (success) {
       toast.success('Backup restored', { description: backup.description });
     } else {
@@ -397,10 +398,11 @@ export function SettingsPage() {
                   const file = e.target.files?.[0];
                   if (file) {
                     const reader = new FileReader();
-                    reader.onload = (ev) => {
+                    reader.onload = async (ev) => {
                       const text = ev.target?.result as string;
-                      createAutoBackup('manual', 'Before file restore');
-                      const success = restoreBackup(text);
+                      createAutoBackup('manual', 'Before file restore')
+                        .catch((err) => console.warn('[PricePilot] Pre-restore backup failed.', err));
+                      const success = await restoreBackup(text);
                       if (success) {
                         toast.success('Backup restored', { description: 'Your data has been restored' });
                       } else {
