@@ -295,3 +295,33 @@ Each phase records the actual command output below.
 **Commit**: `security: replace vulnerable spreadsheet parser`
 
 ---
+
+## Phase 14 — security: prevent spreadsheet formula injection
+
+- Added three exports to `src/lib/pricepilot/spreadsheet-adapter.ts`:
+  - `sanitizeSpreadsheetCell(value: unknown): string | number` — prefixes any string beginning with `=`, `+`, `-`, `@`, `\t`, or `\r` with a single apostrophe (`'`) so spreadsheet apps treat it as literal text. Passes finite numbers through unchanged. Converts booleans to `'TRUE'`/`'FALSE'`. Converts `null`/`undefined` to `''`. Handles ExcelJS cell objects (`{ text: string }`). Idempotent — strings already starting with `'` are left alone.
+  - `sanitizeSpreadsheetRow(row)` — sanitizes every value in a row object, returns a new object.
+  - `sanitizeSpreadsheetRows(rows)` — sanitizes every row in an array.
+- Wired sanitization into every export path:
+  - `excel.ts → exportToExcel` — main data sheet, cost analysis sheet, competitor analysis sheet, and summary sheet all run through `sanitizeSpreadsheetRows` before being added to the workbook.
+  - `excel.ts → exportToCSV` — every cell value runs through `sanitizeSpreadsheetCell` before CSV escaping.
+  - `export-page.tsx → handleExport` — Products, Summary, and Products Requiring Review sheets all sanitized.
+  - `export-page.tsx → handleOwnerExport` — Updated Prices, Products Needing Attention, Summary, and Export Information sheets all sanitized.
+- Created `src/lib/pricepilot/__tests__/spreadsheet-sanitization.test.ts` (26 tests):
+  - Coverage of every formula prefix (`=`, `+`, `-`, `@`, `\t`, `\r`).
+  - Whitespace-before-prefix cases.
+  - Idempotency — strings already starting with `'` are not double-prefixed.
+  - Number/boolean/null/undefined handling.
+  - Object-with-text-property handling (ExcelJS cell shape).
+  - Non-mutation of input.
+  - Real-world attack payloads from the spec: `=HYPERLINK("malicious")`, `+SUM(1,1)`, `-10+20`, `@SUM(A1:A2)`.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (0 errors, 0 warnings)
+- `bun run test` — PASS (141 tests, ~7.3s — 26 new tests added)
+- `bun run build` — PASS
+
+**Commit**: `security: prevent spreadsheet formula injection`
+
+---

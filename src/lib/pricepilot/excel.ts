@@ -28,6 +28,9 @@ import { parseNumericInput } from './formatting';
 import {
   parseSpreadsheet,
   createSpreadsheet,
+  sanitizeSpreadsheetCell,
+  sanitizeSpreadsheetRow,
+  sanitizeSpreadsheetRows,
   type WorkbookBuilder,
 } from './spreadsheet-adapter';
 
@@ -804,14 +807,18 @@ export async function exportToExcel(
   // Determine columns based on preset
   const columns = getExportColumns(preset, config?.columns);
 
-  // Build main data sheet
+  // Build main data sheet — Phase 14: sanitize every cell to prevent
+  // spreadsheet formula injection. Product names, SKUs, categories,
+  // brands, notes etc. are all user-controlled and could otherwise
+  // start with `=`, `+`, `-`, `@` and execute formulas when the
+  // exported file is opened.
   const mainData = products.map(product => {
     const row: Record<string, string | number> = {};
     for (const col of columns) {
       const value = getExportValue(product, col, settings);
       row[col.label] = value;
     }
-    return row;
+    return sanitizeSpreadsheetRow(row);
   });
 
   const builder = createSpreadsheet();
@@ -819,15 +826,15 @@ export async function exportToExcel(
 
   // Add additional sheets based on preset
   if (preset === 'full' || preset === 'cost-analysis') {
-    builder.addSheet('Cost Analysis', buildCostAnalysisRows(products, settings));
+    builder.addSheet('Cost Analysis', sanitizeSpreadsheetRows(buildCostAnalysisRows(products, settings)));
   }
 
   if (preset === 'full' || preset === 'competitor') {
-    builder.addSheet('Competitor Analysis', buildCompetitorRows(products, settings));
+    builder.addSheet('Competitor Analysis', sanitizeSpreadsheetRows(buildCompetitorRows(products, settings)));
   }
 
   if (preset === 'full') {
-    builder.addSheet('Summary', buildSummaryRows(products, settings));
+    builder.addSheet('Summary', sanitizeSpreadsheetRows(buildSummaryRows(products, settings)));
   }
 
   const buffer = await builder.writeBuffer();
@@ -850,15 +857,20 @@ export function exportToCSV(
   // Header row
   const headerLine = columns.map(col => `"${col.label}"`).join(',');
 
-  // Data rows
+  // Data rows — Phase 14: sanitize every cell to prevent spreadsheet
+  // formula injection. CSV cells beginning with `=`, `+`, `-`, `@`
+  // would execute as formulas when the CSV is opened in Excel.
   const dataLines = products.map(product => {
     return columns.map(col => {
       const value = getExportValue(product, col, null); // No settings for simple CSV
+      // Sanitize for formula injection FIRST, then escape for CSV.
+      const sanitized = sanitizeSpreadsheetCell(value);
+      const str = String(sanitized);
       // Escape values that contain commas or quotes
-      if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
-        return `"${value.replace(/"/g, '""')}"`;
+      if (str.includes(',') || str.includes('"')) {
+        return `"${str.replace(/"/g, '""')}"`;
       }
-      return String(value);
+      return str;
     }).join(',');
   });
 

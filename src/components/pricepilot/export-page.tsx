@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { ExportPreset } from '@/lib/pricepilot/types';
-import { createSpreadsheet, downloadSpreadsheet } from '@/lib/pricepilot/spreadsheet-adapter';
+import { createSpreadsheet, downloadSpreadsheet, sanitizeSpreadsheetRows } from '@/lib/pricepilot/spreadsheet-adapter';
 import { Download, FileSpreadsheet, FileText, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
@@ -187,8 +187,9 @@ export function ExportPage() {
         URL.revokeObjectURL(url);
       } else {
         // XLSX export via the spreadsheet adapter (ExcelJS).
+        // Phase 14: sanitize every row to prevent formula injection.
         const builder = createSpreadsheet();
-        builder.addSheet('Products', rows);
+        builder.addSheet('Products', sanitizeSpreadsheetRows(rows));
 
         // Summary sheet
         const summaryData: Record<string, string | number>[] = [
@@ -201,7 +202,7 @@ export function ExportPage() {
           { Metric: 'Export Date', Value: new Date().toISOString() },
           { Metric: 'Currency', Value: cc },
         ];
-        builder.addSheet('Summary', summaryData);
+        builder.addSheet('Summary', sanitizeSpreadsheetRows(summaryData));
 
         // Products requiring review sheet
         const reviewProducts = exportProducts.filter(p => p.calculatedPricingStatus === 'needs-review' || p.calculatedPricingStatus === 'loss-making');
@@ -215,7 +216,7 @@ export function ExportPage() {
             'Margin (%)': p.calculatedMarginPercent,
             'Profit': p.calculatedProfitPerUnit,
           }));
-          builder.addSheet('Products Requiring Review', reviewRows);
+          builder.addSheet('Products Requiring Review', sanitizeSpreadsheetRows(reviewRows));
         }
 
         const buffer = await builder.writeBuffer();
@@ -271,7 +272,7 @@ export function ExportPage() {
         'Approval Date': p.approvedAt ? new Date(p.approvedAt).toLocaleDateString() : '',
         'Warning': p.calculatedProfitPerUnit < 0 ? 'Loss-making' : p.calculatedMarginPercent < businessSettings.defaultMinimumMarginPercent ? 'Low margin' : '',
       }));
-      builder.addSheet('Updated Prices', updatedPricesRows);
+      builder.addSheet('Updated Prices', sanitizeSpreadsheetRows(updatedPricesRows));
 
       // Sheet 2: Products Needing Attention
       const attentionProducts = products.filter(p =>
@@ -291,7 +292,7 @@ export function ExportPage() {
         'Margin (%)': p.calculatedMarginPercent,
         'Confidence': p.recommendedPrices.confidence || '',
       }));
-      builder.addSheet('Products Needing Attention', attentionRows);
+      builder.addSheet('Products Needing Attention', sanitizeSpreadsheetRows(attentionRows));
 
       // Sheet 3: Summary
       const summaryData: Record<string, string | number>[] = [
@@ -304,7 +305,7 @@ export function ExportPage() {
         { Metric: 'Currency', Value: cc },
         { Metric: 'Export Date', Value: new Date().toISOString() },
       ];
-      builder.addSheet('Summary', summaryData);
+      builder.addSheet('Summary', sanitizeSpreadsheetRows(summaryData));
 
       // Sheet 4: Export Information
       const exportInfo: Record<string, string | number>[] = [
@@ -320,7 +321,7 @@ export function ExportPage() {
         { Field: 'Target Margin (%)', Value: businessSettings.defaultTargetMarginPercent },
         { Field: 'Minimum Margin (%)', Value: businessSettings.defaultMinimumMarginPercent },
       ];
-      builder.addSheet('Export Information', exportInfo);
+      builder.addSheet('Export Information', sanitizeSpreadsheetRows(exportInfo));
 
       const buffer = await builder.writeBuffer();
       downloadSpreadsheet(buffer, `pricepilot-prices-${new Date().toISOString().slice(0, 10)}.xlsx`);

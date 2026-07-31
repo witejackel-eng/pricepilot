@@ -384,3 +384,90 @@ function splitCsvLine(line: string, delimiter: string): string[] {
   result.push(current);
   return result;
 }
+
+// ============================================================
+// Phase 14 — Spreadsheet Formula Injection Prevention
+// ============================================================
+
+/**
+ * Characters that, when they appear at the start of a spreadsheet
+ * cell value, cause Excel / Google Sheets / LibreOffice Calc to
+ * interpret the cell as a FORMULA rather than as plain text.
+ *
+ * Attackers who can control a cell value can use this to execute
+ * arbitrary formulas (e.g. `=HYPERLINK("malicious")`,
+ * `+SUM(1,1)`, `@SUM(A1:A2)`). When the spreadsheet is later
+ * opened by the owner, the formula executes.
+ *
+ * The defence is to prefix any such string with a single apostrophe
+ * (`'`), which spreadsheet apps treat as a literal-cell marker.
+ */
+const FORMULA_INJECTION_PREFIXES = new Set(['=', '+', '-', '@', '\t', '\r']);
+
+/**
+ * Sanitize a single spreadsheet cell value to prevent formula
+ * injection.
+ *
+ * - Strings beginning with `=`, `+`, `-`, `@`, `\t`, or `\r` are
+ *   prefixed with a single apostrophe (`'`) so the spreadsheet app
+ *   treats them as literal text.
+ * - Strings that contain a leading apostrophe already are left
+ *   unchanged (idempotent).
+ * - Numbers, booleans, null, and undefined are returned as-is.
+ *
+ * Returns the sanitized value as `string | number`.
+ */
+export function sanitizeSpreadsheetCell(value: unknown): string | number {
+  // Numbers and booleans cannot start a formula — pass through.
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
+  if (value == null) return '';
+
+  // Convert anything else to string.
+  let str: string;
+  if (typeof value === 'string') {
+    str = value;
+  } else if (typeof value === 'object' && value !== null && 'text' in value) {
+    str = String((value as { text: unknown }).text ?? '');
+  } else {
+    str = String(value);
+  }
+
+  // Idempotent: if the string already starts with a leading apostrophe
+  // (defence already applied), leave it alone.
+  if (str.startsWith("'")) return str;
+
+  // Check the first non-whitespace character.
+  const trimmedStart = str.replace(/^[\s]+/, '');
+  if (trimmedStart.length > 0 && FORMULA_INJECTION_PREFIXES.has(trimmedStart[0])) {
+    // Prefix with apostrophe. The spreadsheet app will display the
+    // string without the apostrophe but will NOT evaluate it as a
+    // formula.
+    return `'${str}`;
+  }
+
+  return str;
+}
+
+/**
+ * Sanitize every string value in a row object (used before writing
+ * user-controlled data to a spreadsheet).
+ *
+ * Returns a new object — does not mutate the input.
+ */
+export function sanitizeSpreadsheetRow(row: Record<string, unknown>): Record<string, string | number> {
+  const sanitized: Record<string, string | number> = {};
+  for (const [key, value] of Object.entries(row)) {
+    sanitized[key] = sanitizeSpreadsheetCell(value);
+  }
+  return sanitized;
+}
+
+/**
+ * Sanitize every string value in an array of row objects.
+ *
+ * Returns a new array — does not mutate the input.
+ */
+export function sanitizeSpreadsheetRows(rows: Array<Record<string, unknown>>): Array<Record<string, string | number>> {
+  return rows.map(sanitizeSpreadsheetRow);
+}
