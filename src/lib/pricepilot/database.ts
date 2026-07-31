@@ -205,6 +205,20 @@ export async function atomicBulkUpdateProducts(
 }
 
 /**
+ * Atomically delete a list of products by ID. Either all deletions
+ * apply or none do.
+ */
+export async function atomicBulkDeleteProducts(
+  productIds: string[]
+): Promise<number> {
+  const db = getDb();
+  return db.transaction('rw', db.products, async () => {
+    await db.products.bulkDelete(productIds);
+    return productIds.length;
+  });
+}
+
+/**
  * Atomically apply approved prices to a list of products. Either all
  * apply or none do.
  */

@@ -62,6 +62,7 @@ import {
   atomicResetAll,
   atomicRestoreBackup,
   atomicBulkUpdateProducts,
+  atomicBulkDeleteProducts,
   atomicApplyApprovedPrices,
   atomicUpdateSettingsAndProducts,
   atomicUpdateRulesAndProducts,
@@ -96,8 +97,9 @@ import {
   downloadBackupFile,
   downloadRecoveryPayload,
   PricePilotBackup,
-  parseAndValidateBackup,
+  parseValidateAndVerifyBackup,
   buildRestorePreview,
+  asyncBuildRestorePreview,
   RestorePreview,
 } from '@/lib/pricepilot/backup-service';
 import {
@@ -284,7 +286,7 @@ interface PricePilotState {
   createAutoBackup: (trigger: AutoBackup['trigger'], description: string) => Promise<void>;
   downloadBackup: () => void;
   restoreBackup: (dataString: string) => Promise<OperationResult>;
-  previewBackupRestore: (dataString: string) => RestorePreview;
+  previewBackupRestore: (dataString: string) => Promise<RestorePreview>;
   getBackupList: () => AutoBackup[];
 
   // Data management
@@ -297,11 +299,29 @@ const MAX_UNDO_HISTORY = 20;
 const MAX_AUTO_BACKUPS = 10;
 
 /**
- * Best-effort: persist a list of products to IndexedDB and update the
- * lastSaved timestamp. Logs but does NOT throw on failure so that
- * fire-and-forget call sites (e.g. bulk operations) don't crash.
+ * Persist a SINGLE product to IndexedDB and update the lastSaved
+ * timestamp. Throws on failure so callers can decide whether to
+ * update Zustand state.
+ */
+async function persistProduct(product: Product): Promise<void> {
+  try {
+    await saveProductToDb(product);
+    const ts = new Date().toISOString();
+    await saveLastSavedTimestampToDb(ts);
+  } catch (err) {
+    console.error('[PricePilot] Could not persist product to IndexedDB.', err);
+    throw err;
+  }
+}
+
+/**
+ * Persist a list of products to IndexedDB using a FULL TABLE rewrite
+ * and update the lastSaved timestamp. Throws on failure so callers
+ * can decide whether to update Zustand state.
  *
- * Phase 2 will replace this with proper Promise<OperationResult>.
+ * RESERVED for operations that genuinely replace the full catalogue
+ * (initialisation, sample data, full recalculation, etc.). Single-product
+ * mutations should use `persistProduct` or `removeProductFromDb` instead.
  */
 async function persistProducts(products: Product[]): Promise<void> {
   try {
@@ -310,7 +330,6 @@ async function persistProducts(products: Product[]): Promise<void> {
     await saveLastSavedTimestampToDb(ts);
   } catch (err) {
     console.error('[PricePilot] Could not persist products to IndexedDB.', err);
-    // Re-throw so callers that need to know can catch.
     throw err;
   }
 }
@@ -569,9 +588,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   addProduct: async (product) => {
     const { businessSettings, pricingRules, products } = get();
     const calculated = recalcProduct(product, businessSettings, pricingRules);
-    const newProducts = [...products, calculated];
     try {
-      await persistProducts(newProducts);
+      await persistProduct(calculated);
+      const newProducts = [...products, calculated];
       set({ products: newProducts });
       return ok(undefined, 'Product added.');
     } catch (err) {
@@ -602,8 +621,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
+    const updatedProduct = updated.find(p => p.id === id)!;
     try {
-      await persistProducts(updated);
+      await persistProduct(updatedProduct);
       set({ products: updated });
       return ok(undefined, 'Product saved.');
     } catch (err) {
@@ -627,7 +647,8 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     });
     const newProducts = products.filter(p => p.id !== id);
     try {
-      await persistProducts(newProducts);
+      await removeProductFromDb(id);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
       set({ products: newProducts, selectedProducts: [] });
       return ok(undefined, 'Product deleted.');
     } catch (err) {
@@ -640,7 +661,8 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const { selectedProducts, products } = get();
     const newProducts = products.filter(p => !selectedProducts.includes(p.id));
     try {
-      await persistProducts(newProducts);
+      await atomicBulkDeleteProducts(selectedProducts);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
       set({ products: newProducts, selectedProducts: [] });
       return ok(undefined, `${selectedProducts.length} product(s) deleted.`);
     } catch (err) {
@@ -658,8 +680,11 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
+    // Only persist the changed products.
+    const changedProducts = updated.filter(p => ids.includes(p.id));
     try {
-      await persistProducts(updated);
+      await atomicBulkUpdateProducts(changedProducts);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
       set({ products: updated });
       return ok(undefined, `${ids.length} product(s) updated.`);
     } catch (err) {
@@ -698,9 +723,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       updatedAt: new Date().toISOString(),
     };
     const calculated = recalcProduct(newProduct, businessSettings, pricingRules);
-    const newProducts = [...products, calculated];
     try {
-      await persistProducts(newProducts);
+      await persistProduct(calculated);
+      const newProducts = [...products, calculated];
       set({ products: newProducts });
       return ok(undefined, 'Product duplicated.');
     } catch (err) {
@@ -738,8 +763,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
+    const updatedProduct = updated.find(p => p.id === productId)!;
     try {
-      await persistProducts(updated);
+      await persistProduct(updatedProduct);
       set({ products: updated });
       return ok(undefined, 'Price approved.');
     } catch (err) {
@@ -775,8 +801,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
+    const updatedProduct = updated.find(p => p.id === productId)!;
     try {
-      await persistProducts(updated);
+      await persistProduct(updatedProduct);
       set({ products: updated });
       return ok(undefined, 'Price applied.');
     } catch (err) {
@@ -794,8 +821,11 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
+    // Only persist the changed products.
+    const changedProducts = updated.filter(p => productIds.includes(p.id));
     try {
-      await persistProducts(updated);
+      await atomicBulkUpdateProducts(changedProducts);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
       set({ products: updated });
       return ok(undefined, `${productIds.length} product(s) updated.`);
     } catch (err) {
@@ -828,8 +858,11 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
+    // Only persist the changed products.
+    const changedProducts = updated.filter(p => productIds.includes(p.id));
     try {
-      await persistProducts(updated);
+      await atomicBulkUpdateProducts(changedProducts);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
       set({ products: updated });
       return ok(undefined, `${productIds.length} price(s) approved.`);
     } catch (err) {
@@ -951,7 +984,10 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     });
     const allProducts = [...products, ...calculated];
     try {
-      await persistProducts(allProducts);
+      // Use atomicImportProducts to write only the new products without
+      // clearing the existing table.
+      await atomicImportProducts(calculated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
       set({ products: allProducts, currentView: 'products' });
       get().resetImportState();
       return ok(undefined, `Imported ${calculated.length} product(s).`);
@@ -1248,35 +1284,78 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         }
         return p;
       });
+      // Targeted: persist only the reverted product.
+      const revertedProduct = newProducts.find(p => p.id === lastAction.productId);
+      if (revertedProduct) {
+        Promise.all([
+          saveProductToDb(revertedProduct),
+          saveUndoHistoryToDb(remainingHistory),
+          saveLastSavedTimestampToDb(new Date().toISOString()),
+        ])
+          .then(() => {
+            set({ products: newProducts, undoHistory: remainingHistory });
+          })
+          .catch((err) => {
+            console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
+          });
+      }
+      return;
     } else if (lastAction.type === 'product-delete') {
       const previousProduct = lastAction.previousState as Product;
       const recalculated = recalcProduct(previousProduct, businessSettings, pricingRules);
       newProducts = [...products, recalculated];
+      // Targeted: persist only the restored product.
+      Promise.all([
+        saveProductToDb(recalculated),
+        saveUndoHistoryToDb(remainingHistory),
+        saveLastSavedTimestampToDb(new Date().toISOString()),
+      ])
+        .then(() => {
+          set({ products: newProducts, undoHistory: remainingHistory });
+        })
+        .catch((err) => {
+          console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
+        });
+      return;
     } else if (lastAction.type === 'bulk-approve') {
       const previousProducts = lastAction.previousState as Product[];
+      const previousIds = new Set(previousProducts.map(p => p.id));
       newProducts = products.map(p => {
         const prev = previousProducts.find(pp => pp.id === p.id);
         if (prev) return recalcProduct(prev, businessSettings, pricingRules);
         return p;
       });
+      // Targeted: persist only the reverted products.
+      const revertedProducts = newProducts.filter(p => previousIds.has(p.id));
+      Promise.all([
+        atomicBulkUpdateProducts(revertedProducts),
+        saveUndoHistoryToDb(remainingHistory),
+        saveLastSavedTimestampToDb(new Date().toISOString()),
+      ])
+        .then(() => {
+          set({ products: newProducts, undoHistory: remainingHistory });
+        })
+        .catch((err) => {
+          console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
+        });
+      return;
     } else if (lastAction.type === 'import') {
       const previousProducts = lastAction.previousState as Product[];
       newProducts = previousProducts.map(p => recalcProduct(p, businessSettings, pricingRules));
+      // Import undo replaces the full catalogue — use saveProductsToDb.
+      Promise.all([
+        saveProductsToDb(newProducts),
+        saveUndoHistoryToDb(remainingHistory),
+        saveLastSavedTimestampToDb(new Date().toISOString()),
+      ])
+        .then(() => {
+          set({ products: newProducts, undoHistory: remainingHistory });
+        })
+        .catch((err) => {
+          console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
+        });
+      return;
     }
-
-    // Persist to IndexedDB. Best-effort — failures are logged but do
-    // not block the undo.
-    Promise.all([
-      saveProductsToDb(newProducts),
-      saveUndoHistoryToDb(remainingHistory),
-      saveLastSavedTimestampToDb(new Date().toISOString()),
-    ])
-      .then(() => {
-        set({ products: newProducts, undoHistory: remainingHistory });
-      })
-      .catch((err) => {
-        console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
-      });
   },
 
   // Backup
@@ -1321,9 +1400,10 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   restoreBackup: async (dataString) => {
-    // Phase 6: validate the backup BEFORE creating a safety backup
-    // or touching IndexedDB. Invalid backups never reach the DB.
-    const validation = parseAndValidateBackup(dataString);
+    // Phase 6: validate the backup (including checksum verification)
+    // BEFORE creating a safety backup or touching IndexedDB.
+    // Invalid backups never reach the DB.
+    const validation = await parseValidateAndVerifyBackup(dataString);
     if (!validation.valid) {
       return invalidInputError(
         ERROR_CODES.VALIDATION_FAILED,
@@ -1381,8 +1461,8 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     }
   },
 
-  previewBackupRestore: (dataString) => {
-    return buildRestorePreview(dataString);
+  previewBackupRestore: async (dataString) => {
+    return asyncBuildRestorePreview(dataString);
   },
 
   getBackupList: () => {
