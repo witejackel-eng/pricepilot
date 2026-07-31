@@ -25,6 +25,7 @@ import {
 } from './database';
 import { isFiniteNumber } from './formatting';
 import { normalizeProduct } from './product-normalizer';
+import { z } from 'zod';
 
 // ============================================================
 // Types
@@ -352,4 +353,231 @@ export async function downloadBackupFile(): Promise<string> {
   a.click();
   URL.revokeObjectURL(url);
   return filename;
+}
+
+// ============================================================
+// Backup Validation & Restore Pipeline (Phase 6)
+// ============================================================
+
+/**
+ * Zod schema for the PricePilotBackup format. We use a permissive
+ * schema for nested records because `product-normalizer.ts` already
+ * validates products rigorously — we don't want to reject a backup
+ * just because one product has a missing optional field that the
+ * normalizer can repair.
+ */
+const backupSchema = z.object({
+  format: z.literal('pricepilot-backup'),
+  backupVersion: z.number().int().min(1).max(10),
+  schemaVersion: z.number().int().min(1).max(10),
+  appVersion: z.string().optional(),
+  createdAt: z.string().optional(),
+  businessSettings: z.record(z.string(), z.unknown()),
+  products: z.array(z.record(z.string(), z.unknown())),
+  pricingRules: z.array(z.record(z.string(), z.unknown())),
+  scenarios: z.array(z.record(z.string(), z.unknown())).optional().default([]),
+  contentHash: z.string().optional(),
+});
+
+export type BackupValidationResult =
+  | {
+      valid: true;
+      backup: PricePilotBackup;
+      /** Number of products that will need review after restore. */
+      needsReviewCount: number;
+      /** Number of products that were rejected during normalization. */
+      rejectedCount: number;
+      /** Issue strings (warnings, not blockers). */
+      issues: string[];
+    }
+  | {
+      valid: false;
+      code: 'invalid-json' | 'unknown-format' | 'missing-identity' | 'invalid-products' | 'invalid-settings' | 'unsupported-version';
+      message: string;
+      issues: string[];
+    };
+
+/**
+ * Validate and normalize a raw backup object (typically the result of
+ * `JSON.parse(uploadedFile)`).
+ *
+ * Pipeline:
+ *   1. Zod schema check (format, version, required top-level fields).
+ *   2. Reject unsupported future backup versions.
+ *   3. Run every product through `normalizeProduct` — repairs missing
+ *      fields, rejects products with no name AND no sku.
+ *   4. Validate business settings has the minimum required fields.
+ *
+ * Never writes to IndexedDB. The caller is responsible for the
+ * atomic restore transaction.
+ */
+export function validateBackup(raw: unknown): BackupValidationResult {
+  const issues: string[] = [];
+
+  // Step 1: Zod schema check.
+  const parsed = backupSchema.safeParse(raw);
+  if (!parsed.success) {
+    const zodIssues = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`);
+    // Distinguish "not a PricePilot backup at all" from "shape is wrong".
+    const formatError = parsed.error.issues.find(i => i.path.length === 1 && i.path[0] === 'format');
+    if (formatError) {
+      return {
+        valid: false,
+        code: 'unknown-format',
+        message: 'This file is not a PricePilot backup. Missing or incorrect "format" field.',
+        issues: zodIssues,
+      };
+    }
+    // Check for missing identity (products / businessSettings).
+    if (zodIssues.some(i => i.includes('businessSettings'))) {
+      return {
+        valid: false,
+        code: 'missing-identity',
+        message: 'Backup is missing business settings.',
+        issues: zodIssues,
+      };
+    }
+    if (zodIssues.some(i => i.includes('products'))) {
+      return {
+        valid: false,
+        code: 'invalid-products',
+        message: 'Backup products field is invalid.',
+        issues: zodIssues,
+      };
+    }
+    return {
+      valid: false,
+      code: 'unknown-format',
+      message: 'Backup failed schema validation.',
+      issues: zodIssues,
+    };
+  }
+
+  const data = parsed.data;
+
+  // Step 2: Reject unsupported future versions.
+  if (data.backupVersion > BACKUP_VERSION) {
+    return {
+      valid: false,
+      code: 'unsupported-version',
+      message: `Backup version ${data.backupVersion} is newer than this app supports (${BACKUP_VERSION}). Please update PricePilot and try again.`,
+      issues: [],
+    };
+  }
+
+  // Step 3: Normalize every product.
+  const validProducts: Product[] = [];
+  let needsReviewCount = 0;
+  let rejectedCount = 0;
+  for (const rawProduct of data.products) {
+    const normResult = normalizeProduct(rawProduct, { source: 'backup' });
+    if (normResult.success) {
+      validProducts.push(normResult.product);
+      if (normResult.product.lifecycleStatus === 'needs-review' ||
+          normResult.product.calculatedPricingStatus === 'missing-data') {
+        needsReviewCount++;
+      }
+    } else {
+      rejectedCount++;
+      issues.push(`Rejected product: ${normResult.issues.map(i => i.message).join('; ')}`);
+    }
+  }
+
+  // Step 4: Validate settings (use defaults for missing fields).
+  const businessSettings: BusinessSettings = {
+    ...createDefaultBusinessSettings(),
+    ...(data.businessSettings as Partial<BusinessSettings>),
+  };
+
+  const backup: PricePilotBackup = {
+    format: BACKUP_FORMAT,
+    backupVersion: BACKUP_VERSION,
+    schemaVersion: SCHEMA_VERSION,
+    appVersion: data.appVersion ?? APP_VERSION,
+    createdAt: data.createdAt ?? new Date().toISOString(),
+    businessSettings,
+    products: validProducts,
+    pricingRules: (data.pricingRules as unknown as PricingRule[]) ?? [],
+    scenarios: (data.scenarios as unknown as Scenario[]) ?? [],
+    contentHash: data.contentHash,
+  };
+
+  return {
+    valid: true,
+    backup,
+    needsReviewCount,
+    rejectedCount,
+    issues,
+  };
+}
+
+/**
+ * Convenience: parse a JSON string and validate it as a backup.
+ */
+export function parseAndValidateBackup(jsonString: string): BackupValidationResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonString);
+  } catch (err) {
+    return {
+      valid: false,
+      code: 'invalid-json',
+      message: 'This file is not valid JSON.',
+      issues: [err instanceof Error ? err.message : String(err)],
+    };
+  }
+  return validateBackup(parsed);
+}
+
+// ============================================================
+// Restore Preview (Phase 6)
+// ============================================================
+
+export interface RestorePreview {
+  valid: boolean;
+  /** ISO date string of the backup (or 'unknown'). */
+  createdAt: string;
+  /** Counts shown in the preview UI. */
+  productCount: number;
+  pricingRuleCount: number;
+  scenarioCount: number;
+  /** Products that will need review after restore. */
+  needsReviewCount: number;
+  /** Products that will be rejected during restore. */
+  rejectedCount: number;
+  /** Issue strings (warnings). */
+  issues: string[];
+  /** The validated backup (only present when valid). */
+  backup?: PricePilotBackup;
+}
+
+/**
+ * Build a restore preview from a JSON string. The UI shows this
+ * before committing the restore.
+ */
+export function buildRestorePreview(jsonString: string): RestorePreview {
+  const result = parseAndValidateBackup(jsonString);
+  if (!result.valid) {
+    return {
+      valid: false,
+      createdAt: 'unknown',
+      productCount: 0,
+      pricingRuleCount: 0,
+      scenarioCount: 0,
+      needsReviewCount: 0,
+      rejectedCount: 0,
+      issues: result.issues,
+    };
+  }
+  return {
+    valid: true,
+    createdAt: result.backup.createdAt ?? 'unknown',
+    productCount: result.backup.products.length,
+    pricingRuleCount: result.backup.pricingRules.length,
+    scenarioCount: result.backup.scenarios.length,
+    needsReviewCount: result.needsReviewCount,
+    rejectedCount: result.rejectedCount,
+    issues: result.issues,
+    backup: result.backup,
+  };
 }

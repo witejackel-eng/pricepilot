@@ -67,6 +67,7 @@ import {
   atomicRestoreScenario,
   clearProductsInDb,
   exportAllDataFromDb,
+  getDb,
   getMetadata,
   setMetadata,
 } from '@/lib/pricepilot/database';
@@ -94,6 +95,9 @@ import {
   downloadBackupFile,
   downloadRecoveryPayload,
   PricePilotBackup,
+  parseAndValidateBackup,
+  buildRestorePreview,
+  RestorePreview,
 } from '@/lib/pricepilot/backup-service';
 
 /**
@@ -266,7 +270,8 @@ interface PricePilotState {
   // Backup
   createAutoBackup: (trigger: AutoBackup['trigger'], description: string) => Promise<void>;
   downloadBackup: () => void;
-  restoreBackup: (dataString: string) => Promise<boolean>;
+  restoreBackup: (dataString: string) => Promise<OperationResult>;
+  previewBackupRestore: (dataString: string) => RestorePreview;
   getBackupList: () => AutoBackup[];
 
   // Data management
@@ -1215,34 +1220,68 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   restoreBackup: async (dataString) => {
-    // Restore is now atomic via IndexedDB transactions.
+    // Phase 6: validate the backup BEFORE creating a safety backup
+    // or touching IndexedDB. Invalid backups never reach the DB.
+    const validation = parseAndValidateBackup(dataString);
+    if (!validation.valid) {
+      return invalidInputError(
+        ERROR_CODES.VALIDATION_FAILED,
+        validation.message,
+      );
+    }
+
+    // Create a safety backup first. If backup creation fails, abort.
     try {
-      const data = JSON.parse(dataString);
-      // Create a safety backup first.
-      try {
-        await get().createAutoBackup('manual', 'Before restoring backup');
-      } catch (backupErr) {
-        // Backup failed — abort the restore.
-        console.error('[PricePilot] Restore aborted because backup creation failed.', backupErr);
-        return false;
+      await get().createAutoBackup('manual', 'Before restoring backup');
+    } catch (backupErr) {
+      console.error('[PricePilot] Restore aborted because backup creation failed.', backupErr);
+      return retryableError(
+        ERROR_CODES.BACKUP_FAILED,
+        'Could not create a safety backup. The restore was not applied.',
+      );
+    }
+
+    // Atomic restore via IndexedDB.
+    try {
+      await atomicRestoreBackup({
+        products: validation.backup.products,
+        businessSettings: validation.backup.businessSettings,
+        pricingRules: validation.backup.pricingRules,
+        scenarios: validation.backup.scenarios,
+      });
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      // Reload state from IndexedDB so the UI reflects exactly what
+      // was committed (not what we built in memory).
+      await get().initialize();
+      // Verify exact counts after restore.
+      const db = getDb();
+      const [productCount, ruleCount, scenarioCount] = await Promise.all([
+        db.products.count(),
+        db.pricingRules.count(),
+        db.scenarios.count(),
+      ]);
+      const expectedProducts = validation.backup.products.length;
+      const expectedRules = validation.backup.pricingRules.length;
+      const expectedScenarios = validation.backup.scenarios.length;
+      if (productCount !== expectedProducts || ruleCount !== expectedRules || scenarioCount !== expectedScenarios) {
+        console.error(
+          `[PricePilot] Restore verification mismatch: products ${productCount}/${expectedProducts}, rules ${ruleCount}/${expectedRules}, scenarios ${scenarioCount}/${expectedScenarios}.`
+        );
+        return retryableError(
+          ERROR_CODES.DATABASE_ERROR,
+          'Restore verification failed — counts do not match the backup. Please reload the application.',
+        );
       }
-      // Atomic restore via IndexedDB.
-      if (data.products && data.businessSettings) {
-        await atomicRestoreBackup({
-          products: data.products,
-          businessSettings: data.businessSettings,
-          pricingRules: data.pricingRules ?? [],
-          scenarios: data.scenarios ?? [],
-        });
-        await saveLastSavedTimestampToDb(new Date().toISOString());
-        await get().initialize();
-        return true;
-      }
-      return false;
+      return ok(undefined, `Restored ${expectedProducts} product(s), ${expectedRules} rule(s), ${expectedScenarios} scenario(s).`);
     } catch (err) {
       console.error('[PricePilot] Restore failed.', err);
-      return false;
+      const message = err instanceof Error ? err.message : 'Could not restore the backup.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
     }
+  },
+
+  previewBackupRestore: (dataString) => {
+    return buildRestorePreview(dataString);
   },
 
   getBackupList: () => {

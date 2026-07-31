@@ -75,7 +75,7 @@ function EstimateBadge({ channel }: { channel: string }) {
 }
 
 export function SettingsPage() {
-  const { businessSettings, updateBusinessSettings, appSettings, updateAppSettings, setApplicationMode, exportData, importData, clearAllProducts, resetApplication, products, downloadBackup, restoreBackup, createAutoBackup, autoBackups, setCurrentView } = usePricePilotStore();
+  const { businessSettings, updateBusinessSettings, appSettings, updateAppSettings, setApplicationMode, exportData, importData, clearAllProducts, resetApplication, products, downloadBackup, restoreBackup, previewBackupRestore, createAutoBackup, autoBackups, setCurrentView } = usePricePilotStore();
   const [importText, setImportText] = useState('');
   const [resetConfirm, setResetConfirm] = useState('');
   const [backupsOpen, setBackupsOpen] = useState(false);
@@ -105,11 +105,11 @@ export function SettingsPage() {
   const handleRestoreBackup = async (backup: AutoBackup) => {
     createAutoBackup('manual', `Before restoring backup from ${new Date(backup.timestamp).toLocaleDateString()}`)
       .catch((err) => console.warn('[PricePilot] Pre-restore backup failed.', err));
-    const success = await restoreBackup(backup.dataString);
-    if (success) {
+    const result = await restoreBackup(backup.dataString);
+    if (result.success) {
       toast.success('Backup restored', { description: backup.description });
     } else {
-      toast.error('Restore failed', { description: 'The backup data was invalid' });
+      toast.error('Restore failed', { description: result.message });
     }
   };
 
@@ -401,13 +401,20 @@ export function SettingsPage() {
                     const reader = new FileReader();
                     reader.onload = async (ev) => {
                       const text = ev.target?.result as string;
+                      // Phase 6: show a preview BEFORE restoring so the
+                      // user can confirm counts and see any issues.
+                      const preview = previewBackupRestore(text);
+                      if (!preview.valid) {
+                        toast.error('Restore failed', { description: preview.issues[0] ?? 'The backup file is not valid.' });
+                        return;
+                      }
                       createAutoBackup('manual', 'Before file restore')
                         .catch((err) => console.warn('[PricePilot] Pre-restore backup failed.', err));
-                      const success = await restoreBackup(text);
-                      if (success) {
-                        toast.success('Backup restored', { description: 'Your data has been restored' });
+                      const result = await restoreBackup(text);
+                      if (result.success) {
+                        toast.success('Backup restored', { description: `${preview.productCount} product(s), ${preview.pricingRuleCount} rule(s) restored.` });
                       } else {
-                        toast.error('Restore failed', { description: 'The backup file was invalid' });
+                        toast.error('Restore failed', { description: result.message });
                       }
                     };
                     reader.readAsText(file);

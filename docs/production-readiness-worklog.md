@@ -234,3 +234,35 @@ Each phase records the actual command output below.
 **Commit**: `fix: build backups from canonical application state`
 
 ---
+
+## Phase 6 — fix: validate and normalize backup restoration
+
+- Added to `src/lib/pricepilot/backup-service.ts`:
+  - Zod schema for the `PricePilotBackup` format — `format` literal, version bounds, required top-level fields, permissive nested records (the normalizer does the rigorous product validation).
+  - `BackupValidationResult` discriminated union: success with validated `backup` + `needsReviewCount` + `rejectedCount` + `issues`, OR failure with `code` (`invalid-json` | `unknown-format` | `missing-identity` | `invalid-products` | `invalid-settings` | `unsupported-version`).
+  - `validateBackup(raw)` — runs the Zod schema, rejects unsupported future backup versions, normalizes every product, validates settings, returns the result.
+  - `parseAndValidateBackup(jsonString)` — JSON.parse + validateBackup, with a structured `invalid-json` failure path.
+  - `RestorePreview` interface — the structured preview shown to the user before they confirm a restore.
+  - `buildRestorePreview(jsonString)` — returns counts (products, rules, scenarios), needs-review count, rejected count, and issue list.
+- Updated the store:
+  - `restoreBackup` now returns `Promise<OperationResult>` instead of `Promise<boolean>`. Pipeline:
+    1. `parseAndValidateBackup` — invalid backups never reach IndexedDB.
+    2. `createAutoBackup('manual', ...)` — safety backup first; abort if it fails.
+    3. `atomicRestoreBackup` — atomic IndexedDB transaction.
+    4. `saveLastSavedTimestampToDb`.
+    5. `get().initialize()` — reload state from IndexedDB so the UI matches the committed transaction.
+    6. Verify exact counts (`db.products.count()` etc.) against expected counts from the backup. If mismatch, return a retryable error.
+  - New action `previewBackupRestore(dataString)` — synchronous, returns `RestorePreview` so the UI can show counts before the user commits.
+- Updated `settings-page.tsx`:
+  - `handleRestoreBackup` (auto-backup list) — awaits `restoreBackup`, shows success/error toast with the structured message.
+  - File upload restore handler — now calls `previewBackupRestore` first to validate; if invalid, shows the first issue as the toast description and aborts. If valid, proceeds with restore and shows counts in the success toast.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (0 errors, 0 warnings)
+- `bun run test` — PASS (115 tests, ~6.3s)
+- `bun run build` — PASS
+
+**Commit**: `fix: validate and normalize backup restoration`
+
+---
