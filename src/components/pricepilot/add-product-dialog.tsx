@@ -17,6 +17,7 @@ import {
   Product,
   RecommendationMode,
   LifecycleStatus,
+  PricingStatus,
   TaxTreatment,
   SalesChannel,
   InputTaxCreditRecoverable,
@@ -69,15 +70,43 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
     setForm(prev => ({ ...prev, [key]: value }));
   }, []);
 
-  // Validation
+  // Validation — Phase 11: name OR SKU is sufficient. Purchase cost
+  // is optional — the product can be saved as "Needs Information"
+  // and a cost can be added later. A trusted recommendation cannot
+  // be generated without a cost, but that is a warning, not a
+  // blocker.
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
-    if (!form.name?.trim()) errors.push('Product name is required');
-    if (!form.sku?.trim()) errors.push('SKU is required');
-    if (!form.name?.trim() && !form.sku?.trim()) return errors;
-    if (form.purchaseCost === undefined || form.purchaseCost <= 0) errors.push('Purchase cost is required for trusted pricing');
+    if (!form.name?.trim() && !form.sku?.trim()) {
+      errors.push('Product name or SKU is required');
+    }
+    // Numeric field validation (only if a value was entered).
+    if (form.purchaseCost !== undefined && form.purchaseCost !== null && form.purchaseCost < 0) {
+      errors.push('Purchase cost cannot be negative');
+    }
+    if (form.shippingCost !== undefined && form.shippingCost !== null && form.shippingCost < 0) {
+      errors.push('Shipping cost cannot be negative');
+    }
+    if (form.taxRatePercent !== undefined && form.taxRatePercent !== null && (form.taxRatePercent < 0 || form.taxRatePercent > 100)) {
+      errors.push('Tax rate must be between 0 and 100');
+    }
+    if (form.marketplaceFeePercent !== undefined && form.marketplaceFeePercent !== null && (form.marketplaceFeePercent < 0 || form.marketplaceFeePercent > 100)) {
+      errors.push('Marketplace fee must be between 0 and 100');
+    }
+    if (form.paymentFeePercent !== undefined && form.paymentFeePercent !== null && (form.paymentFeePercent < 0 || form.paymentFeePercent > 100)) {
+      errors.push('Payment fee must be between 0 and 100');
+    }
     return errors;
   }, [form]);
+
+  // Phase 11: warning shown when purchase cost is missing. The product
+  // can still be saved, but no trusted recommendation is available.
+  const missingCostWarning = useMemo(() => {
+    if (form.purchaseCost === undefined || form.purchaseCost === null || form.purchaseCost <= 0) {
+      return 'Product will be saved under Needs Information. Add a purchase cost before approving a selling price.';
+    }
+    return null;
+  }, [form.purchaseCost]);
 
   // Live pricing preview - use canonical engine
   const previewOutcome = useMemo(() => {
@@ -148,16 +177,25 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
     setIsAdvanced(false);
   }, [businessSettings]);
 
-  // Save handler
+  // Save handler — Phase 11: sets lifecycleStatus to 'needs-review'
+  // when purchase cost is missing so the product is flagged for
+  // follow-up. The product is still saved.
   const handleSave = useCallback(async (keepOpen: boolean = false) => {
     if (validationErrors.length > 0) return;
+    const hasCost = form.purchaseCost !== undefined && form.purchaseCost !== null && form.purchaseCost > 0;
     const product: Product = {
       ...(form as Product),
       competitorPrices: competitors,
+      // Phase 11: products without a cost are saved as needs-review.
+      lifecycleStatus: hasCost ? (form.lifecycleStatus ?? 'draft') : ('needs-review' as LifecycleStatus),
+      calculatedPricingStatus: hasCost ? (form.calculatedPricingStatus ?? 'needs-review') : ('missing-data' as PricingStatus),
     };
     const result = await addProduct(product);
     if (result.success) {
-      toast.success('Product added', { description: `${product.name} has been added to your product list` });
+      const description = hasCost
+        ? `${product.name || product.sku} has been added to your product list`
+        : `${product.name || product.sku} saved under Needs Information. Add a purchase cost before approving a selling price.`;
+      toast.success('Product added', { description });
       if (!keepOpen) {
         onOpenChange(false);
       }

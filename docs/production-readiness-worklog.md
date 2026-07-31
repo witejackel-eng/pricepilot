@@ -384,3 +384,25 @@ Each phase records the actual command output below.
 **Commit**: `fix: invalidate stale price approvals`
 
 ---
+
+## Phase 11 — fix: correct add product validation
+
+- Updated `src/components/pricepilot/add-product-dialog.tsx` validation:
+  - **Identity**: `name OR sku` is now sufficient. Previously both were required — now only one is. Error message updated to `Product name or SKU is required`.
+  - **Purchase cost**: NO LONGER REQUIRED. The product can be saved without a cost. A new `missingCostWarning` is shown instead, explaining: `Product will be saved under Needs Information. Add a purchase cost before approving a selling price.`
+  - **Numeric field validation**: added range checks for entered values (purchaseCost ≥ 0, shippingCost ≥ 0, taxRatePercent 0–100, marketplaceFeePercent 0–100, paymentFeePercent 0–100). These only fire when a value was actually entered — empty fields are not flagged.
+- Updated the save handler:
+  - When purchase cost is missing, the product is saved with `lifecycleStatus: 'needs-review'` and `calculatedPricingStatus: 'missing-data'` so it shows up in the "Needs Information" filter.
+  - When purchase cost is present, the product is saved with the form's selected `lifecycleStatus` (default `'draft'`) and `calculatedPricingStatus` (default `'needs-review'`).
+  - Success toast message changes based on whether cost was provided: full message for products with cost, "saved under Needs Information" message for products without.
+- The live pricing preview (`previewOutcome`) already returned `null` when cost was missing — that behaviour is preserved. Phase 11 just makes the save path consistent with the preview.
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (0 errors, 0 warnings)
+- `bun run test` — PASS (156 tests, ~8.0s)
+- `bun run build` — PASS
+
+**Commit**: `fix: correct add product validation`
+
+---
