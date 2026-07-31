@@ -26,6 +26,7 @@ import {
   createDefaultBusinessSettings,
   createDefaultAppSettings,
   createDefaultImportState,
+  ImportCommitResult,
 } from '@/lib/pricepilot/types';
 import { calculateAllRecommendations, mapRecommendationsToProduct } from '@/lib/pricepilot/recommendations';
 import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
@@ -249,6 +250,11 @@ interface PricePilotState {
   // Import
   updateImportState: (updates: Partial<ImportState>) => void;
   importProducts: (products: Product[]) => Promise<OperationResult>;
+  importProductsWithBatch: (
+    productsToAdd: Product[],
+    productsToUpdate: Product[],
+    batchMetadata: { fileName: string; sheetName?: string; totalRows: number }
+  ) => Promise<OperationResult & { commitResult?: ImportCommitResult }>;
   resetImportState: () => void;
 
   // Pricing rules
@@ -957,6 +963,82 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   resetImportState: () => {
     set({ importState: createDefaultImportState() });
+  },
+
+  importProductsWithBatch: async (productsToAdd, productsToUpdate, batchMetadata) => {
+    const { products, pricingRules, businessSettings } = get();
+
+    // Step 1: Create a safety backup. If backup creation fails, abort.
+    try {
+      await get().createAutoBackup('import', `Before importing ${productsToAdd.length + productsToUpdate.length} products`);
+    } catch (err) {
+      console.error('[PricePilot] Backup creation failed. Import aborted.', err);
+      return retryableError(
+        ERROR_CODES.BACKUP_FAILED,
+        'The import was not applied. PricePilot could not create a safety backup. Your catalogue is unchanged.'
+      );
+    }
+
+    // Step 2: Verify all row actions — recalculate every proposed product safely.
+    const addResult = safelyRecalculateProducts(productsToAdd, businessSettings, pricingRules);
+    const updateResult = safelyRecalculateProducts(productsToUpdate, businessSettings, pricingRules);
+    const safeToAdd = [...addResult.successfulProducts, ...addResult.failedProducts];
+    const safeToUpdate = [...updateResult.successfulProducts, ...updateResult.failedProducts];
+
+    // Step 3: Build the exact final product set.
+    // Products to update replace existing products by id.
+    const updatedMap = new Map(safeToUpdate.map(p => [p.id, p]));
+    const existingProducts = products.map(p => updatedMap.get(p.id) ?? p);
+    const allProducts = [...existingProducts, ...safeToAdd];
+
+    // Step 4: Build batch metadata.
+    const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const batchRecord = {
+      id: batchId,
+      fileName: batchMetadata.fileName,
+      sheetName: batchMetadata.sheetName,
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      totalRows: batchMetadata.totalRows,
+      validCount: safeToAdd.length,
+      needsReviewCount: safeToAdd.filter(p => p.lifecycleStatus === 'needs-review' || p.calculatedPricingStatus === 'missing-data').length,
+      duplicateCount: safeToUpdate.length,
+      rejectedCount: 0,
+    };
+
+    // Step 5: Commit all products and metadata in one Dexie transaction.
+    try {
+      await atomicImportProducts(allProducts, batchRecord);
+    } catch (err) {
+      console.error('[PricePilot] Transactional import failed. Catalogue unchanged.', err);
+      return retryableError(
+        ERROR_CODES.DATABASE_ERROR,
+        'The import was not applied. Your existing catalogue is unchanged.'
+      );
+    }
+
+    // Step 6: Update Zustand only after success.
+    const commitResult: ImportCommitResult = {
+      added: safeToAdd.filter(p => !updatedMap.has(p.id)).length,
+      updated: safeToUpdate.length,
+      filledMissing: 0, // tracked at reconciliation level
+      skipped: 0,
+      rejected: 0,
+      needsReview: safeToAdd.filter(p => p.lifecycleStatus === 'needs-review' || p.calculatedPricingStatus === 'missing-data').length,
+    };
+
+    // Push undo action
+    get().pushUndoAction({
+      type: 'import',
+      productIds: [...safeToAdd, ...safeToUpdate].map(p => p.id),
+      previousState: [...products],
+      timestamp: new Date().toISOString(),
+      description: `Imported ${safeToAdd.length} product(s), updated ${safeToUpdate.length} product(s)`,
+    });
+
+    set({ products: allProducts, currentView: 'products' });
+    get().resetImportState();
+    return { ...ok(undefined, `Imported ${safeToAdd.length} product(s), updated ${safeToUpdate.length} product(s).`), commitResult };
   },
 
   // Pricing rules

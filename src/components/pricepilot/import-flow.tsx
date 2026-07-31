@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { usePricePilotStore, AutoBackup } from '@/store/pricepilot-store';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,19 +30,29 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { formatCurrency } from '@/lib/pricepilot/formatting';
-import { parseExcelFile, parseCSVFile, detectColumnMappings, cleanImportData, rebuildSheetFromHeadingRow, rebuildCSVFromHeadingRow } from '@/lib/pricepilot/excel';
+import { parseExcelFile, parseCSVFile, detectColumnMappings, rebuildSheetFromHeadingRow, rebuildCSVFromHeadingRow } from '@/lib/pricepilot/excel';
 import {
   Product,
   ColumnMapping,
   ImportStep,
-  CleaningOptions,
-  CleanImportResult,
-  ImportedProductDraft,
-  PercentFormat,
-  DuplicateHandling,
+  ImportCommitResult,
   createDefaultProduct,
-  createDefaultCleaningOptions,
 } from '@/lib/pricepilot/types';
+import {
+  processImportRows,
+  downloadIssueReport,
+  ImportBatchResult,
+  ImportRowResult,
+} from '@/lib/pricepilot/import-service';
+import {
+  computeDuplicateDiff,
+  reconcileDuplicate,
+  reconcileDuplicates,
+  DuplicateResolutionStrategy,
+  DuplicateDiff,
+  DuplicateReconciliationInput,
+  DuplicateReconciliationResult,
+} from '@/lib/pricepilot/duplicate-reconciliation';
 import {
   ArrowLeft,
   ArrowRight,
@@ -50,7 +60,8 @@ import {
   FileSpreadsheet,
   Eye,
   Columns3,
-  Brush,
+  ClipboardCheck,
+  GitMerge,
   CheckCircle,
   X,
   AlertCircle,
@@ -63,6 +74,12 @@ import {
   ChevronDown,
   ChevronUp,
   HelpCircle,
+  AlertTriangle,
+  FileX,
+  Copy,
+  SkipForward,
+  RefreshCw,
+  CheckSquare,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -87,8 +104,8 @@ const CSV_TEMPLATE_HEADERS = [
   'Monthly Units Sold',
 ];
 
-const STEPS: ImportStep[] = ['upload', 'preview', 'mapping', 'cleaning', 'confirmation'];
-const STEP_LABELS = ['Upload', 'Preview', 'Mapping', 'Cleaning', 'Confirm'];
+const STEPS: ImportStep[] = ['upload', 'preview', 'mapping', 'row-review', 'duplicate-resolution', 'confirmation'];
+const STEP_LABELS = ['Upload', 'Preview', 'Mapping', 'Row Review', 'Duplicates', 'Confirm'];
 
 const MAX_FILE_SIZE_MB = 20;
 const ALLOWED_EXTENSIONS = ['.xlsx', '.xls', '.csv', '.tsv'];
@@ -116,42 +133,85 @@ const FIELD_OPTIONS = [
   { value: '__skip__', label: '-- Skip this column --' },
 ];
 
+const STRATEGY_OPTIONS: { value: DuplicateResolutionStrategy; label: string; description: string; icon: typeof RefreshCw }[] = [
+  { value: 'update-existing', label: 'Update Existing Product', description: 'Replace financial inputs on the existing product with the uploaded values.', icon: RefreshCw },
+  { value: 'fill-missing', label: 'Fill Only Missing Fields', description: 'Only fill fields that are currently empty or zero on the existing product.', icon: CheckSquare },
+  { value: 'keep-existing', label: 'Keep Existing Product', description: 'Skip this row entirely — no changes made to the existing product.', icon: SkipForward },
+  { value: 'create-copy', label: 'Create Separate Copy', description: 'Create a new product with a new SKU suffix (e.g. SKU-COPY).', icon: Copy },
+  { value: 'skip', label: 'Skip This Row', description: 'Skip this row. Same as "Keep Existing" but tracked separately.', icon: FileX },
+];
+
 export function ImportFlow() {
-  const { businessSettings, importProducts, setCurrentView, autoBackups, restoreBackup, createAutoBackup } = usePricePilotStore();
+  const {
+    businessSettings,
+    pricingRules,
+    products,
+    importProductsWithBatch,
+    setCurrentView,
+    autoBackups,
+    restoreBackup,
+    createAutoBackup,
+  } = usePricePilotStore();
+
   const [step, setStep] = useState<ImportStep>('upload');
   const [fileName, setFileName] = useState('');
   const [fileData, setFileData] = useState<{ headers: string[]; rows: Record<string, string>[] }>({ headers: [], rows: [] });
   const [sheets, setSheets] = useState<Array<{ name: string; headers: string[]; rows: Record<string, string>[]; rawRows?: string[][] }>>([]);
-  const [csvRawRows, setCsvRawRows] = useState<string[] | null>(null); // original CSV lines — kept so we can re-parse with a different heading row
+  const [csvRawRows, setCsvRawRows] = useState<string[] | null>(null);
   const [isCsvFile, setIsCsvFile] = useState(false);
   const [selectedSheet, setSelectedSheet] = useState(0);
   const [mappings, setMappings] = useState<ColumnMapping[]>([]);
   const [totalRows, setTotalRows] = useState(0);
-  const [cleaningResult, setCleaningResult] = useState<CleanImportResult | null>(null);
-  const [previewProducts, setPreviewProducts] = useState<Partial<Product>[]>([]);
   const [error, setError] = useState('');
   const [headingRow, setHeadingRow] = useState(0);
   const [importComplete, setImportComplete] = useState(false);
-  const [importSummary, setImportSummary] = useState<{
-    added: number;
-    needingAttention: number;
-    duplicates: number;
-    skipped: number;
-  } | null>(null);
+  const [importSummary, setImportSummary] = useState<ImportCommitResult | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+
+  // Row Review step state
+  const [batchResult, setBatchResult] = useState<ImportBatchResult | null>(null);
+
+  // Duplicate Resolution step state
+  const [duplicateStrategies, setDuplicateStrategies] = useState<Map<number, DuplicateResolutionStrategy>>(new Map());
+  const [applyToAll, setApplyToAll] = useState(false);
+  const [applyToAllStrategy, setApplyToAllStrategy] = useState<DuplicateResolutionStrategy>('update-existing');
+  const [duplicateDiffs, setDuplicateDiffs] = useState<Map<number, DuplicateDiff[]>>(new Map());
+  const [reconciliationResults, setReconciliationResults] = useState<DuplicateReconciliationResult[]>([]);
 
   // Backup history UI state
   const [showAllBackups, setShowAllBackups] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<AutoBackup | null>(null);
 
-  // Cleaning options state
-  const [cleaningOptions, setCleaningOptions] = useState<CleaningOptions>(createDefaultCleaningOptions());
+  // Expanded duplicate rows
+  const [expandedDuplicates, setExpandedDuplicates] = useState<Set<number>>(new Set());
 
   const stepIndex = STEPS.indexOf(step);
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
 
+  // Existing SKUs for duplicate detection
+  const existingSkus = useMemo(() => {
+    const skus = new Set<string>();
+    for (const p of products) {
+      if (p.sku?.trim()) {
+        skus.add(p.sku.trim().toLowerCase());
+      }
+    }
+    return skus;
+  }, [products]);
+
+  // Existing product lookup by SKU (lowercased)
+  const existingProductBySku = useMemo(() => {
+    const map = new Map<string, Product>();
+    for (const p of products) {
+      if (p.sku?.trim()) {
+        map.set(p.sku.trim().toLowerCase(), p);
+      }
+    }
+    return map;
+  }, [products]);
+
   /**
    * When the heading row changes, re-parse the file data using the new header row index.
-   * Works for both CSV (using stored original lines) and Excel (using stored raw 2D rows).
    */
   const applyHeadingRow = useCallback((newHeadingRow: number) => {
     if (isCsvFile && csvRawRows) {
@@ -183,9 +243,6 @@ export function ImportFlow() {
     }
   }, [isCsvFile, csvRawRows, sheets, selectedSheet]);
 
-  /**
-   * Format an ISO timestamp as "Oct 27, 2024 at 3:45 PM".
-   */
   const formatBackupTimestamp = (iso: string): string => {
     try {
       const d = new Date(iso);
@@ -197,9 +254,6 @@ export function ImportFlow() {
     }
   };
 
-  /**
-   * Resolve a Lucide icon component for a given backup trigger.
-   */
   const getBackupTriggerIcon = (trigger: AutoBackup['trigger']) => {
     switch (trigger) {
       case 'import': return Upload;
@@ -210,43 +264,21 @@ export function ImportFlow() {
     }
   };
 
-  /**
-   * Triggered when the user clicks "Restore" on a backup entry — opens the confirm dialog.
-   */
   const handleRestoreClick = (backup: AutoBackup) => {
     setRestoreTarget(backup);
   };
 
-  /**
-   * Actually perform the restore after the user confirms in the AlertDialog.
-   * Creates a fresh safety backup first, then restores from the selected snapshot.
-   */
   const confirmRestore = async () => {
     if (!restoreTarget) return;
-    // Create a safety backup of the CURRENT state so the user can undo the restore
-    // (fire-and-forget; if it throws, restoreBackup will abort separately).
     createAutoBackup('manual', `Safety snapshot before restoring "${restoreTarget.description}"`)
       .catch((err) => console.warn('[PricePilot] Pre-restore backup failed.', err));
-    // Phase 11: restoreBackup is now async.
     const success = await restoreBackup(restoreTarget.dataString);
     if (success) {
       toast.success('Backup restored', {
         description: `Restored snapshot from ${formatBackupTimestamp(restoreTarget.timestamp)}`,
       });
       setRestoreTarget(null);
-      // Reset import flow state since the underlying data has changed
-      setStep('upload');
-      setFileName('');
-      setFileData({ headers: [], rows: [] });
-      setSheets([]);
-      setCsvRawRows(null);
-      setMappings([]);
-      setCleaningResult(null);
-      setPreviewProducts([]);
-      setError('');
-      setImportComplete(false);
-      setImportSummary(null);
-      setHeadingRow(0);
+      resetImportFlow();
       setCurrentView('products');
     } else {
       toast.error('Restore failed', {
@@ -256,9 +288,6 @@ export function ImportFlow() {
     }
   };
 
-  /**
-   * Download a single backup entry as a JSON file.
-   */
   const downloadBackupEntry = (backup: AutoBackup) => {
     try {
       const blob = new Blob([backup.dataString], { type: 'application/json' });
@@ -279,49 +308,30 @@ export function ImportFlow() {
     }
   };
 
-  // Note: `skipDuplicateSku` is the legacy boolean that the cleaning-options
-  // checkbox toggles directly. `duplicateHandling` is never modified by the UI
-  // (only by import defaults), so no sync effect is required here.
-
-  /**
-   * Validate a file before parsing.
-   * Checks: extension, size, and empty file.
-   */
   const validateFile = useCallback((file: File): string | null => {
-    // Check extension
     const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
       return `Unsupported file type "${ext}". Please use one of: ${ALLOWED_EXTENSIONS.join(', ')}`;
     }
-
-    // Check file size
     const sizeMB = file.size / (1024 * 1024);
     if (sizeMB > MAX_FILE_SIZE_MB) {
       return `File is too large (${sizeMB.toFixed(1)} MB). Maximum size is ${MAX_FILE_SIZE_MB} MB.`;
     }
-
-    // Check empty file
     if (file.size === 0) {
       return 'The file is empty (0 bytes). Please select a file with data.';
     }
-
     return null;
   }, []);
 
   const handleFileUpload = useCallback(async (file: File) => {
     setError('');
-
-    // Validate file first
     const validationError = validateFile(file);
     if (validationError) {
       setError(validationError);
       return;
     }
-
     setFileName(file.name);
-
     try {
-      // Reset heading row to 0 for every new file
       setHeadingRow(0);
       if (file.name.endsWith('.csv') || file.name.endsWith('.tsv')) {
         const text = await file.text();
@@ -340,7 +350,6 @@ export function ImportFlow() {
         setSheets([{ name: 'Sheet1', headers: parsedHeaders, rows: result.rows }]);
         setFileData({ headers: parsedHeaders, rows: result.rows });
         setTotalRows(result.rows.length);
-        // Auto-detect mappings using parsed headers (not stale state)
         setMappings(detectColumnMappings(parsedHeaders));
         setStep('preview');
       } else {
@@ -357,7 +366,6 @@ export function ImportFlow() {
         const parsedHeaders = firstSheet.headers;
         setFileData({ headers: parsedHeaders, rows: firstSheet.rows });
         setTotalRows(firstSheet.rows.length);
-        // Auto-detect mappings using parsed headers (not stale state)
         setMappings(detectColumnMappings(parsedHeaders));
         setStep('preview');
       }
@@ -383,7 +391,6 @@ export function ImportFlow() {
     setFileData({ headers: sheet.headers, rows: sheet.rows });
     setTotalRows(sheet.rows.length);
     setMappings(detectColumnMappings(sheet.headers));
-    // Reset heading row to 0 for the new sheet
     setHeadingRow(0);
   };
 
@@ -393,69 +400,209 @@ export function ImportFlow() {
     ));
   };
 
-  const handleCleanAndConfirm = () => {
-    const sheetName = sheets.length > 0 ? sheets[selectedSheet]?.name : undefined;
-    const result = cleanImportData(
-      fileData.rows,
-      mappings,
+  /**
+   * Apply column mappings to the raw rows, converting them into
+   * objects keyed by the target field name so processImportRows can
+   * consume them directly.
+   */
+  const mapRowsForImport = useCallback((): Record<string, unknown>[] => {
+    const activeMappings = mappings.filter(m => m.targetField && m.targetField !== '__skip__');
+    return fileData.rows.map(row => {
+      const mapped: Record<string, unknown> = {};
+      for (const mapping of activeMappings) {
+        const rawValue = row[mapping.sourceColumn];
+        if (rawValue !== undefined && rawValue !== null) {
+          mapped[mapping.targetField] = rawValue;
+        }
+      }
+      return mapped;
+    });
+  }, [fileData.rows, mappings]);
+
+  /**
+   * Process the mapped rows through the row-safe import pipeline.
+   * This is the new "Row Review" step that replaces the old "Cleaning" step.
+   */
+  const handleProcessRows = useCallback(() => {
+    const mappedRows = mapRowsForImport();
+    const result = processImportRows(
+      mappedRows,
       businessSettings,
-      cleaningOptions,
-      fileName,
-      sheetName,
+      pricingRules,
+      { existingSkus }
     );
+    setBatchResult(result);
 
-    setCleaningResult(result);
+    // Pre-compute duplicate diffs for the duplicate-resolution step
+    const diffs = new Map<number, DuplicateDiff[]>();
+    for (const row of result.results) {
+      if (row.status === 'duplicate' && row.product) {
+        const existingProduct = existingProductBySku.get(row.product.sku?.trim().toLowerCase() ?? '');
+        if (existingProduct) {
+          diffs.set(row.rowNumber, computeDuplicateDiff(existingProduct, row.product));
+        }
+      }
+    }
+    setDuplicateDiffs(diffs);
 
-    // Convert ImportedProductDraft[] to Partial<Product>[] for preview and import
-    const products: Partial<Product>[] = result.cleanedProducts.map(draft => ({
-      ...createDefaultProduct(),
-      ...draft,
-      competitorPrices: draft.competitorPrices ?? [],
-      quantity: draft.quantity ?? 0,
-      monthlyUnitsSold: draft.monthlyUnitsSold ?? 0,
-      importBatchId: draft.importBatchId,
-      importSourceFileName: draft.importSourceFileName,
-      importOriginalRowNumber: draft.importOriginalRowNumber,
-    }));
+    // Initialize strategies with defaults
+    const strategies = new Map<number, DuplicateResolutionStrategy>();
+    for (const row of result.results) {
+      if (row.status === 'duplicate') {
+        strategies.set(row.rowNumber, 'update-existing');
+      }
+    }
+    setDuplicateStrategies(strategies);
+    setApplyToAll(false);
+    setApplyToAllStrategy('update-existing');
+    setExpandedDuplicates(new Set());
 
-    setPreviewProducts(products);
-    setStep('confirmation');
-  };
+    // Navigate to the appropriate next step
+    if (result.duplicateProducts.length > 0) {
+      setStep('duplicate-resolution');
+    } else {
+      setStep('confirmation');
+    }
+  }, [mapRowsForImport, businessSettings, pricingRules, existingSkus, existingProductBySku]);
 
-  const handleImport = async () => {
-    const newProducts: Product[] = previewProducts.map((p, i) => ({
-      ...createDefaultProduct(),
-      ...p,
-      id: `prod-import-${Date.now()}-${i}`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    })) as Product[];
+  /**
+   * Run reconciliation for all duplicate rows and navigate to confirmation.
+   */
+  const handleResolveDuplicates = useCallback(() => {
+    if (!batchResult) return;
 
-    const result = await importProducts(newProducts);
-    if (!result.success) {
-      toast.error('Import failed', { description: result.message });
-      return;
+    const duplicateRows = batchResult.results.filter(r => r.status === 'duplicate');
+    const inputs: DuplicateReconciliationInput[] = [];
+
+    for (const row of duplicateRows) {
+      if (!row.product) continue;
+      const strategy = applyToAll ? applyToAllStrategy : (duplicateStrategies.get(row.rowNumber) ?? 'update-existing');
+      const existingProduct = existingProductBySku.get(row.product.sku?.trim().toLowerCase() ?? '');
+      if (existingProduct) {
+        inputs.push({ existing: existingProduct, uploaded: row.product, strategy });
+      }
     }
 
-    // Calculate import summary
-    const needingAttention = newProducts.filter(p =>
-      !p.purchaseCost || !p.currentSellingPrice ||
-      p.calculatedPricingStatus === 'loss-making' ||
-      p.calculatedPricingStatus === 'below-break-even' ||
-      p.calculatedPricingStatus === 'missing-data' ||
-      p.calculatedPricingStatus === 'needs-review'
-    ).length;
+    const batchReconResult = reconcileDuplicates(inputs, businessSettings, pricingRules);
+    const reconResults: DuplicateReconciliationResult[] = [];
+    for (let i = 0; i < inputs.length; i++) {
+      const input = inputs[i];
+      const updatedProduct = batchReconResult.updatedProducts.find(p => p.id === input.existing.id);
+      reconResults.push({
+        product: updatedProduct ?? batchReconResult.newProducts[i] ?? input.existing,
+        approvalInvalidated: batchReconResult.anyApprovalInvalidated,
+        createdNew: batchReconResult.newProducts.length > 0,
+        skipped: batchReconResult.skippedSkus.includes(input.uploaded.sku),
+        message: batchReconResult.messages[i] ?? '',
+        appliedChanges: [],
+      });
+    }
+    setReconciliationResults(reconResults);
 
-    setImportSummary({
-      added: newProducts.length,
-      needingAttention,
-      duplicates: stats?.duplicateRows ?? 0,
-      skipped: stats?.skippedRows ?? 0,
-    });
-    setImportComplete(true);
+    setStep('confirmation');
+  }, [batchResult, applyToAll, applyToAllStrategy, duplicateStrategies, existingProductBySku, businessSettings, pricingRules]);
+
+  /**
+   * Execute the final transactional import.
+   */
+  const handleImport = useCallback(async () => {
+    if (!batchResult) return;
+    setIsImporting(true);
+
+    try {
+      // Build products to add (valid + needs-review)
+      const productsToAdd: Product[] = [
+        ...batchResult.validProducts,
+        ...batchResult.needsReviewProducts,
+      ];
+
+      // Build products to update (from duplicate reconciliation)
+      const productsToUpdate: Product[] = [];
+      let skippedCount = 0;
+      let filledMissingCount = 0;
+
+      const duplicateRows = batchResult.results.filter(r => r.status === 'duplicate');
+      const inputs: DuplicateReconciliationInput[] = [];
+
+      for (const row of duplicateRows) {
+        if (!row.product) continue;
+        const strategy = applyToAll ? applyToAllStrategy : (duplicateStrategies.get(row.rowNumber) ?? 'update-existing');
+        const existingProduct = existingProductBySku.get(row.product.sku?.trim().toLowerCase() ?? '');
+        if (existingProduct) {
+          inputs.push({ existing: existingProduct, uploaded: row.product, strategy });
+        }
+      }
+
+      if (inputs.length > 0) {
+        const batchReconResult = reconcileDuplicates(inputs, businessSettings, pricingRules);
+        productsToUpdate.push(...batchReconResult.updatedProducts);
+        productsToAdd.push(...batchReconResult.newProducts);
+        skippedCount = batchReconResult.skippedSkus.length;
+        filledMissingCount = batchReconResult.updatedProducts.filter((_, i) => {
+          const input = inputs[i];
+          return input?.strategy === 'fill-missing';
+        }).length;
+      }
+
+      const sheetName = sheets.length > 0 ? sheets[selectedSheet]?.name : undefined;
+      const result = await importProductsWithBatch(
+        productsToAdd,
+        productsToUpdate,
+        {
+          fileName,
+          sheetName,
+          totalRows: batchResult.totalCount,
+        }
+      );
+
+      if (!result.success) {
+        toast.error('Import failed', { description: result.message });
+        setIsImporting(false);
+        return;
+      }
+
+      const commitResult: ImportCommitResult = result.commitResult ?? {
+        added: productsToAdd.length,
+        updated: productsToUpdate.length,
+        filledMissing: filledMissingCount,
+        skipped: skippedCount,
+        rejected: batchResult.rejectedCount,
+        needsReview: batchResult.needsReviewProducts.length,
+      };
+
+      setImportSummary(commitResult);
+      setImportComplete(true);
+    } catch (err) {
+      toast.error('Import failed', {
+        description: err instanceof Error ? err.message : 'An unexpected error occurred.',
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  }, [batchResult, applyToAll, applyToAllStrategy, duplicateStrategies, existingProductBySku, businessSettings, pricingRules, importProductsWithBatch, fileName, sheets, selectedSheet]);
+
+  const resetImportFlow = () => {
+    setStep('upload');
+    setFileName('');
+    setFileData({ headers: [], rows: [] });
+    setSheets([]);
+    setCsvRawRows(null);
+    setIsCsvFile(false);
+    setMappings([]);
+    setError('');
+    setImportComplete(false);
+    setImportSummary(null);
+    setHeadingRow(0);
+    setShowAllBackups(false);
+    setBatchResult(null);
+    setDuplicateStrategies(new Map());
+    setApplyToAll(false);
+    setApplyToAllStrategy('update-existing');
+    setDuplicateDiffs(new Map());
+    setReconciliationResults([]);
+    setExpandedDuplicates(new Set());
+    setIsImporting(false);
   };
-
-  const stats = cleaningResult?.statistics;
 
   const downloadTemplate = () => {
     const headerLine = CSV_TEMPLATE_HEADERS.join(',');
@@ -492,6 +639,16 @@ export function ImportFlow() {
     toast.success('Template downloaded', { description: 'A CSV template with sample data has been downloaded' });
   };
 
+  // Group results by status for the Row Review step
+  const groupedResults = useMemo(() => {
+    if (!batchResult) return { valid: [], needsReview: [], duplicate: [], rejected: [] };
+    const valid = batchResult.results.filter(r => r.status === 'valid');
+    const needsReview = batchResult.results.filter(r => r.status === 'needs-review');
+    const duplicate = batchResult.results.filter(r => r.status === 'duplicate');
+    const rejected = batchResult.results.filter(r => r.status === 'rejected');
+    return { valid, needsReview, duplicate, rejected };
+  }, [batchResult]);
+
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
       {/* Import completion summary */}
@@ -502,26 +659,30 @@ export function ImportFlow() {
             <CardDescription>Your products have been imported successfully</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <div className="bg-emerald-50 rounded-lg p-3 text-center border border-emerald-200">
                 <p className="text-lg font-semibold text-emerald-700">{importSummary.added}</p>
-                <p className="text-xs text-emerald-600">Products imported</p>
+                <p className="text-xs text-emerald-600">Products added</p>
+              </div>
+              <div className="bg-blue-50 rounded-lg p-3 text-center border border-blue-200">
+                <p className="text-lg font-semibold text-blue-700">{importSummary.updated}</p>
+                <p className="text-xs text-blue-600">Products updated</p>
+              </div>
+              <div className="bg-sky-50 rounded-lg p-3 text-center border border-sky-200">
+                <p className="text-lg font-semibold text-sky-700">{importSummary.filledMissing}</p>
+                <p className="text-xs text-sky-600">Missing fields filled</p>
               </div>
               <div className="bg-amber-50 rounded-lg p-3 text-center border border-amber-200">
-                <p className="text-lg font-semibold text-amber-700">{importSummary.needingAttention}</p>
-                <p className="text-xs text-amber-600">Need attention</p>
-              </div>
-              <div className="bg-slate-50 rounded-lg p-3 text-center border border-slate-200">
-                <p className="text-lg font-semibold text-slate-700">{importSummary.duplicates}</p>
-                <p className="text-xs text-slate-600">
-                  {cleaningOptions.duplicateHandling === 'skip' && 'Duplicates skipped'}
-                  {cleaningOptions.duplicateHandling === 'overwrite' && 'Duplicates overwritten'}
-                  {cleaningOptions.duplicateHandling === 'allow' && 'Duplicates allowed'}
-                </p>
+                <p className="text-lg font-semibold text-amber-700">{importSummary.needsReview}</p>
+                <p className="text-xs text-amber-600">Need review</p>
               </div>
               <div className="bg-slate-50 rounded-lg p-3 text-center border border-slate-200">
                 <p className="text-lg font-semibold text-slate-700">{importSummary.skipped}</p>
-                <p className="text-xs text-slate-600">Rows skipped</p>
+                <p className="text-xs text-slate-600">Skipped</p>
+              </div>
+              <div className="bg-red-50 rounded-lg p-3 text-center border border-red-200">
+                <p className="text-lg font-semibold text-red-700">{importSummary.rejected}</p>
+                <p className="text-xs text-red-600">Rejected</p>
               </div>
             </div>
 
@@ -532,23 +693,7 @@ export function ImportFlow() {
               <Button variant="outline" onClick={() => setCurrentView('products')} className="rounded-lg shadow-sm">
                 View All Products
               </Button>
-              <Button variant="outline" onClick={() => {
-                setImportComplete(false);
-                setImportSummary(null);
-                setStep('upload');
-                setFileName('');
-                setFileData({ headers: [], rows: [] });
-                setSheets([]);
-                setCsvRawRows(null);
-                setIsCsvFile(false);
-                setMappings([]);
-                setCleaningResult(null);
-                setPreviewProducts([]);
-                setError('');
-                setHeadingRow(0);
-                setShowAllBackups(false);
-                setCleaningOptions(createDefaultCleaningOptions());
-              }} className="rounded-lg shadow-sm">
+              <Button variant="outline" onClick={resetImportFlow} className="rounded-lg shadow-sm">
                 Import Another File
               </Button>
             </div>
@@ -558,7 +703,7 @@ export function ImportFlow() {
 
       {!importComplete && (
       <>
-      {/* Backup History panel — shown only on the upload step so it doesn't clutter later steps */}
+      {/* Backup History panel — shown only on the upload step */}
       {step === 'upload' && (
         <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/20">
           <CardHeader>
@@ -716,7 +861,7 @@ export function ImportFlow() {
               )}
             </div>
 
-            {/* Header row selector with tooltip + live raw text preview */}
+            {/* Header row selector */}
             <div className="bg-emerald-50/40 border border-emerald-200 rounded-lg p-3 space-y-3">
               <div className="flex flex-wrap items-center gap-3">
                 <Label htmlFor="heading-row" className="text-sm font-medium text-slate-700">
@@ -758,7 +903,7 @@ export function ImportFlow() {
                 </span>
               </div>
 
-              {/* Live preview of the first 3 raw rows so the user can see what's at each row index */}
+              {/* Live preview of the first 3 raw rows */}
               <div className="bg-white border border-slate-200 rounded-md p-2">
                 <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5 font-medium">
                   First 3 rows (raw)
@@ -767,7 +912,6 @@ export function ImportFlow() {
                   {(() => {
                     const rawRowsToPreview: string[][] = isCsvFile && csvRawRows
                       ? csvRawRows.slice(0, 3).map(line => {
-                          // Try to split using common delimiters for nicer display
                           const delimiters = [',', '\t', ';', '|'];
                           let best = delimiters[0];
                           let bestCount = 0;
@@ -862,240 +1006,453 @@ export function ImportFlow() {
 
             <div className="flex justify-between mt-4">
               <Button variant="outline" onClick={() => setStep('preview')} className="rounded-lg shadow-sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
-              <Button onClick={() => setStep('cleaning')} className="rounded-lg shadow-md">Clean Data <ArrowRight className="h-4 w-4 ml-1" /></Button>
+              <Button onClick={handleProcessRows} className="rounded-lg shadow-md">Process Rows <ArrowRight className="h-4 w-4 ml-1" /></Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Step 4: Cleaning */}
-      {step === 'cleaning' && (
+      {/* Step 4: Row Review */}
+      {step === 'row-review' && batchResult && (
         <Card className="shadow-md border-0 rounded-xl">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Brush className="h-5 w-5" /> Data Cleaning</CardTitle>
-            <CardDescription>Configure how to handle data issues before importing</CardDescription>
+            <CardTitle className="flex items-center gap-2"><ClipboardCheck className="h-5 w-5" /> Row Review</CardTitle>
+            <CardDescription>Review how each row was classified before proceeding</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-3">
-              <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
-                <Checkbox
-                  id="stripCurrency"
-                  checked={cleaningOptions.stripCurrencySymbols}
-                  onCheckedChange={(checked) => setCleaningOptions(prev => ({ ...prev, stripCurrencySymbols: checked === true }))}
-                />
-                <Label htmlFor="stripCurrency" className="text-sm">Strip currency symbols (₹, $, £, €, ¥)</Label>
+            {/* Summary message */}
+            <Alert className="border-emerald-200 bg-emerald-50/50">
+              <Info className="h-4 w-4 text-emerald-600" />
+              <AlertTitle className="text-emerald-800 text-sm font-medium">Import Summary</AlertTitle>
+              <AlertDescription className="text-sm text-slate-700 whitespace-pre-line">
+                {batchResult.summary.message}
+              </AlertDescription>
+            </Alert>
+
+            {/* Summary stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-emerald-50 rounded-lg p-3 text-center border border-emerald-200">
+                <p className="text-lg font-semibold text-emerald-700">{groupedResults.valid.length}</p>
+                <p className="text-xs text-emerald-600">Ready to Add</p>
               </div>
-              <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
-                <Checkbox
-                  id="stripCommas"
-                  checked={cleaningOptions.stripGroupingCommas}
-                  onCheckedChange={(checked) => setCleaningOptions(prev => ({ ...prev, stripGroupingCommas: checked === true }))}
-                />
-                <Label htmlFor="stripCommas" className="text-sm">Remove grouping commas from numbers (1,00,000 → 100000)</Label>
+              <div className="bg-amber-50 rounded-lg p-3 text-center border border-amber-200">
+                <p className="text-lg font-semibold text-amber-700">{groupedResults.needsReview.length}</p>
+                <p className="text-xs text-amber-600">Needs Information</p>
               </div>
-              <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
-                <Checkbox
-                  id="parsePercentages"
-                  checked={cleaningOptions.parsePercentages}
-                  onCheckedChange={(checked) => setCleaningOptions(prev => ({ ...prev, parsePercentages: checked === true }))}
-                />
-                <Label htmlFor="parsePercentages" className="text-sm">Parse percentage values (18, 18%, 0.18)</Label>
+              <div className="bg-orange-50 rounded-lg p-3 text-center border border-orange-200">
+                <p className="text-lg font-semibold text-orange-700">{groupedResults.duplicate.length}</p>
+                <p className="text-xs text-orange-600">Duplicates</p>
               </div>
-              <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-3 flex items-center space-x-2">
-                <Checkbox
-                  id="skipBlanks"
-                  checked={cleaningOptions.skipBlankRequired}
-                  onCheckedChange={(checked) => setCleaningOptions(prev => ({ ...prev, skipBlankRequired: checked === true }))}
-                />
-                <Label htmlFor="skipBlanks" className="text-sm">Skip rows with blank required fields (name, SKU, cost)</Label>
+              <div className="bg-red-50 rounded-lg p-3 text-center border border-red-200">
+                <p className="text-lg font-semibold text-red-700">{groupedResults.rejected.length}</p>
+                <p className="text-xs text-red-600">Rejected</p>
               </div>
             </div>
 
-            {/* Duplicate handling radio group */}
-            <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Layers className="h-4 w-4 text-emerald-600" />
-                <Label className="text-sm font-medium text-slate-800">Duplicate SKU Handling</Label>
-              </div>
-              <p className="text-xs text-slate-600 mb-3">
-                What should we do when a row&apos;s SKU already exists in this import batch or in your catalog?
-              </p>
-              <RadioGroup
-                value={cleaningOptions.duplicateHandling}
-                onValueChange={(value: DuplicateHandling) => setCleaningOptions(prev => ({ ...prev, duplicateHandling: value }))}
-                className="gap-2"
+            {/* Download issue report */}
+            {(groupedResults.needsReview.length > 0 || groupedResults.duplicate.length > 0 || groupedResults.rejected.length > 0) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => downloadIssueReport(batchResult.results)}
+                className="rounded-lg shadow-sm"
               >
-                <label htmlFor="dup-skip" className="flex items-start gap-3 p-2.5 rounded-md border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors cursor-pointer">
-                  <RadioGroupItem value="skip" id="dup-skip" className="mt-0.5" />
-                  <div className="space-y-0.5">
-                    <div className="text-sm font-medium text-slate-800">Skip duplicates <span className="text-[10px] uppercase tracking-wide bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded ml-1">Default</span></div>
-                    <div className="text-xs text-slate-600">Products with a matching SKU are skipped and counted in the import summary.</div>
-                  </div>
-                </label>
-                <label htmlFor="dup-overwrite" className="flex items-start gap-3 p-2.5 rounded-md border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors cursor-pointer">
-                  <RadioGroupItem value="overwrite" id="dup-overwrite" className="mt-0.5" />
-                  <div className="space-y-0.5">
-                    <div className="text-sm font-medium text-slate-800">Overwrite existing</div>
-                    <div className="text-xs text-slate-600">Replace the existing product with the same SKU using the new row&apos;s values.</div>
-                  </div>
-                </label>
-                <label htmlFor="dup-allow" className="flex items-start gap-3 p-2.5 rounded-md border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors cursor-pointer">
-                  <RadioGroupItem value="allow" id="dup-allow" className="mt-0.5" />
-                  <div className="space-y-0.5">
-                    <div className="text-sm font-medium text-slate-800">Allow duplicates</div>
-                    <div className="text-xs text-slate-600">Import every row, even if the SKU matches — useful for restocks or variant imports.</div>
-                  </div>
-                </label>
-              </RadioGroup>
-              <Alert className="mt-3 border-emerald-200 bg-emerald-50/50">
-                <Info className="h-4 w-4 text-emerald-600" />
-                <AlertTitle className="text-emerald-800 text-xs font-medium">How this works</AlertTitle>
-                <AlertDescription className="text-xs text-slate-700">
-                  {cleaningOptions.duplicateHandling === 'skip' && (
-                    <>Duplicate rows are removed from the import. You&apos;ll see the count under &ldquo;Duplicate SKUs&rdquo; in the confirmation summary.</>
-                  )}
-                  {cleaningOptions.duplicateHandling === 'overwrite' && (
-                    <>Each duplicate row replaces the earlier row with the same SKU in this batch. Existing catalog products with matching SKU will also be replaced on import.</>
-                  )}
-                  {cleaningOptions.duplicateHandling === 'allow' && (
-                    <>All rows are imported as separate products. You may end up with multiple products sharing the same SKU — make sure that&apos;s what you want.</>
-                  )}
-                </AlertDescription>
-              </Alert>
-            </div>
+                <Download className="h-4 w-4 mr-1.5" /> Download Issue Report (CSV)
+              </Button>
+            )}
 
-            {/* Percentage format selector */}
-            {cleaningOptions.parsePercentages && (
-              <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Info className="h-4 w-4 text-slate-500" />
-                  <Label className="text-sm font-medium">Percentage Format Interpretation</Label>
+            {/* Ready to Add */}
+            {groupedResults.valid.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-emerald-700 mb-2 flex items-center gap-1.5">
+                  <CheckCircle className="h-4 w-4" /> Ready to Add ({groupedResults.valid.length})
+                </h3>
+                <div className="max-h-48 overflow-y-auto rounded-lg border border-emerald-200 bg-emerald-50/30">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">Row</TableHead>
+                        <TableHead className="text-xs">Product Name</TableHead>
+                        <TableHead className="text-xs">SKU</TableHead>
+                        <TableHead className="text-xs">Purchase Cost</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {groupedResults.valid.slice(0, 50).map(r => (
+                        <TableRow key={r.rowNumber}>
+                          <TableCell className="text-xs">{r.rowNumber}</TableCell>
+                          <TableCell className="text-xs">{r.product?.name ?? '—'}</TableCell>
+                          <TableCell className="text-xs">{r.product?.sku ?? '—'}</TableCell>
+                          <TableCell className="text-xs">{r.product?.purchaseCost ? formatCurrency(r.product.purchaseCost, businessSettings.currencyCode) : '—'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {groupedResults.valid.length > 50 && (
+                    <p className="text-xs text-slate-500 p-2 text-center">... and {groupedResults.valid.length - 50} more</p>
+                  )}
                 </div>
-                <p className="text-xs text-muted-foreground mb-3">
-                  How should percentage values in your spreadsheet be interpreted?
-                </p>
-                <Select
-                  value={cleaningOptions.percentFormat}
-                  onValueChange={(value: PercentFormat) => setCleaningOptions(prev => ({ ...prev, percentFormat: value }))}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">Detect automatically (based on column values)</SelectItem>
-                    <SelectItem value="whole-percentages">Whole percentages (18 means 18%)</SelectItem>
-                    <SelectItem value="decimal-fractions">Decimal fractions (0.18 means 18%)</SelectItem>
-                  </SelectContent>
-                </Select>
-                {cleaningOptions.percentFormat === 'auto' && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Auto mode: if the maximum value in a percentage column is &lt; 1, values are treated as decimal fractions (0.18 = 18%). Otherwise they're whole percentages (18 = 18%).
-                  </p>
-                )}
-                {cleaningOptions.percentFormat === 'whole-percentages' && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Values like 18, 5, 2.5 are treated as percentages directly (18% = 18).
-                  </p>
-                )}
-                {cleaningOptions.percentFormat === 'decimal-fractions' && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Values like 0.18, 0.05, 0.025 are decimal fractions (0.18 = 18%).
-                  </p>
-                )}
+              </div>
+            )}
+
+            {/* Needs Information */}
+            {groupedResults.needsReview.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-amber-700 mb-2 flex items-center gap-1.5">
+                  <AlertTriangle className="h-4 w-4" /> Needs Information ({groupedResults.needsReview.length})
+                </h3>
+                <div className="max-h-64 overflow-y-auto rounded-lg border border-amber-200 bg-amber-50/30 space-y-2 p-2">
+                  {groupedResults.needsReview.map(r => (
+                    <div key={r.rowNumber} className="bg-white rounded-md p-2.5 border border-amber-100">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-slate-800">Row {r.rowNumber}: {r.product?.name ?? 'Unnamed'}</span>
+                        <Badge variant="secondary" className="text-[10px] bg-amber-100 text-amber-700">{r.product?.sku ?? 'No SKU'}</Badge>
+                      </div>
+                      {r.issues.map((issue, i) => (
+                        <div key={i} className="text-xs text-amber-700 ml-2">
+                          <span className="font-medium">{issue.field ?? 'General'}:</span> {issue.message}
+                          {issue.suggestedAction && <span className="text-amber-600 ml-1">→ {issue.suggestedAction}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Duplicates Requiring Decision */}
+            {groupedResults.duplicate.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-orange-700 mb-2 flex items-center gap-1.5">
+                  <GitMerge className="h-4 w-4" /> Duplicates Requiring Decision ({groupedResults.duplicate.length})
+                </h3>
+                <div className="max-h-64 overflow-y-auto rounded-lg border border-orange-200 bg-orange-50/30 space-y-2 p-2">
+                  {groupedResults.duplicate.map(r => (
+                    <div key={r.rowNumber} className="bg-white rounded-md p-2.5 border border-orange-100">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-slate-800">Row {r.rowNumber}: {r.product?.name ?? 'Unnamed'}</span>
+                        <Badge variant="secondary" className="text-[10px] bg-orange-100 text-orange-700">{r.product?.sku ?? 'No SKU'}</Badge>
+                      </div>
+                      {r.issues.map((issue, i) => (
+                        <div key={i} className="text-xs text-orange-700 ml-2">
+                          {issue.message}
+                          {issue.suggestedAction && <span className="text-orange-600 ml-1">→ {issue.suggestedAction}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Rejected Rows */}
+            {groupedResults.rejected.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-red-700 mb-2 flex items-center gap-1.5">
+                  <FileX className="h-4 w-4" /> Rejected Rows ({groupedResults.rejected.length})
+                </h3>
+                <div className="max-h-64 overflow-y-auto rounded-lg border border-red-200 bg-red-50/30 space-y-2 p-2">
+                  {groupedResults.rejected.map(r => (
+                    <div key={r.rowNumber} className="bg-white rounded-md p-2.5 border border-red-100">
+                      <div className="text-xs font-medium text-slate-800 mb-1">Row {r.rowNumber}</div>
+                      {r.issues.map((issue, i) => (
+                        <div key={i} className="text-xs text-red-700 ml-2">
+                          <span className="font-medium">{issue.field ?? 'Error'}:</span> {issue.message}
+                          {issue.suggestedAction && <span className="text-red-600 ml-1">→ {issue.suggestedAction}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep('mapping')} className="rounded-lg shadow-sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
-              <Button onClick={handleCleanAndConfirm} className="rounded-lg shadow-md">Process Data <ArrowRight className="h-4 w-4 ml-1" /></Button>
+              <Button
+                onClick={() => {
+                  if (groupedResults.duplicate.length > 0) {
+                    setStep('duplicate-resolution');
+                  } else {
+                    setStep('confirmation');
+                  }
+                }}
+                className="rounded-lg shadow-md"
+                disabled={groupedResults.valid.length === 0 && groupedResults.needsReview.length === 0}
+              >
+                {groupedResults.duplicate.length > 0 ? 'Resolve Duplicates' : 'Continue to Confirm'}
+                <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Step 5: Confirmation */}
-      {step === 'confirmation' && (
+      {/* Step 5: Duplicate Resolution */}
+      {step === 'duplicate-resolution' && batchResult && (
+        <Card className="shadow-md border-0 rounded-xl">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><GitMerge className="h-5 w-5" /> Duplicate Resolution</CardTitle>
+            <CardDescription>
+              {groupedResults.duplicate.length} product{groupedResults.duplicate.length === 1 ? '' : 's'} have SKU{groupedResults.duplicate.length === 1 ? '' : 's'} that already exist in your catalogue. Choose how to handle each one.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Apply to all toggle */}
+            <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-4 space-y-3">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="apply-to-all"
+                  checked={applyToAll}
+                  onCheckedChange={(checked) => setApplyToAll(checked === true)}
+                />
+                <Label htmlFor="apply-to-all" className="text-sm font-medium">Apply this choice to all similar duplicates</Label>
+              </div>
+              {applyToAll && (
+                <div className="ml-6 space-y-2">
+                  <p className="text-xs text-slate-600">Select the strategy to apply to all duplicates:</p>
+                  <RadioGroup
+                    value={applyToAllStrategy}
+                    onValueChange={(value) => setApplyToAllStrategy(value as DuplicateResolutionStrategy)}
+                    className="gap-2"
+                  >
+                    {STRATEGY_OPTIONS.map(opt => (
+                      <label key={opt.value} htmlFor={`global-${opt.value}`} className="flex items-start gap-3 p-2.5 rounded-md border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors cursor-pointer">
+                        <RadioGroupItem value={opt.value} id={`global-${opt.value}`} className="mt-0.5" />
+                        <div className="space-y-0.5">
+                          <div className="text-sm font-medium text-slate-800">{opt.label}</div>
+                          <div className="text-xs text-slate-600">{opt.description}</div>
+                        </div>
+                      </label>
+                    ))}
+                  </RadioGroup>
+                </div>
+              )}
+              {!applyToAll && (
+                <p className="text-xs text-slate-600 ml-6">Review individually — choose a strategy for each duplicate below.</p>
+              )}
+            </div>
+
+            {/* Individual duplicate rows */}
+            <div className="space-y-3">
+              {groupedResults.duplicate.map(r => {
+                const diffs = duplicateDiffs.get(r.rowNumber) ?? [];
+                const isExpanded = expandedDuplicates.has(r.rowNumber);
+                const currentStrategy = applyToAll ? applyToAllStrategy : (duplicateStrategies.get(r.rowNumber) ?? 'update-existing');
+
+                return (
+                  <div key={r.rowNumber} className="bg-white rounded-lg shadow-sm border border-orange-200 overflow-hidden">
+                    {/* Header row */}
+                    <div
+                      className="flex items-center gap-3 p-3 cursor-pointer hover:bg-orange-50/30 transition-colors"
+                      onClick={() => {
+                        setExpandedDuplicates(prev => {
+                          const next = new Set(prev);
+                          if (next.has(r.rowNumber)) {
+                            next.delete(r.rowNumber);
+                          } else {
+                            next.add(r.rowNumber);
+                          }
+                          return next;
+                        });
+                      }}
+                    >
+                      <div className="flex-shrink-0 h-8 w-8 rounded-full bg-orange-100 flex items-center justify-center">
+                        <GitMerge className="h-4 w-4 text-orange-700" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-slate-800 truncate">
+                          Row {r.rowNumber}: {r.product?.name ?? 'Unnamed'}
+                        </div>
+                        <div className="text-xs text-slate-600">
+                          SKU: <span className="font-mono font-medium">{r.product?.sku ?? '—'}</span>
+                          {diffs.length > 0 && (
+                            <span className="ml-2 text-orange-600">{diffs.length} field{diffs.length === 1 ? '' : 's'} differ</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!applyToAll && (
+                          <Badge variant="secondary" className="text-[10px] bg-orange-100 text-orange-700">
+                            {STRATEGY_OPTIONS.find(s => s.value === currentStrategy)?.label ?? 'Update Existing'}
+                          </Badge>
+                        )}
+                        {isExpanded ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
+                      </div>
+                    </div>
+
+                    {/* Expanded content */}
+                    {isExpanded && (
+                      <div className="border-t border-orange-100 p-3 space-y-3">
+                        {/* Field differences */}
+                        {diffs.length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-medium text-slate-600 mb-2">Field Differences</h4>
+                            <div className="overflow-x-auto rounded-md border border-slate-200">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead className="text-xs">Field</TableHead>
+                                    <TableHead className="text-xs">Current Value</TableHead>
+                                    <TableHead className="text-xs">Uploaded Value</TableHead>
+                                    <TableHead className="text-xs">Affects Price</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {diffs.map((diff, i) => (
+                                    <TableRow key={i}>
+                                      <TableCell className="text-xs font-medium">{diff.label}</TableCell>
+                                      <TableCell className="text-xs text-slate-600">
+                                        {typeof diff.currentValue === 'number'
+                                          ? formatCurrency(diff.currentValue, businessSettings.currencyCode)
+                                          : String(diff.currentValue ?? '—')}
+                                      </TableCell>
+                                      <TableCell className="text-xs text-emerald-700 font-medium">
+                                        {typeof diff.uploadedValue === 'number'
+                                          ? formatCurrency(diff.uploadedValue, businessSettings.currencyCode)
+                                          : String(diff.uploadedValue ?? '—')}
+                                      </TableCell>
+                                      <TableCell className="text-xs">
+                                        {diff.affectsCalculation ? (
+                                          <Badge className="text-[10px] bg-amber-100 text-amber-700">Yes</Badge>
+                                        ) : (
+                                          <Badge variant="secondary" className="text-[10px]">No</Badge>
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Strategy selection for this row */}
+                        {!applyToAll && (
+                          <div>
+                            <h4 className="text-xs font-medium text-slate-600 mb-2">Choose Resolution Strategy</h4>
+                            <RadioGroup
+                              value={currentStrategy}
+                              onValueChange={(value) => {
+                                setDuplicateStrategies(prev => {
+                                  const next = new Map(prev);
+                                  next.set(r.rowNumber, value as DuplicateResolutionStrategy);
+                                  return next;
+                                });
+                              }}
+                              className="gap-2"
+                            >
+                              {STRATEGY_OPTIONS.map(opt => {
+                                const Icon = opt.icon;
+                                return (
+                                  <label key={opt.value} htmlFor={`dup-${r.rowNumber}-${opt.value}`} className="flex items-start gap-3 p-2.5 rounded-md border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors cursor-pointer">
+                                    <RadioGroupItem value={opt.value} id={`dup-${r.rowNumber}-${opt.value}`} className="mt-0.5" />
+                                    <div className="flex items-start gap-2">
+                                      <Icon className="h-4 w-4 text-slate-500 mt-0.5 flex-shrink-0" />
+                                      <div className="space-y-0.5">
+                                        <div className="text-sm font-medium text-slate-800">{opt.label}</div>
+                                        <div className="text-xs text-slate-600">{opt.description}</div>
+                                      </div>
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                            </RadioGroup>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-between">
+              <Button variant="outline" onClick={() => setStep('row-review')} className="rounded-lg shadow-sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
+              <Button onClick={handleResolveDuplicates} className="rounded-lg shadow-md">
+                Continue to Confirm <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 6: Confirmation */}
+      {step === 'confirmation' && batchResult && (
         <Card className="shadow-md border-0 rounded-xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><CheckCircle className="h-5 w-5" /> Import Confirmation</CardTitle>
-            <CardDescription>Review the summary before importing</CardDescription>
+            <CardDescription>Review the final summary before importing</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Summary stats */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="shadow-sm rounded-lg p-4 bg-emerald-50 border border-emerald-200">
-                <div className="text-xs text-emerald-600 font-medium">Valid Products</div>
-                <div className="text-lg font-bold text-emerald-700">{stats?.validRows ?? previewProducts.length}</div>
+                <div className="text-xs text-emerald-600 font-medium">Ready to Add</div>
+                <div className="text-lg font-bold text-emerald-700">{groupedResults.valid.length + groupedResults.needsReview.length}</div>
               </div>
-              <div className="shadow-sm rounded-lg p-4 bg-amber-50 border border-amber-200">
-                <div className="text-xs text-amber-600 font-medium">Skipped Rows</div>
-                <div className="text-lg font-bold text-amber-700">{stats?.skippedRows ?? 0}</div>
+              <div className="shadow-sm rounded-lg p-4 bg-orange-50 border border-orange-200">
+                <div className="text-xs text-orange-600 font-medium">Duplicate SKUs</div>
+                <div className="text-lg font-bold text-orange-700">{groupedResults.duplicate.length}</div>
               </div>
-              <div className="shadow-sm rounded-lg p-4 bg-amber-50 border border-amber-200">
-                <div className="text-xs text-amber-600 font-medium">Duplicate SKUs</div>
-                <div className="text-lg font-bold text-amber-700">{stats?.duplicateRows ?? 0}</div>
+              <div className="shadow-sm rounded-lg p-4 bg-red-50 border border-red-200">
+                <div className="text-xs text-red-600 font-medium">Rejected</div>
+                <div className="text-lg font-bold text-red-700">{groupedResults.rejected.length}</div>
               </div>
               <div className="shadow-sm rounded-lg p-4 bg-slate-50 border border-slate-200">
                 <div className="text-xs text-slate-500 font-medium">Total Rows</div>
-                <div className="text-lg font-bold text-slate-700">{stats?.totalRows ?? totalRows}</div>
+                <div className="text-lg font-bold text-slate-700">{batchResult.totalCount}</div>
               </div>
             </div>
 
-            {/* Detailed statistics */}
-            {stats && (
+            {/* Duplicate resolution summary */}
+            {groupedResults.duplicate.length > 0 && (
               <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 space-y-1">
-                <div className="text-xs font-medium text-slate-600 mb-2">Detailed Statistics</div>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                  <div className="text-slate-500">Missing purchase cost:</div>
-                  <div className="text-slate-700 font-medium">{stats.missingCostRows}</div>
-                  <div className="text-slate-500">Missing selling price:</div>
-                  <div className="text-slate-700 font-medium">{stats.missingPriceRows}</div>
-                  <div className="text-slate-500">Invalid percentage values:</div>
-                  <div className="text-slate-700 font-medium">{stats.invalidPercentRows}</div>
-                  <div className="text-slate-500">Invalid rows:</div>
-                  <div className="text-slate-700 font-medium">{stats.invalidRows}</div>
+                <div className="text-xs font-medium text-slate-600 mb-2">Duplicate Resolution Summary</div>
+                <div className="space-y-1">
+                  {groupedResults.duplicate.map(r => {
+                    const strategy = applyToAll ? applyToAllStrategy : (duplicateStrategies.get(r.rowNumber) ?? 'update-existing');
+                    const strategyLabel = STRATEGY_OPTIONS.find(s => s.value === strategy)?.label ?? strategy;
+                    return (
+                      <div key={r.rowNumber} className="flex items-center gap-2 text-xs">
+                        <Badge variant="secondary" className="text-[10px]">{strategyLabel}</Badge>
+                        <span className="text-slate-600">Row {r.rowNumber}: {r.product?.name ?? 'Unnamed'} ({r.product?.sku ?? '—'})</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
 
-            {/* Show skipped/duplicate details */}
-            {cleaningResult && cleaningResult.skippedRows.length > 0 && (
-              <div className="bg-amber-50 rounded-lg p-3 border border-amber-200 max-h-48 overflow-y-auto">
-                <div className="text-xs font-medium text-amber-600 mb-1">Skipped Rows Details</div>
-                {cleaningResult.skippedRows.slice(0, 10).map((issue, idx) => (
-                  <div key={idx} className="text-xs text-amber-700">
-                    Row {issue.originalRowNumber}: {issue.reason}
-                  </div>
-                ))}
-                {cleaningResult.skippedRows.length > 10 && (
-                  <div className="text-xs text-amber-500">
-                    ... and {cleaningResult.skippedRows.length - 10} more skipped rows
-                  </div>
-                )}
-              </div>
+            {/* Needs review note */}
+            {groupedResults.needsReview.length > 0 && (
+              <Alert className="border-amber-200 bg-amber-50/50">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <AlertTitle className="text-amber-800 text-xs font-medium">Products Needing Review</AlertTitle>
+                <AlertDescription className="text-xs text-slate-700">
+                  {groupedResults.needsReview.length} product{groupedResults.needsReview.length === 1 ? '' : 's'} will be imported but flagged for review. They may have missing data that needs to be filled in before pricing can be calculated.
+                </AlertDescription>
+              </Alert>
             )}
 
-            {cleaningResult && cleaningResult.duplicateRows.length > 0 && (
-              <div className="bg-amber-50 rounded-lg p-3 border border-amber-200 max-h-48 overflow-y-auto">
-                <div className="text-xs font-medium text-amber-600 mb-1">Duplicate SKU Details</div>
-                {cleaningResult.duplicateRows.slice(0, 10).map((issue, idx) => (
-                  <div key={idx} className="text-xs text-amber-700">
-                    Row {issue.originalRowNumber}: {issue.reason}
-                  </div>
-                ))}
-                {cleaningResult.duplicateRows.length > 10 && (
-                  <div className="text-xs text-amber-500">
-                    ... and {cleaningResult.duplicateRows.length - 10} more duplicate rows
-                  </div>
-                )}
-              </div>
+            {/* Rejected rows note */}
+            {groupedResults.rejected.length > 0 && (
+              <Alert className="border-red-200 bg-red-50/50">
+                <FileX className="h-4 w-4 text-red-600" />
+                <AlertTitle className="text-red-800 text-xs font-medium">Rejected Rows</AlertTitle>
+                <AlertDescription className="text-xs text-slate-700">
+                  {groupedResults.rejected.length} row{groupedResults.rejected.length === 1 ? '' : 's'} could not be imported and will be skipped. You can download the issue report for details.
+                </AlertDescription>
+              </Alert>
             )}
 
-            {previewProducts.length > 0 && (
+            {/* Total inventory cost estimate */}
+            {batchResult.validProducts.length > 0 && (
               <div>
                 <h3 className="text-sm font-medium mb-2">Estimated total inventory cost:</h3>
                 <p className="text-lg font-semibold">
                   {formatCurrency(
-                    previewProducts.reduce((sum, p) => sum + (p.purchaseCost || 0), 0),
+                    batchResult.validProducts.reduce((sum, p) => sum + (p.purchaseCost || 0), 0),
                     businessSettings.currencyCode
                   )}
                 </p>
@@ -1105,9 +1462,29 @@ export function ImportFlow() {
             <Separator />
 
             <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep('cleaning')} className="rounded-lg shadow-sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button>
-              <Button onClick={handleImport} disabled={previewProducts.length === 0} className="rounded-lg shadow-md">
-                Import {previewProducts.length} Products
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (groupedResults.duplicate.length > 0) {
+                    setStep('duplicate-resolution');
+                  } else {
+                    setStep('row-review');
+                  }
+                }}
+                className="rounded-lg shadow-sm"
+              >
+                <ArrowLeft className="h-4 w-4 mr-1" /> Back
+              </Button>
+              <Button
+                onClick={handleImport}
+                disabled={isImporting || (groupedResults.valid.length === 0 && groupedResults.needsReview.length === 0 && groupedResults.duplicate.length === 0)}
+                className="rounded-lg shadow-md"
+              >
+                {isImporting ? (
+                  <>Importing...</>
+                ) : (
+                  <>Import {groupedResults.valid.length + groupedResults.needsReview.length + groupedResults.duplicate.length} Products</>
+                )}
               </Button>
             </div>
           </CardContent>

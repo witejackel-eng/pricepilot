@@ -70,11 +70,22 @@ export type SalesChannel =
 
 /** Import flow step */
 export type ImportStep =
-  | 'upload'       // File upload step
-  | 'preview'      // Data preview step
-  | 'mapping'      // Column mapping step
-  | 'cleaning'     // Data cleaning step
-  | 'confirmation'; // Final confirmation step
+  | 'upload'               // File upload step
+  | 'preview'              // Data preview step
+  | 'mapping'              // Column mapping step
+  | 'row-review'           // Row-by-row review (processImportRows)
+  | 'duplicate-resolution' // Duplicate SKU reconciliation
+  | 'confirmation';        // Final confirmation step
+
+/** Result of a transactional import commit. */
+export interface ImportCommitResult {
+  added: number;
+  updated: number;
+  filledMissing: number;
+  skipped: number;
+  rejected: number;
+  needsReview: number;
+}
 
 /** Warning severity levels */
 export type WarningSeverity = 'info' | 'warning' | 'error' | 'critical';
