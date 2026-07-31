@@ -1,0 +1,89 @@
+# PricePilot Production-Readiness Worklog
+
+This worklog tracks every commit, command result, and verification step on the
+`fix/pricepilot-production-readiness` branch.
+
+## Starting State
+
+- **Starting commit SHA**: `3994f677760d4151ab66c4dc7349c11d77be6dd6`
+- **Starting commit subject**: `chore: complete preview verification`
+- **Production deployment**: https://pricepilot-self.vercel.app/
+- **Safety tag**: `backup/pre-production-readiness`
+- **Repair branch**: `fix/pricepilot-production-readiness`
+- **Package manager**: bun 1.3.14
+
+## Baseline Verification Results (Phase 0)
+
+Captured before any repair work begins.
+
+| Command | Result | Notes |
+|---------|--------|-------|
+| `bun install` | PASS | 643 packages, no changes |
+| `bun run typecheck` | PASS | `tsc --noEmit` clean |
+| `bun run lint` | PASS | 0 errors (3 unused-disable warnings in `coverage/` artifacts) |
+| `bun run test` | PASS | 115 tests across 7 files, ~6.25s |
+| `bun run test:coverage` | PASS | Overall 29% statements / 27% branches — well below required thresholds |
+| `bun run build` | PASS | Next.js 16, 2 static routes |
+| `bun run test:e2e` | PASS | Father Workflow test (~17s) |
+
+## Known Integration Gaps at Baseline
+
+These are the gaps the previous stabilization left open and this repair must close:
+
+1. **Split storage architecture.** Store reads from IndexedDB on startup, but many live mutations (`addProduct`, `updateProduct`, `importProducts`, `updateBusinessSettings`, `addPricingRule`, `applyApprovedPrice`, undo) still go through `src/lib/pricepilot/storage.ts` which writes to `localStorage` with the `pricepilot_v1_` prefix.
+2. **`storage.ts` is still imported by live store code.** No ESLint guardrail prevents future regressions.
+3. **No `OperationResult` discipline.** Mutations are fire-and-forget — UI shows success even if persistence fails.
+4. **Backups generated from `exportAllData()` in `storage.ts`**, not from canonical IndexedDB state.
+5. **Backup restore is unvalidated.** Parsed JSON can be written directly into the store without Zod verification.
+6. **Import flow still uses the old direct pipeline** (`cleanImportData → map → importProducts`) in `import-flow.tsx` instead of `processImportRows()` from `import-service.ts`.
+7. **No interactive duplicate-SKU UI.** `duplicate-reconciliation.ts` exists but is not wired into the import screen.
+8. **Approvals are not invalidated when financial inputs change.** Editing a cost leaves any prior approval intact.
+9. **Add Product requires both name AND SKU**, and rejects missing purchase cost.
+10. **Onboarding invents fees.** Hard-codes 5% marketplace + 2% payment when no channel is selected, and defaults GST to 18% for non-exempt users.
+11. **`xlsx@^0.18.5` is vulnerable.** CVE-2024-22363 (ReDoS) — must be replaced with a maintained alternative.
+12. **No spreadsheet formula-injection sanitization** on export.
+13. **No security headers.** `next.config.ts` has no CSP, no X-Frame-Options, no HSTS.
+14. **Father Workflow E2E is permissive.** Uses sample-data shortcut, "if visible" branches, only checks body length.
+15. **No CI workflow.** No GitHub Actions; nothing enforces verification before merge.
+16. **No cross-browser / mobile E2E coverage.** Only Chromium project configured.
+17. **No error observability.** Errors only surface in the browser console.
+
+## Verification Protocol
+
+After every code commit we run:
+
+```bash
+bun run typecheck
+bun run lint
+bun run test
+bun run build
+```
+
+After E2E infrastructure commits we also run:
+
+```bash
+bun run test:e2e
+```
+
+Each phase records the actual command output below.
+
+---
+
+## Phase 0 — chore: capture production readiness baseline
+
+- Pulled `main`, confirmed starting SHA `3994f67`.
+- Created branch `fix/pricepilot-production-readiness` from `main`.
+- Created safety tag `backup/pre-production-readiness` pointing at `3994f67`.
+- Ran baseline verification commands and recorded results above.
+- Reproduced known integration gaps by reading the source (see "Known Integration Gaps at Baseline").
+
+**Verification**:
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS (0 errors)
+- `bun run test` — PASS (115 tests)
+- `bun run build` — PASS
+- `bun run test:e2e` — PASS (Father Workflow, ~17s)
+
+**Commit**: `chore: capture production readiness baseline`
+
+---
