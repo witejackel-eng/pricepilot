@@ -34,6 +34,9 @@ import {
   Command,
   Sparkles,
   ArrowRightLeft,
+  Users,
+  History,
+  Crown,
 } from 'lucide-react';
 import { SUPPORTED_CURRENCIES } from '@/lib/pricepilot/types';
 import { DashboardPage } from './dashboard-page';
@@ -56,6 +59,8 @@ import { CurrencyConverterWidget, CurrencyConverterTrigger } from './currency-co
 import { MarginAlertsPanel } from './margin-alerts-panel';
 import { NotificationCenter } from './notification-center';
 import { CSVExportButton } from './csv-export-button';
+import { CompetitorTrackingPage } from './competitor-tracking-page';
+import { PriceHistoryPage } from './price-history-page';
 import { toast } from 'sonner';
 
 // Owner mode navigation items.
@@ -64,7 +69,9 @@ const OWNER_NAV_ITEMS: { view: AppView; label: string; icon: React.ElementType }
   { view: 'products', label: 'Products', icon: Package },
   { view: 'import', label: 'Import Price List', icon: FileUp },
   { view: 'review-prices', label: 'Review Prices', icon: ClipboardCheck },
+  { view: 'competitor-tracking', label: 'Competitor Tracking', icon: Users },
   { view: 'export', label: 'Download Excel', icon: Download },
+  { view: 'price-history', label: 'Price History', icon: History },
   { view: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -76,7 +83,9 @@ const ADVANCED_NAV_ITEMS: { view: AppView; label: string; icon: React.ElementTyp
   { view: 'pricing-rules', label: 'Pricing Rules', icon: Scale },
   { view: 'price-simulator', label: 'Price Simulator', icon: Calculator },
   { view: 'scenarios', label: 'Saved Scenarios', icon: Bookmark },
+  { view: 'competitor-tracking', label: 'Competitor Tracking', icon: Users },
   { view: 'export', label: 'Export', icon: Download },
+  { view: 'price-history', label: 'Price History', icon: History },
   { view: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -98,6 +107,8 @@ const VIEW_LABELS: Record<AppView, string> = {
   'scenarios': 'Saved Scenarios',
   'export': 'Export',
   'settings': 'Settings',
+  'competitor-tracking': 'Competitor Tracking',
+  'price-history': 'Price History',
 };
 
 // Mobile bottom nav items (owner mode) — show top 5 most important
@@ -457,6 +468,8 @@ export function AppShell() {
       case 'price-simulator': return <PriceSimulator />;
       case 'scenarios': return <ScenariosPage />;
       case 'export': return <ExportPage />;
+      case 'competitor-tracking': return <CompetitorTrackingPage />;
+      case 'price-history': return <PriceHistoryPage />;
       case 'settings': return <SettingsPage />;
       default: return applicationMode === 'owner' ? <OwnerHome /> : <DashboardPage />;
     }
@@ -676,7 +689,7 @@ export function AppShell() {
                 <span className="text-emerald-700 dark:text-emerald-300 font-medium">
                   {lastSaved ? `Last saved: ${new Date(lastSaved).toLocaleTimeString()}` : 'Not saved yet'}
                 </span>
-                <span className="text-emerald-700 dark:text-emerald-300 font-mono border border-emerald-300/50 dark:border-emerald-700/50 rounded px-1.5 py-0.5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40">v1.4.0</span>
+                <span className="text-emerald-700 dark:text-emerald-300 font-mono border border-emerald-300/50 dark:border-emerald-700/50 rounded px-1.5 py-0.5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40">v1.5.0</span>
               </div>
             </div>
           </footer>

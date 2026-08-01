@@ -72,6 +72,12 @@ import {
   getDb,
   getMetadata,
   setMetadata,
+  loadPriceHistoryFromDb,
+  loadPriceHistoryForProduct,
+  addPriceHistoryEntry,
+  bulkAddPriceHistory,
+  clearPriceHistoryInDb,
+  PriceHistoryRecord,
 } from '@/lib/pricepilot/database';
 import {
   loadAppSettings,
@@ -202,7 +208,9 @@ export type AppView =
   | 'price-simulator'
   | 'scenarios'
   | 'export'
-  | 'settings';
+  | 'settings'
+  | 'competitor-tracking'
+  | 'price-history';
 
 // Undo history item
 export interface UndoAction {
@@ -256,6 +264,9 @@ interface PricePilotState {
   autoBackups: AutoBackup[];
   helpPanelOpen: boolean;
   guidedTourOpen: boolean;
+
+  // v1.5: Price history audit log
+  priceHistory: PriceHistoryRecord[];
 
   // Actions
   initialize: () => void;
@@ -338,6 +349,11 @@ interface PricePilotState {
   exportData: () => string;
   importData: (data: string) => boolean;
   resetApplication: () => Promise<void>;
+
+  // v1.5: Price history
+  recordPriceChange: (entry: Omit<PriceHistoryRecord, 'id' | 'timestamp'>) => Promise<void>;
+  refreshPriceHistory: () => Promise<void>;
+  clearPriceHistory: () => Promise<void>;
 }
 
 const MAX_UNDO_HISTORY = 20;
@@ -478,6 +494,7 @@ async function performInitialization(generation: number): Promise<void> {
     let undoHistory: UndoAction[] = [];
     let backups: AutoBackup[] = [];
     let lastSaved: string | null = null;
+    let priceHistory: PriceHistoryRecord[] = [];
 
     try {
       products = await loadAllProducts();
@@ -487,6 +504,8 @@ async function performInitialization(generation: number): Promise<void> {
       undoHistory = await loadUndoHistoryFromDb();
       backups = await loadBackupsFromDb();
       lastSaved = await loadLastSavedTimestampFromDb();
+      // v1.5: Load price history audit log.
+      priceHistory = await loadPriceHistoryFromDb();
     } catch (dbErr) {
       console.error('[PricePilot] Could not load from IndexedDB.', dbErr);
       // No localStorage fallback anymore — IndexedDB is the single
@@ -551,6 +570,7 @@ async function performInitialization(generation: number): Promise<void> {
       currentView: (businessSettings as BusinessSettings).onboardingCompleted ? defaultView : 'dashboard',
       autoBackups: backups,
       undoHistory,
+      priceHistory,
       initialization: summary,
     });
 
@@ -598,6 +618,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   autoBackups: [],
   helpPanelOpen: false,
   guidedTourOpen: false,
+
+  // v1.5: Price history audit log
+  priceHistory: [],
 
   // Initialize from IndexedDB (single source of truth).
   // Singleton guard: only one initialization Promise may run at a time.
@@ -798,6 +821,21 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     try {
       await persistProduct(updatedProduct);
       set({ products: updated });
+      // v1.5: Record price edit in history if selling price changed.
+      if (updates.currentSellingPrice !== undefined && updates.currentSellingPrice !== productBefore.currentSellingPrice) {
+        await get().recordPriceChange({
+          productId: productBefore.id,
+          productSku: productBefore.sku,
+          productName: productBefore.name,
+          action: 'price-edit',
+          oldPrice: productBefore.currentSellingPrice,
+          newPrice: updatedProduct.currentSellingPrice,
+          oldMargin: productBefore.calculatedMarginPercent,
+          newMargin: updatedProduct.calculatedMarginPercent,
+          description: `Edited selling price for ${productBefore.name}`,
+          metadata: { source: 'manual' },
+        });
+      }
       return ok(undefined, 'Product saved.');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not save the product.';
@@ -940,6 +978,19 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     try {
       await persistProduct(updatedProduct);
       set({ products: updated });
+      // v1.5: Record in price history audit log.
+      await get().recordPriceChange({
+        productId: product.id,
+        productSku: product.sku,
+        productName: product.name,
+        action: 'price-approve',
+        oldPrice: product.currentSellingPrice,
+        newPrice: approvedPrice,
+        oldMargin: product.calculatedMarginPercent,
+        newMargin: updatedProduct.calculatedMarginPercent,
+        description: `Approved ${recommendationMode} price for ${product.name}`,
+        metadata: { source: 'manual' },
+      });
       return ok(undefined, 'Price approved.');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not approve the price.';
@@ -978,6 +1029,19 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     try {
       await persistProduct(updatedProduct);
       set({ products: updated });
+      // v1.5: Record in price history audit log.
+      await get().recordPriceChange({
+        productId: product.id,
+        productSku: product.sku,
+        productName: product.name,
+        action: 'price-apply',
+        oldPrice: product.currentSellingPrice,
+        newPrice: product.finalApprovedPrice,
+        oldMargin: product.calculatedMarginPercent,
+        newMargin: updatedProduct.calculatedMarginPercent,
+        description: `Applied approved price for ${product.name}`,
+        metadata: { source: 'manual' },
+      });
       return ok(undefined, 'Price applied.');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not apply the price.';
@@ -1037,6 +1101,28 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       await atomicBulkUpdateProducts(changedProducts);
       await saveLastSavedTimestampToDb(new Date().toISOString());
       set({ products: updated });
+      // v1.5: Bulk record price history for approved products.
+      const historyEntries = changedProducts.map(p => {
+        const before = products.find(old => old.id === p.id)!;
+        return {
+          productId: p.id,
+          productSku: p.sku,
+          productName: p.name,
+          action: 'bulk-approve' as const,
+          oldPrice: before.currentSellingPrice,
+          newPrice: p.finalApprovedPrice,
+          oldMargin: before.calculatedMarginPercent,
+          newMargin: p.calculatedMarginPercent,
+          description: `Bulk approved ${p.selectedRecommendationMode || 'balanced'} price for ${p.name}`,
+          metadata: { source: 'bulk-action' as const },
+        };
+      });
+      await bulkAddPriceHistory(historyEntries.map(e => ({
+        ...e,
+        id: `ph-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        timestamp: new Date().toISOString(),
+      })));
+      await get().refreshPriceHistory();
       return ok(undefined, `${productIds.length} price(s) approved.`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not approve the prices.';
@@ -1727,6 +1813,42 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       importState: createDefaultImportState(),
       undoHistory: [],
       autoBackups: [],
+      priceHistory: [],
     });
+  },
+
+  // v1.5: Price history audit log methods
+  recordPriceChange: async (entry) => {
+    const fullEntry: PriceHistoryRecord = {
+      ...entry,
+      id: `ph-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: new Date().toISOString(),
+    };
+    try {
+      await addPriceHistoryEntry(fullEntry);
+      // Update local state — prepend to keep most-recent-first order.
+      const current = get().priceHistory;
+      set({ priceHistory: [fullEntry, ...current] });
+    } catch (err) {
+      console.error('[PricePilot] Could not record price change in history.', err);
+    }
+  },
+
+  refreshPriceHistory: async () => {
+    try {
+      const history = await loadPriceHistoryFromDb();
+      set({ priceHistory: history });
+    } catch (err) {
+      console.error('[PricePilot] Could not refresh price history.', err);
+    }
+  },
+
+  clearPriceHistory: async () => {
+    try {
+      await clearPriceHistoryInDb();
+      set({ priceHistory: [] });
+    } catch (err) {
+      console.error('[PricePilot] Could not clear price history.', err);
+    }
   },
 }));
