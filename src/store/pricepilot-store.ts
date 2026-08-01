@@ -558,7 +558,32 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       return initializationPromise;
     }
 
-    initializationPromise = performInitialization()
+    // Timeout guard: if initialization doesn't complete within 15
+    // seconds, mark it as failed so the UI shows a recovery screen
+    // instead of hanging forever. This is critical for WebKit where
+    // IndexedDB operations can stall indefinitely.
+    const INIT_TIMEOUT_MS = 15_000;
+
+    initializationPromise = Promise.race([
+      performInitialization(),
+      new Promise<void>((_resolve, reject) =>
+        setTimeout(() => reject(new Error(
+          `Initialization timed out after ${INIT_TIMEOUT_MS / 1000}s. ` +
+          `This may be caused by a blocked IndexedDB operation. ` +
+          `Try refreshing the page.`
+        )), INIT_TIMEOUT_MS)
+      ),
+    ])
+      .catch((err: unknown) => {
+        // If the timeout fires, mark initialization as failed.
+        // If performInitialization already set the state, this is
+        // a no-op. If it didn't (because it's stuck), we set it here.
+        const state = usePricePilotStore.getState();
+        if (state.initialization.status === 'loading' || state.initialization.status === 'idle') {
+          console.error('[PricePilot] Initialization timeout.', err);
+          usePricePilotStore.setState({ initialization: makeFailedSummary(err) });
+        }
+      })
       .finally(() => {
         // Clear the guard so retryInitialize() can start a new one.
         initializationPromise = null;

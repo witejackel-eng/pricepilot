@@ -22,6 +22,16 @@ import { type Page, type BrowserContext, expect } from '@playwright/test';
  *
  * MUST be called before each test to ensure deterministic startup.
  * After reset, the app should show fresh onboarding.
+ *
+ * WebKit/iPhone critical fix: We clear IndexedDB tables instead of
+ * deleting the entire database. Deleting the database while a Dexie
+ * connection is open causes `onblocked` on WebKit, and the database
+ * is NOT actually deleted. On the next page load, the old data is
+ * still there, causing stale state or initialization hangs.
+ *
+ * By clearing tables instead of deleting the database, we avoid the
+ * blocking issue entirely. The database schema remains, but all
+ * data is gone.
  */
 export async function resetPricePilotState(
   page: Page,
@@ -33,30 +43,11 @@ export async function resetPricePilotState(
   // Navigate to the app first so we can access storage APIs
   await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-  // Close any open Dexie connections BEFORE deleting databases.
-  // This is critical for WebKit/iPhone where open connections
-  // block `deleteDatabase` requests.
-  await page.evaluate(() => {
-    // Try to close the Dexie database if it's accessible.
-    // The Dexie singleton is inside a module closure, but we can
-    // try to close it via the Dexie.___database reference.
-    // Fallback: iterate all open IDBDatabase connections (not
-    // directly possible, but Dexie stores them).
-    try {
-      // Access the internal Dexie database registry.
-      // Dexie 4.x stores open databases in Dexie.databases
-      const DexieConstructor = (window as unknown as Record<string, unknown>).Dexie;
-      if (DexieConstructor && typeof (DexieConstructor as Record<string, unknown>).databases === 'function') {
-        // Close all known Dexie databases
-        const dbs = (DexieConstructor as unknown as { databases: () => { close: () => void }[] }).databases();
-        for (const db of dbs) {
-          try { db.close(); } catch { /* ignore */ }
-        }
-      }
-    } catch { /* ignore */ }
-  }).catch(() => {});
+  // Give the app a moment to initialize before clearing state.
+  // This ensures Dexie has opened the database so we can clear tables.
+  await page.waitForTimeout(500);
 
-  // Clear all storage and IndexedDB
+  // Clear all storage and IndexedDB tables (not the database itself).
   await page.evaluate(async () => {
     // localStorage
     try {
@@ -94,9 +85,9 @@ export async function resetPricePilotState(
       }
     }
 
-    // IndexedDB — delete all databases
-    // WebKit does not support indexedDB.databases(), so we enumerate
-    // known database names.
+    // IndexedDB: Clear all tables instead of deleting the database.
+    // This avoids the WebKit `onblocked` issue where deleteDatabase
+    // fails silently if a connection is still open.
     const knownDbNames = ['pricepilot', 'pricepilot_v1', 'PricePilotDB'];
 
     // Try to get all databases if supported (Chromium, Firefox)
@@ -114,23 +105,62 @@ export async function resetPricePilotState(
       }
     }
 
-    // Delete each database sequentially (NOT in parallel) to avoid
-    // WebKit blocking issues. On WebKit, if multiple delete requests
-    // run concurrently, they can deadlock.
+    // Strategy: Try to clear tables first (WebKit-safe), then fall
+    // back to database deletion if clearing fails.
     for (const name of dbNames) {
-      await new Promise<void>((resolve) => {
-        const request = indexedDB.deleteDatabase(name);
-        request.onsuccess = () => resolve();
-        request.onerror = () => resolve(); // Don't fail the test
-        request.onblocked = () => {
-          // On WebKit, this fires when a connection is still open.
-          // We resolve anyway — the reload below will create a fresh
-          // Dexie instance that opens a new database.
-          resolve();
-        };
-      });
+      let cleared = false;
+      try {
+        // Open the database and clear all object stores
+        const db: IDBDatabase = await new Promise((resolve, reject) => {
+          const request = indexedDB.open(name);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+          request.onupgradeneeded = () => {
+            // Database doesn't exist yet — that's fine
+            resolve(request.result);
+          };
+          request.onblocked = () => reject(new Error('blocked'));
+        });
+
+        // Clear all object stores
+        const storeNames = Array.from(db.objectStoreNames);
+        if (storeNames.length > 0) {
+          const tx = db.transaction(storeNames, 'readwrite');
+          await new Promise<void>((resolve, reject) => {
+            for (const storeName of storeNames) {
+              tx.objectStore(storeName).clear();
+            }
+            tx.oncomplete = () => {
+              db.close();
+              resolve();
+            };
+            tx.onerror = () => {
+              db.close();
+              reject(tx.error);
+            };
+          });
+        } else {
+          db.close();
+        }
+        cleared = true;
+      } catch {
+        // Clearing failed — fall through to deletion
+      }
+
+      if (!cleared) {
+        // Fallback: delete the database entirely
+        await new Promise<void>((resolve) => {
+          const request = indexedDB.deleteDatabase(name);
+          request.onsuccess = () => resolve();
+          request.onerror = () => resolve();
+          request.onblocked = () => resolve();
+        });
+      }
     }
   });
+
+  // Small delay to let IndexedDB operations settle before reload
+  await page.waitForTimeout(200);
 
   // Reload to ensure the app starts fresh
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -245,16 +275,27 @@ export async function navigateTo(
   let isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
 
   if (!isButtonVisible) {
-    // Try expanding the "Advanced Tools" collapsible section
+    // Try expanding the "Advanced Tools" collapsible section.
+    // The trigger is inside the sidebar/drawer, so look for it
+    // within the same scope container.
     const advancedToolsTrigger = scopeContainer.getByTestId('nav-advanced-tools');
-    if (await advancedToolsTrigger.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    const isAdvancedVisible = await advancedToolsTrigger.isVisible({ timeout: 1_000 }).catch(() => false);
+    if (isAdvancedVisible) {
       await advancedToolsTrigger.click();
       // Wait for the collapsible content to expand
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(500);
     }
 
     // Re-check button visibility
     isButtonVisible = await button.isVisible({ timeout: 3_000 }).catch(() => false);
+  }
+
+  // If the button is still not visible after expanding the collapsible,
+  // fall back to an unscoped lookup (the button might be rendered
+  // differently on this particular viewport/configuration).
+  if (!isButtonVisible) {
+    button = page.getByTestId(testId);
+    isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
   }
 
   await expect(button, `Navigation button "${target}" (${testId}) must be visible`).toBeVisible({ timeout: 10_000 });
