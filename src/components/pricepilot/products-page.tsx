@@ -20,8 +20,11 @@ import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { Product, SalesChannel, PricingStatus, LifecycleStatus } from '@/lib/pricepilot/types';
 import { buildNonEmptyOptions, UNCATEGORISED_FILTER, UNKNOWN_BRAND_FILTER, categoryMatchesFilter, brandMatchesFilter, categoryFilterLabel, brandFilterLabel } from '@/lib/pricepilot/safe-select';
 import { safeLowerCase } from '@/lib/pricepilot/safe-product';
-import { Package, FileUp, Plus, Search, Trash2, CheckCircle, Eye, MoreHorizontal, ArrowLeftRight, SlidersHorizontal, Columns3, X, ChevronDown, ChevronUp, CheckCircle2, PencilLine, TrendingUp, Sparkles, ArrowUpDown, Filter, AlertTriangle, XCircle, HelpCircle } from 'lucide-react';
+import { Package, FileUp, Plus, Search, Trash2, CheckCircle, Eye, MoreHorizontal, ArrowLeftRight, SlidersHorizontal, Columns3, X, ChevronDown, ChevronUp, CheckCircle2, PencilLine, TrendingUp, Sparkles, ArrowUpDown, Filter, AlertTriangle, XCircle, HelpCircle, Activity } from 'lucide-react';
 import { toast } from 'sonner';
+import { PriceSparkline } from './price-sparkline';
+import { MarginTrendBadge } from './margin-trend-badge';
+import { usePriceHistoryForProduct } from '@/hooks/use-price-history';
 
 // Display labels for the SalesChannel union type
 const CHANNEL_LABELS: Record<SalesChannel, string> = {
@@ -77,8 +80,46 @@ const SORT_OPTIONS = [
 
 type FilterTab = 'all' | 'profitable' | 'low-margin' | 'loss-making' | 'missing-cost' | 'needs-review';
 
+/**
+ * v1.6: Product trend cell — renders a sparkline + margin trend badge.
+ * Extracted into its own component so it can use the usePriceHistoryForProduct
+ * hook (hooks cannot be called inside a .map callback).
+ */
+function ProductTrendCell({
+  productId,
+  currentPrice,
+  currentMargin,
+  allHistory,
+}: {
+  productId: string;
+  currentPrice: number;
+  currentMargin: number;
+  allHistory: import('@/lib/pricepilot/database').PriceHistoryRecord[];
+}) {
+  const { pricePoints, previousMargin } = usePriceHistoryForProduct(productId, allHistory);
+  // Append current price as the latest point so the sparkline always shows
+  // the full trajectory (history may lag behind the live currentPrice).
+  const fullPoints = pricePoints.length > 0 ? [...pricePoints, currentPrice] : [];
+
+  if (fullPoints.length < 2) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-3">
+        <span className="text-[10px] text-slate-400 italic">No history</span>
+        <MarginTrendBadge current={currentMargin} previous={previousMargin} size="sm" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-center gap-2 py-3">
+      <PriceSparkline data={fullPoints} width={70} height={24} />
+      <MarginTrendBadge current={currentMargin} previous={previousMargin} size="sm" />
+    </div>
+  );
+}
+
 export function ProductsPage() {
-  const { products, businessSettings, setCurrentView, loadSampleData, selectedProducts, setSelectedProducts, deleteSelectedProducts, approveSelectedProducts, markSelectedForReview, updateProduct, approveProductPrice, applyApprovedPrice, initialFilterTab, setInitialFilterTab } = usePricePilotStore();
+  const { products, businessSettings, setCurrentView, loadSampleData, selectedProducts, setSelectedProducts, deleteSelectedProducts, approveSelectedProducts, markSelectedForReview, updateProduct, approveProductPrice, applyApprovedPrice, initialFilterTab, setInitialFilterTab, priceHistory } = usePricePilotStore();
 
   // Map pricing status to FilterTab for chart click-through
   const statusToTab: Record<string, FilterTab> = {
@@ -711,6 +752,12 @@ export function ProductsPage() {
                   <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('recommendedPrice')}>Recommended {sortIcon('recommendedPrice', sortBy, sortDir)}</TableHead>
                   <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('profit')}>Profit {sortIcon('profit', sortBy, sortDir)}</TableHead>
                   <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('margin')}>Margin {sortIcon('margin', sortBy, sortDir)}</TableHead>
+                  <TableHead className="text-center sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    <div className="flex items-center justify-center gap-1">
+                      <Activity className="h-3 w-3" />
+                      Trend
+                    </div>
+                  </TableHead>
                   <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('markup')}>Markup {sortIcon('markup', sortBy, sortDir)}</TableHead>
                   <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Status</TableHead>
                 </TableRow>
@@ -718,7 +765,7 @@ export function ProductsPage() {
               <TableBody>
                 {pageData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={showMoreColumns ? 19 : 12} className="text-center py-12">
+                    <TableCell colSpan={showMoreColumns ? 20 : 13} className="text-center py-12">
                       <div className="flex flex-col items-center">
                         <div className="bg-slate-100 rounded-full p-4 mb-3">
                           <Search className="h-8 w-8 text-slate-400" />
@@ -811,6 +858,14 @@ export function ProductsPage() {
                           {formatCurrency(p.calculatedProfitPerUnit, businessSettings.currencyCode)}
                         </TableCell>
                         <TableCell className="text-right text-slate-600 tabular-nums py-3">{formatPercentage(p.calculatedMarginPercent)}</TableCell>
+                        <TableCell className="py-3" onClick={(e) => e.stopPropagation()}>
+                          <ProductTrendCell
+                            productId={p.id}
+                            currentPrice={p.currentSellingPrice}
+                            currentMargin={p.calculatedMarginPercent}
+                            allHistory={priceHistory}
+                          />
+                        </TableCell>
                         <TableCell className="text-right text-slate-600 tabular-nums py-3">{formatPercentage(p.calculatedMarkupPercent)}</TableCell>
                         <TableCell className="py-3">
                           <StatusBadge status={p.calculatedPricingStatus} pulse={needsAttention} />

@@ -210,7 +210,9 @@ export type AppView =
   | 'export'
   | 'settings'
   | 'competitor-tracking'
-  | 'price-history';
+  | 'price-history'
+  | 'price-elasticity'
+  | 'price-alerts';
 
 // Undo history item
 export interface UndoAction {
