@@ -30,6 +30,10 @@ import {
   Undo2,
   HelpCircle,
   Search,
+  User,
+  Command,
+  Sparkles,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { SUPPORTED_CURRENCIES } from '@/lib/pricepilot/types';
 import { DashboardPage } from './dashboard-page';
@@ -51,14 +55,6 @@ import { CommandPalette } from './command-palette';
 import { toast } from 'sonner';
 
 // Owner mode navigation items.
-//
-// Phase 5 (navigation predictability): Settings is a primary view and
-// MUST have a stable, always-visible navigation target. Previously it
-// was nested inside the collapsible "Advanced Tools" section, which
-// made it unreachable for keyboard users, screen readers and E2E
-// navigation when the collapsible failed to expand reliably across
-// browsers. It is now a top-level item so every primary view is
-// reachable without expanding anything.
 const OWNER_NAV_ITEMS: { view: AppView; label: string; icon: React.ElementType }[] = [
   { view: 'owner-home', label: 'Home', icon: Home },
   { view: 'products', label: 'Products', icon: Package },
@@ -80,10 +76,7 @@ const ADVANCED_NAV_ITEMS: { view: AppView; label: string; icon: React.ElementTyp
   { view: 'settings', label: 'Settings', icon: Settings },
 ];
 
-// Advanced tools section for owner mode. These are genuinely "advanced"
-// power-user tools that benefit from being grouped behind a collapsible
-// to keep the primary navigation simple for the nontechnical owner.
-// Settings is intentionally NOT in this list — see OWNER_NAV_ITEMS.
+// Advanced tools section for owner mode
 const ADVANCED_TOOLS_ITEMS: { view: AppView; label: string; icon: React.ElementType }[] = [
   { view: 'pricing-rules', label: 'Pricing Rules', icon: Scale },
   { view: 'price-simulator', label: 'Price Simulator', icon: Calculator },
@@ -103,7 +96,56 @@ const VIEW_LABELS: Record<AppView, string> = {
   'settings': 'Settings',
 };
 
-function SidebarContent({ currentView, setCurrentView, businessSettings, resetApplication, onNavClick, lossMakingCount, inactiveRulesCount, applicationMode }: {
+// Mobile bottom nav items (owner mode) — show top 5 most important
+const OWNER_MOBILE_NAV: { view: AppView; label: string; icon: React.ElementType }[] = [
+  { view: 'owner-home', label: 'Home', icon: Home },
+  { view: 'products', label: 'Products', icon: Package },
+  { view: 'review-prices', label: 'Review', icon: ClipboardCheck },
+  { view: 'export', label: 'Export', icon: Download },
+  { view: 'settings', label: 'Settings', icon: Settings },
+];
+
+// Mobile bottom nav items (advanced mode)
+const ADVANCED_MOBILE_NAV: { view: AppView; label: string; icon: React.ElementType }[] = [
+  { view: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { view: 'products', label: 'Products', icon: Package },
+  { view: 'pricing-rules', label: 'Rules', icon: Scale },
+  { view: 'export', label: 'Export', icon: Download },
+  { view: 'settings', label: 'Settings', icon: Settings },
+];
+
+// Mode switcher component with animated toggle
+function ModeSwitcher({ currentMode, onModeChange }: { currentMode: ApplicationMode; onModeChange: (mode: ApplicationMode) => void }) {
+  const isOwner = currentMode === 'owner';
+  return (
+    <div className="flex items-center gap-1 bg-emerald-800/50 rounded-lg p-1">
+      <button
+        onClick={() => onModeChange('owner')}
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-300 ${
+          isOwner
+            ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-900/30'
+            : 'text-emerald-300/60 hover:text-emerald-200'
+        }`}
+      >
+        <Home className="h-3 w-3" />
+        Owner
+      </button>
+      <button
+        onClick={() => onModeChange('advanced')}
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-300 ${
+          !isOwner
+            ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-900/30'
+            : 'text-emerald-300/60 hover:text-emerald-200'
+        }`}
+      >
+        <LayoutDashboard className="h-3 w-3" />
+        Advanced
+      </button>
+    </div>
+  );
+}
+
+function SidebarContent({ currentView, setCurrentView, businessSettings, resetApplication, onNavClick, lossMakingCount, inactiveRulesCount, applicationMode, onModeChange }: {
   currentView: AppView;
   setCurrentView: (view: AppView) => void;
   businessSettings: { businessName: string };
@@ -112,6 +154,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
   lossMakingCount: number;
   inactiveRulesCount: number;
   applicationMode: ApplicationMode;
+  onModeChange: (mode: ApplicationMode) => void;
 }) {
   const { undoHistory, undoLastAction } = usePricePilotStore();
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -120,15 +163,28 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
 
   return (
     <div className="flex flex-col h-full">
+      {/* Logo area with subtle animation */}
       <div className="p-4 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white font-bold text-xl shadow-emerald-sm">P</div>
+        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-emerald-700/30 relative overflow-hidden group">
+          <span className="relative z-10">P</span>
+          {/* Subtle shine animation */}
+          <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+        </div>
         <div>
-          <h2 className="font-semibold text-sm leading-tight text-white">PricePilot</h2>
+          <h2 className="font-semibold text-sm leading-tight text-white flex items-center gap-1.5">
+            PricePilot
+            <Sparkles className="h-3 w-3 text-emerald-300 opacity-60" />
+          </h2>
           <p className="text-xs text-emerald-200 truncate max-w-[140px]">{businessSettings.businessName || 'My Workspace'}</p>
         </div>
       </div>
 
       <Separator className="my-2 mx-3 bg-emerald-700/50" />
+
+      {/* Mode switcher */}
+      <div className="px-3 pb-2">
+        <ModeSwitcher currentMode={applicationMode} onModeChange={onModeChange} />
+      </div>
 
       {/* Undo button */}
       {undoHistory.length > 0 && (
@@ -140,7 +196,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
         </div>
       )}
 
-      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+      <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
         {navItems.map(item => {
           const Icon = item.icon;
           const isActive = currentView === item.view;
@@ -153,16 +209,16 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
               variant="ghost"
               title={item.label}
               data-testid={`nav-${item.view}`}
-              className={`w-full justify-start gap-3 rounded-lg transition-all duration-200 ${
+              className={`w-full justify-start gap-3 rounded-lg transition-all duration-300 relative overflow-hidden ${
                 isActive
-                  ? 'bg-emerald-600/40 text-white font-medium shadow-lg shadow-emerald-900/30 border-l-2 border-emerald-500'
-                  : 'text-emerald-100 hover:bg-emerald-700/50 hover:text-white hover:-translate-y-0.5'
+                  ? 'bg-gradient-to-r from-emerald-500/30 to-teal-500/20 text-white font-medium shadow-lg shadow-emerald-900/30 border-l-[3px] border-emerald-400 before:absolute before:inset-0 before:bg-gradient-to-r before:from-emerald-500/10 before:to-transparent before:pointer-events-none'
+                  : 'text-emerald-100/80 hover:bg-emerald-700/40 hover:text-white hover:translate-x-0.5'
               }`}
               onClick={() => { setCurrentView(item.view); if (onNavClick) onNavClick(); }}
             >
               <span className="relative">
                 {isActive ? (
-                  <span className="flex items-center justify-center h-8 w-8 rounded-lg bg-emerald-500/50 shadow-sm">
+                  <span className="flex items-center justify-center h-8 w-8 rounded-lg bg-emerald-500/40 shadow-inner shadow-emerald-400/20">
                     <Icon className="h-4 w-4 text-emerald-200" />
                   </span>
                 ) : (
@@ -181,12 +237,12 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
         {applicationMode === 'owner' && (
           <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
             <CollapsibleTrigger asChild>
-              <Button variant="ghost" data-testid="nav-advanced-tools" className="w-full justify-start gap-2 text-emerald-300/60 hover:text-emerald-200 text-xs rounded-lg mt-2">
+              <Button variant="ghost" data-testid="nav-advanced-tools" className="w-full justify-start gap-2 text-emerald-300/60 hover:text-emerald-200 text-xs rounded-lg mt-2 transition-colors duration-200">
                 {advancedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                 Advanced Tools
               </Button>
             </CollapsibleTrigger>
-            <CollapsibleContent className="space-y-1 pl-2">
+            <CollapsibleContent className="space-y-0.5 pl-2">
               {ADVANCED_TOOLS_ITEMS.map(item => {
                 const Icon = item.icon;
                 const isActive = currentView === item.view;
@@ -196,10 +252,10 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
                     variant="ghost"
                     title={item.label}
                     data-testid={`nav-${item.view}`}
-                    className={`w-full justify-start gap-3 rounded-lg transition-all duration-200 text-xs ${
+                    className={`w-full justify-start gap-3 rounded-lg transition-all duration-300 text-xs ${
                       isActive
-                        ? 'bg-emerald-600/30 text-white font-medium'
-                        : 'text-emerald-200/60 hover:bg-emerald-700/40 hover:text-emerald-200'
+                        ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/10 text-white font-medium border-l-2 border-emerald-400'
+                        : 'text-emerald-200/60 hover:bg-emerald-700/30 hover:text-emerald-200 hover:translate-x-0.5'
                     }`}
                     onClick={() => { setCurrentView(item.view); if (onNavClick) onNavClick(); }}
                   >
@@ -215,8 +271,22 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
 
       <Separator className="my-2 mx-3 bg-emerald-700/50" />
 
+      {/* User avatar area */}
+      <div className="px-3 pb-2">
+        <div className="flex items-center gap-2.5 p-2 rounded-lg bg-emerald-800/40 hover:bg-emerald-800/60 transition-colors duration-200 cursor-default">
+          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-bold shadow-sm shrink-0">
+            {businessSettings.businessName ? businessSettings.businessName.charAt(0).toUpperCase() : 'U'}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-emerald-100 truncate">{businessSettings.businessName || 'My Workspace'}</p>
+            <p className="text-[10px] text-emerald-300/60">{applicationMode === 'owner' ? 'Owner Mode' : 'Advanced Mode'}</p>
+          </div>
+        </div>
+      </div>
+
       <div className="p-4 space-y-3">
-        <div className="rounded bg-emerald-700/40 p-2 flex items-center gap-2 text-xs text-emerald-100">
+        {/* Privacy badge */}
+        <div className="rounded-lg bg-emerald-800/40 p-2.5 flex items-center gap-2 text-xs text-emerald-100 border border-emerald-700/30">
           <ShieldCheck className="h-4 w-4 text-emerald-300 shrink-0" />
           <span className="truncate">Your data stays local</span>
         </div>
@@ -246,6 +316,54 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
         )}
       </div>
     </div>
+  );
+}
+
+// Mobile bottom navigation bar
+function MobileBottomNav({ currentView, setCurrentView, applicationMode, lossMakingCount }: {
+  currentView: AppView;
+  setCurrentView: (view: AppView) => void;
+  applicationMode: ApplicationMode;
+  lossMakingCount: number;
+}) {
+  const navItems = applicationMode === 'owner' ? OWNER_MOBILE_NAV : ADVANCED_MOBILE_NAV;
+
+  return (
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-t border-slate-200/60 dark:border-slate-800/60 pb-[env(safe-area-inset-bottom)]">
+      <div className="flex items-center justify-around px-2 py-1">
+        {navItems.map(item => {
+          const Icon = item.icon;
+          const isActive = currentView === item.view;
+          const badgeCount = (item.view === 'products' || item.view === 'review-prices') ? lossMakingCount : 0;
+          return (
+            <button
+              key={item.view}
+              onClick={() => setCurrentView(item.view)}
+              className={`flex flex-col items-center justify-center gap-0.5 py-1.5 px-3 rounded-lg transition-all duration-200 min-w-[56px] relative ${
+                isActive
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
+              }`}
+            >
+              <span className="relative">
+                <Icon className={`h-5 w-5 transition-transform duration-200 ${isActive ? 'scale-110' : ''}`} />
+                {badgeCount > 0 && (
+                  <span className="absolute -top-1 -right-1 h-3.5 min-w-3.5 px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">
+                    {badgeCount > 9 ? '9+' : badgeCount}
+                  </span>
+                )}
+              </span>
+              <span className={`text-[10px] font-medium transition-colors duration-200 ${isActive ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>
+                {item.label}
+              </span>
+              {isActive && (
+                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-emerald-500 rounded-full" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
@@ -300,6 +418,20 @@ export function AppShell() {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
+
+  const handleModeChange = (mode: ApplicationMode) => {
+    const store = usePricePilotStore.getState();
+    store.updateAppSettings({ applicationMode: mode });
+    // If switching to owner mode and current view is advanced-only, switch to owner-home
+    if (mode === 'owner' && !['owner-home', 'products', 'import', 'review-prices', 'export', 'settings'].includes(currentView)) {
+      setCurrentView('owner-home');
+    }
+    // If switching to advanced mode and current view is owner-home, switch to dashboard
+    if (mode === 'advanced' && currentView === 'owner-home') {
+      setCurrentView('dashboard');
+    }
+    toast.success(`Switched to ${mode === 'owner' ? 'Owner' : 'Advanced'} mode`);
+  };
 
   const renderView = () => {
     switch (currentView) {
@@ -393,10 +525,10 @@ export function AppShell() {
       <div className="flex flex-1 min-w-0">
         {/* Desktop sidebar */}
         <aside className="hidden lg:block w-64 border-r bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700 h-screen sticky top-0 shadow-lg">
-          <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} applicationMode={applicationMode} />
+          <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} applicationMode={applicationMode} onModeChange={handleModeChange} />
         </aside>
 
-        {/* Floating Help button — bottom-right, always visible */}
+        {/* Floating Help button — bottom-right, always visible (hidden on mobile since we have bottom nav) */}
         <FloatingHelpButton onClick={() => setHelpPanelOpen(true)} />
 
         {/* Main area */}
@@ -413,7 +545,7 @@ export function AppShell() {
                 </SheetTrigger>
                 <SheetContent side="left" className="w-72 p-0 bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700" data-testid="mobile-navigation-drawer">
                   <SheetTitle className="px-4 pt-4 pb-2 text-sm font-semibold text-emerald-200">Navigation</SheetTitle>
-                  <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} onNavClick={() => setMobileOpen(false)} applicationMode={applicationMode} />
+                  <SidebarContent currentView={currentView} setCurrentView={(v) => { setCurrentView(v); setMobileOpen(false); }} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} onNavClick={() => setMobileOpen(false)} applicationMode={applicationMode} onModeChange={handleModeChange} />
                 </SheetContent>
               </Sheet>
               <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100 text-balance tracking-tight">{VIEW_LABELS[currentView]}</h1>
@@ -423,49 +555,51 @@ export function AppShell() {
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Command Palette trigger button */}
+              {/* Command Palette trigger button with ⌘K hint */}
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setCommandPaletteOpen(true)}
-                className="hidden md:flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors duration-200"
-                title="Open Command Palette (Ctrl+K)"
+                className="hidden md:flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors duration-200 rounded-xl border-slate-200 dark:border-slate-700 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+                title="Open Command Palette (⌘K)"
               >
                 <Search className="h-3.5 w-3.5" />
                 <span>Search...</span>
-                <kbd className="ml-1 px-1.5 py-0.5 text-[10px] font-mono bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded">⌘K</kbd>
+                <kbd className="ml-1 px-1.5 py-0.5 text-[10px] font-mono bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded flex items-center gap-0.5">
+                  <Command className="h-2.5 w-2.5" />K
+                </kbd>
               </Button>
 
               {/* Undo button in header */}
               {undoHistory.length > 0 && (
-                <Button variant="outline" size="sm" onClick={handleUndo} className="hidden sm:flex transition-colors duration-200 text-xs">
+                <Button variant="outline" size="sm" onClick={handleUndo} className="hidden sm:flex transition-colors duration-200 text-xs rounded-xl">
                   <Undo2 className="h-3 w-3 mr-1" /> Undo
                 </Button>
               )}
               {isOwnerMode ? (
                 <>
-                  <Button variant="outline" size="sm" onClick={() => setCurrentView('import')} className="hidden sm:flex transition-colors duration-200">
+                  <Button variant="outline" size="sm" onClick={() => setCurrentView('import')} className="hidden sm:flex transition-colors duration-200 rounded-xl">
                     <Upload className="h-4 w-4 mr-1" /> Import
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200">
+                  <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200 rounded-xl">
                     <Download className="h-4 w-4 mr-1" /> Download
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setHelpPanelOpen(true)} className="transition-colors duration-200 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0">
+                  <Button variant="ghost" size="sm" onClick={() => setHelpPanelOpen(true)} className="transition-colors duration-200 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 rounded-xl">
                     <HelpCircle className="h-4 w-4" />
                   </Button>
                 </>
               ) : (
                 <>
-                  <Button variant="outline" size="sm" onClick={() => setCurrentView('import')} className="hidden sm:flex transition-colors duration-200">
+                  <Button variant="outline" size="sm" onClick={() => setCurrentView('import')} className="hidden sm:flex transition-colors duration-200 rounded-xl">
                     <Upload className="h-4 w-4 mr-1" /> Import
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200">
+                  <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200 rounded-xl">
                     <Download className="h-4 w-4 mr-1" /> Export
                   </Button>
                 </>
               )}
               <Select value={businessSettings.currencyCode} onValueChange={v => updateBusinessSettings({ currencyCode: v })}>
-                <SelectTrigger className="w-[80px] h-8 text-xs shadow-sm rounded-lg min-h-[44px] sm:min-h-8">
+                <SelectTrigger className="w-[80px] h-8 text-xs shadow-sm rounded-xl min-h-[44px] sm:min-h-8">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -500,7 +634,7 @@ export function AppShell() {
           </main>
 
           {/* Footer */}
-          <footer className="bg-gradient-to-r from-emerald-100 to-slate-100 px-4 py-2 mt-auto border-t-2 border-emerald-300/60 dark:bg-gradient-to-r dark:from-slate-900 dark:to-slate-800 dark:border-slate-700">
+          <footer className="bg-gradient-to-r from-emerald-100 to-slate-100 px-4 py-2 mt-auto border-t-2 border-emerald-300/60 dark:bg-gradient-to-r dark:from-slate-900 dark:to-slate-800 dark:border-slate-700 hidden lg:block">
             {products.length > 0 && (
               <div className="bg-emerald-200/40 dark:bg-emerald-900/30 rounded-md px-3 py-1.5 mb-2">
                 <div className="flex items-center justify-center gap-4 text-xs text-emerald-800 dark:text-emerald-200 pb-1 border-b border-emerald-300/50 dark:border-emerald-700/40">
@@ -532,6 +666,14 @@ export function AppShell() {
           </footer>
         </div>
       </div>
+
+      {/* Mobile bottom navigation bar */}
+      <MobileBottomNav
+        currentView={currentView}
+        setCurrentView={setCurrentView}
+        applicationMode={applicationMode}
+        lossMakingCount={lossMakingCount}
+      />
     </div>
   );
 }

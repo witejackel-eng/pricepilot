@@ -43,6 +43,8 @@ import {
 import { formatPercentage, formatCurrency } from '@/lib/pricepilot/formatting';
 import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from 'recharts';
+import { ProfitPotentialPanel } from './profit-potential-panel';
+import { PriceChangeTimeline } from './price-change-timeline';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -295,6 +297,12 @@ export function OwnerHome() {
         })}
       </div>
 
+      {/* v1.1: Profit Potential insights panel — shows how much more the
+          owner could earn by applying suggested prices. Only renders when
+          there are products to analyse (the component returns null
+          otherwise). */}
+      <ProfitPotentialPanel />
+
       {/* Pricing Summary Dashboard Widget + Recent Activity Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Pricing Summary Dashboard Widget */}
@@ -472,6 +480,9 @@ export function OwnerHome() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Price Change History Timeline — shows recent price approvals, applications, and edits */}
+      <PriceChangeTimeline />
 
       {/* Review group summary — simple counts, no accounting jargon */}
       <Card className="border-slate-200 dark:border-slate-800">
