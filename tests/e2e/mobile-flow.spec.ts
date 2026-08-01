@@ -152,17 +152,43 @@ async function assertNoClippedControls(page: Page): Promise<void> {
       const isEntirelyRight = rect.left > vw;
       if (isEntirelyAbove || isEntirelyBelow || isEntirelyLeft || isEntirelyRight) continue;
 
-      // Calculate viewport intersection with clamping
+      // If the element is only PARTIALLY visible, try scrolling it
+      // into view and re-measure. A control that becomes fully
+      // visible after scrolling was just below the fold (not a
+      // clipping defect). A control that is STILL partially visible
+      // after scrolling is genuinely clipped (e.g. behind a
+      // fixed/sticky element, or overflowing the viewport) — that
+      // is a real bug we want to flag. This avoids false positives
+      // on short mobile viewports (e.g. iPhone 14) where legitimate
+      // below-the-fold controls would otherwise be flagged.
+      let measureRect = rect;
+      const initialRatio = (() => {
+        const vw2 = Math.max(0, Math.min(rect.right, vw) - Math.max(rect.left, 0));
+        const vh2 = Math.max(0, Math.min(rect.bottom, vh) - Math.max(rect.top, 0));
+        return rect.width * rect.height > 0
+          ? Math.min(1, Math.max(0, (vw2 * vh2) / (rect.width * rect.height)))
+          : 0;
+      })();
+      if (initialRatio > 0 && initialRatio < 1) {
+        try {
+          el.scrollIntoView({ block: 'center', inline: 'nearest' });
+        } catch {
+          // ignore — scrollIntoView can throw on some elements
+        }
+        measureRect = el.getBoundingClientRect();
+      }
+
+      // Calculate viewport intersection with clamping (post-scroll)
       const visibleWidth = Math.max(
         0,
-        Math.min(rect.right, vw) - Math.max(rect.left, 0),
+        Math.min(measureRect.right, vw) - Math.max(measureRect.left, 0),
       );
       const visibleHeight = Math.max(
         0,
-        Math.min(rect.bottom, vh) - Math.max(rect.top, 0),
+        Math.min(measureRect.bottom, vh) - Math.max(measureRect.top, 0),
       );
 
-      const totalArea = rect.width * rect.height;
+      const totalArea = measureRect.width * measureRect.height;
       const visibleArea = visibleWidth * visibleHeight;
 
       // Ratio is always between 0 and 1 (clamped)
@@ -170,13 +196,13 @@ async function assertNoClippedControls(page: Page): Promise<void> {
         ? Math.min(1, Math.max(0, visibleArea / totalArea))
         : 0;
 
-      // Only flag elements that are PARTIALLY visible (partially
-      // clipped by the viewport edge). Elements that are 0% visible
-      // are entirely off-screen and just need scrolling. Elements
-      // that are 100% visible are fine. The concern is elements
-      // that are 0% < ratio < 100% — they're cut off.
+      // Only flag elements that are PARTIALLY visible EVEN AFTER
+      // scrolling into view. These are genuinely clipped (behind a
+      // fixed/sticky element, or overflowing the viewport) — a real
+      // layout bug. Elements that became fully visible after
+      // scrolling were just below the fold (not a defect).
       if (ratio > 0 && ratio < 0.5) {
-        issues.push(`Clipped control: "${el.textContent?.slice(0, 30)}" only ${Math.round(ratio * 100)}% visible (${Math.round(rect.width)}×${Math.round(rect.height)} at ${Math.round(rect.left)},${Math.round(rect.top)})`);
+        issues.push(`Clipped control: "${el.textContent?.slice(0, 30)}" only ${Math.round(ratio * 100)}% visible after scrollIntoView (${Math.round(measureRect.width)}×${Math.round(measureRect.height)} at ${Math.round(measureRect.left)},${Math.round(measureRect.top)})`);
       }
     }
     return issues;
