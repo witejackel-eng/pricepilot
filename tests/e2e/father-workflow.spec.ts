@@ -553,8 +553,31 @@ test.describe('Strict Father Workflow E2E', () => {
     // ============================================================
     // Step 28: Restore valid backup
     // ============================================================
-    // Clear IndexedDB to simulate a fresh state
+    // Clear IndexedDB to simulate a fresh state.
+    //
+    // WebKit-safe: close the app's Dexie connection FIRST (via the
+    // window.__pricepilotCloseDb global that database.ts exposes),
+    // wait for the connection to release, THEN deleteDatabase. On
+    // WebKit, deleteDatabase with an open connection fires onblocked
+    // and the delete stays pending — which blocks Dexie's reopen on
+    // the next reload, hanging the app on the loading screen. Closing
+    // the connection first lets the delete succeed cleanly.
     await page.evaluate(async () => {
+      // 1. Close the app's Dexie connection.
+      try {
+        const closer = (window as unknown as {
+          __pricepilotCloseDb?: () => boolean;
+        }).__pricepilotCloseDb;
+        if (typeof closer === 'function') {
+          closer();
+        }
+      } catch {
+        // ignore
+      }
+      // 2. Let the connection release.
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+
+      // 3. Delete each database (retry on blocked).
       const knownDbNames = ['pricepilot', 'pricepilot_v1', 'PricePilotDB'];
       if (typeof indexedDB.databases === 'function') {
         try {
@@ -570,10 +593,19 @@ test.describe('Strict Father Workflow E2E', () => {
         knownDbNames.map(
           (name) =>
             new Promise<void>((resolve) => {
-              const req = indexedDB.deleteDatabase(name);
-              req.onsuccess = () => resolve();
-              req.onerror = () => resolve();
-              req.onblocked = () => resolve();
+              let attempts = 0;
+              const tryDelete = () => {
+                attempts++;
+                const req = indexedDB.deleteDatabase(name);
+                req.onsuccess = () => resolve();
+                req.onerror = () => resolve();
+                req.onblocked = () => {
+                  if (attempts < 5) setTimeout(tryDelete, 300);
+                  else resolve();
+                };
+                setTimeout(resolve, 2000);
+              };
+              tryDelete();
             }),
         ),
       );
