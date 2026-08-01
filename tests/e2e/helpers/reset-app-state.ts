@@ -44,8 +44,9 @@ export async function resetPricePilotState(
   await page.goto('/', { waitUntil: 'domcontentloaded' });
 
   // Give the app a moment to initialize before clearing state.
-  // This ensures Dexie has opened the database so we can clear tables.
-  await page.waitForTimeout(500);
+  // On desktop, initialization is fast. On WebKit, it might be slow.
+  // We wait for either initialization to complete or a short timeout.
+  await page.waitForTimeout(300);
 
   // Clear all storage and IndexedDB tables (not the database itself).
   await page.evaluate(async () => {
@@ -265,51 +266,40 @@ export async function navigateTo(
   // the collapsible to be expanded before they become visible.
   const ADVANCED_TOOLS_TARGETS = new Set(['settings', 'pricing-rules', 'price-simulator', 'scenarios']);
 
+  // First, if this is an Advanced Tools target, try to expand the
+  // collapsible section so the button becomes visible.
+  if (ADVANCED_TOOLS_TARGETS.has(target)) {
+    // Look for the Advanced Tools trigger in the appropriate container.
+    // Try the scope container first, then fall back to page-level.
+    const advancedInScope = scopeContainer.getByTestId('nav-advanced-tools');
+    const advancedInPage = page.getByTestId('nav-advanced-tools');
+    
+    const isScopeTriggerVisible = await advancedInScope.isVisible({ timeout: 1_000 }).catch(() => false);
+    const isPageTriggerVisible = !isScopeTriggerVisible && await advancedInPage.isVisible({ timeout: 1_000 }).catch(() => false);
+    
+    if (isScopeTriggerVisible) {
+      // Check if the button is already visible (collapsible already open)
+      const targetButton = scopeContainer.getByTestId(testId);
+      if (!await targetButton.isVisible({ timeout: 500 }).catch(() => false)) {
+        await advancedInScope.click();
+        await page.waitForTimeout(500);
+      }
+    } else if (isPageTriggerVisible) {
+      const targetButton = page.getByTestId(testId);
+      if (!await targetButton.isVisible({ timeout: 500 }).catch(() => false)) {
+        await advancedInPage.click();
+        await page.waitForTimeout(500);
+      }
+    }
+  }
+
+  // Find the button. Try scoped first (avoids strict-mode violations
+  // on mobile), then fall back to page-level if not found.
   let button = scopeContainer.getByTestId(testId);
   let isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
 
-  // If the button is not visible, try expanding the Advanced Tools
-  // collapsible section (for items that are inside it).
   if (!isButtonVisible) {
-    // Try expanding the "Advanced Tools" collapsible section.
-    // The trigger is inside the sidebar/drawer, so look for it
-    // within the same scope container.
-    const advancedToolsTrigger = scopeContainer.getByTestId('nav-advanced-tools');
-    const isAdvancedVisible = await advancedToolsTrigger.isVisible({ timeout: 1_000 }).catch(() => false);
-    if (isAdvancedVisible) {
-      // Only expand if the target is one of the Advanced Tools items,
-      // or if we can't find the button at all (it might be inside).
-      if (ADVANCED_TOOLS_TARGETS.has(target) || !isButtonVisible) {
-        await advancedToolsTrigger.click();
-        // Wait for the collapsible content to expand and buttons
-        // to become visible
-        await page.waitForTimeout(500);
-        // Re-create the button locator after DOM updates
-        button = scopeContainer.getByTestId(testId);
-      }
-    }
-
-    // Re-check button visibility
-    isButtonVisible = await button.isVisible({ timeout: 3_000 }).catch(() => false);
-  }
-
-  // If the button is still not visible after expanding the collapsible,
-  // fall back to an unscoped lookup (the button might be rendered
-  // differently on this particular viewport/configuration).
-  if (!isButtonVisible) {
-    button = page.getByTestId(testId);
-    isButtonVisible = await button.isVisible({ timeout: 3_000 }).catch(() => false);
-  }
-
-  // Last resort: if the target is an Advanced Tools item and we still
-  // can't find it, try expanding Advanced Tools using an unscoped
-  // trigger and then look for the button unscoped.
-  if (!isButtonVisible && ADVANCED_TOOLS_TARGETS.has(target)) {
-    const unscopedTrigger = page.getByTestId('nav-advanced-tools');
-    if (await unscopedTrigger.isVisible({ timeout: 1_000 }).catch(() => false)) {
-      await unscopedTrigger.click();
-      await page.waitForTimeout(500);
-    }
+    // Fall back to page-level lookup
     button = page.getByTestId(testId);
     isButtonVisible = await button.isVisible({ timeout: 3_000 }).catch(() => false);
   }
