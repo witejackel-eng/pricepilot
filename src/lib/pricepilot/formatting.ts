@@ -287,16 +287,31 @@ export function parseNumericInput(value: string): number {
 
   let cleaned = value.trim();
 
+  // Detect missing-value indicators — these should be treated as NaN, not zero.
+  // Common patterns in Indian supplier spreadsheets:
+  //   -, —, N/A, NA, Not Available, Call, On Request, POA, blank
+  const missingValuePatterns = /^[-—–]$|^n\/?a$|^not\s*available$|^call$|^on\s*request$|^poa$|^price\s*on\s*request$|^tbd$|^na$|^nil$|^upon\s*request$/i;
+  if (missingValuePatterns.test(cleaned)) return NaN;
+
+  // Strip trailing /- (Indian price notation: ₹ 1,25,000/-)
+  cleaned = cleaned.replace(/\/-$/, '');
+
+  // Strip trailing .00 or .0 when followed by /-
+  cleaned = cleaned.replace(/\/-$/, '');
+
   // Detect percentage and strip the % sign
   const isPercentage = cleaned.endsWith('%');
   if (isPercentage) {
     cleaned = cleaned.slice(0, -1).trim();
   }
 
-  // Remove known currency symbols
-  const currencySymbols = ['₹', '$', '£', '€', 'د.إ', 'Rs', 'Rs.', 'INR', 'USD', 'GBP', 'EUR', 'AED'];
+  // Remove known currency symbols and prefixes
+  // Order matters: longer prefixes first (Rs. before Rs)
+  const currencySymbols = ['₹', '$', '£', '€', 'د.إ', 'Rs.', 'Rs', 'INR', 'USD', 'GBP', 'EUR', 'AED'];
   for (const symbol of currencySymbols) {
-    cleaned = cleaned.replace(symbol, '');
+    // Replace with space (not empty) to avoid joining adjacent numbers
+    // e.g. "Rs.5,000" → " 5,000" not "5,000"
+    cleaned = cleaned.replace(symbol, ' ');
   }
 
   // Remove commas (all grouping commas)
