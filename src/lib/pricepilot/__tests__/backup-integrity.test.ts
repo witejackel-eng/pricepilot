@@ -797,8 +797,16 @@ describe('backup integrity — additional checks', () => {
   });
 
   it('hash excludes contentHash, createdAt, and appVersion', async () => {
-    const backup1 = makeBackup({ createdAt: '2024-01-01', appVersion: '0.1.0' });
-    const backup2 = makeBackup({ createdAt: '2024-06-01', appVersion: '0.2.0' });
+    // Create one canonical backup, then deep-clone it so the two objects
+    // differ ONLY in the excluded fields.  Two independent makeBackup()
+    // calls would produce different nested timestamps
+    // (businessSettings.createdAt, product.createdAt, etc.), making the
+    // hashes differ — that is the actual root cause of the CI failure.
+    const backup1 = makeBackup({ createdAt: '2024-01-01T00:00:00.000Z', appVersion: '0.1.0' });
+    const backup2: PricePilotBackup = structuredClone(backup1);
+    backup2.createdAt = '2024-06-01T00:00:00.000Z';
+    backup2.appVersion = '0.2.0';
+    backup2.contentHash = 'different-existing-hash';
     const hash1 = await computeBackupContentHash(backup1);
     const hash2 = await computeBackupContentHash(backup2);
     expect(hash1).toBe(hash2);
@@ -856,5 +864,141 @@ describe('backup integrity — additional checks', () => {
     const asyncPreview = await asyncBuildRestorePreview(tamperedJson);
     expect(asyncPreview.valid).toBe(false);
     expect(asyncPreview.errorCode).toBe('checksum-mismatch');
+  });
+});
+
+// ============================================================
+// Backup hash regression tests
+//
+// These tests verify the 10 required invariants for
+// computeBackupContentHash, using structuredClone to guarantee
+// that the two fixtures differ ONLY in the intended field.
+// ============================================================
+
+describe('backup hash regression', () => {
+  /** Canonical base backup used by all regression tests. */
+  function makeCanonicalBackup(): PricePilotBackup {
+    return makeBackup({ createdAt: '2024-01-01T00:00:00.000Z', appVersion: '0.1.0' });
+  }
+
+  // 1. Same state produces same hash.
+  it('same state produces same hash', async () => {
+    const backup = makeCanonicalBackup();
+    const hash1 = await computeBackupContentHash(backup);
+    const hash2 = await computeBackupContentHash(backup);
+    expect(hash1).toBe(hash2);
+  });
+
+  // 2. Different createdAt produces same hash.
+  it('different createdAt produces same hash', async () => {
+    const backup1 = makeCanonicalBackup();
+    const backup2 = structuredClone(backup1);
+    backup2.createdAt = '2025-12-31T23:59:59.999Z';
+    const hash1 = await computeBackupContentHash(backup1);
+    const hash2 = await computeBackupContentHash(backup2);
+    expect(hash1).toBe(hash2);
+  });
+
+  // 3. Different appVersion produces same hash.
+  it('different appVersion produces same hash', async () => {
+    const backup1 = makeCanonicalBackup();
+    const backup2 = structuredClone(backup1);
+    backup2.appVersion = '99.99.99';
+    const hash1 = await computeBackupContentHash(backup1);
+    const hash2 = await computeBackupContentHash(backup2);
+    expect(hash1).toBe(hash2);
+  });
+
+  // 4. Different existing contentHash produces same hash.
+  it('different existing contentHash produces same hash', async () => {
+    const backup1 = makeCanonicalBackup();
+    const backup2 = structuredClone(backup1);
+    backup2.contentHash = 'aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666';
+    const hash1 = await computeBackupContentHash(backup1);
+    const hash2 = await computeBackupContentHash(backup2);
+    expect(hash1).toBe(hash2);
+  });
+
+  // 5. Different product cost produces a different hash.
+  it('different product cost produces a different hash', async () => {
+    const backup1 = makeCanonicalBackup();
+    const backup2 = structuredClone(backup1);
+    backup2.products[0].purchaseCost = 9999;
+    const hash1 = await computeBackupContentHash(backup1);
+    const hash2 = await computeBackupContentHash(backup2);
+    expect(hash1).not.toBe(hash2);
+  });
+
+  // 6. Different business setting produces a different hash.
+  it('different business setting produces a different hash', async () => {
+    const backup1 = makeCanonicalBackup();
+    const backup2 = structuredClone(backup1);
+    backup2.businessSettings.businessName = 'Different Business';
+    const hash1 = await computeBackupContentHash(backup1);
+    const hash2 = await computeBackupContentHash(backup2);
+    expect(hash1).not.toBe(hash2);
+  });
+
+  // 7. Different pricing rule produces a different hash.
+  it('different pricing rule produces a different hash', async () => {
+    const backup1 = makeCanonicalBackup();
+    const backup2 = structuredClone(backup1);
+    const rule = { ...createDefaultPricingRule(), id: 'rule-1', name: 'Test Rule', isActive: true, markupPercent: 30 };
+    backup2.pricingRules = [rule];
+    const hash1 = await computeBackupContentHash(backup1);
+    const hash2 = await computeBackupContentHash(backup2);
+    expect(hash1).not.toBe(hash2);
+  });
+
+  // 8. Different scenario produces a different hash.
+  it('different scenario produces a different hash', async () => {
+    const backup1 = makeCanonicalBackup();
+    const backup2 = structuredClone(backup1);
+    backup2.scenarios = [{
+      id: 'scenario-1',
+      name: 'Test Scenario',
+      description: '',
+      scenarioType: 'catalogue',
+      snapshotProducts: [],
+      snapshotPricingRules: [],
+      snapshotBusinessSettings: createDefaultBusinessSettings(),
+      isBaseline: true,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    }];
+    const hash1 = await computeBackupContentHash(backup1);
+    const hash2 = await computeBackupContentHash(backup2);
+    expect(hash1).not.toBe(hash2);
+  });
+
+  // 9. Key ordering does not affect the hash.
+  it('key ordering does not affect the hash', async () => {
+    const backup1 = makeCanonicalBackup();
+    // Re-serialize and re-parse with reversed top-level key order.
+    // deterministicStringify sorts keys, so the hash must be the same.
+    const keys = Object.keys(backup1).sort((a, b) => b.localeCompare(a));
+    const reordered: Record<string, unknown> = {};
+    for (const k of keys) {
+      reordered[k] = (backup1 as unknown as Record<string, unknown>)[k];
+    }
+    const hash1 = await computeBackupContentHash(backup1);
+    const hash2 = await computeBackupContentHash(reordered as unknown as PricePilotBackup);
+    expect(hash1).toBe(hash2);
+  });
+
+  // 10. Nested key ordering does not affect the hash.
+  it('nested key ordering does not affect the hash', async () => {
+    const backup1 = makeCanonicalBackup();
+    // Re-serialize and re-parse businessSettings with reversed key order.
+    const bsKeys = Object.keys(backup1.businessSettings).sort((a, b) => b.localeCompare(a));
+    const reorderedBs: Record<string, unknown> = {};
+    for (const k of bsKeys) {
+      reorderedBs[k] = (backup1.businessSettings as unknown as Record<string, unknown>)[k];
+    }
+    const backup2 = structuredClone(backup1);
+    backup2.businessSettings = reorderedBs as unknown as BusinessSettings;
+    const hash1 = await computeBackupContentHash(backup1);
+    const hash2 = await computeBackupContentHash(backup2);
+    expect(hash1).toBe(hash2);
   });
 });
