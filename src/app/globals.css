@@ -561,3 +561,79 @@ input[type="number"] {
 .crown-bounce {
   animation: crown-bounce 2s ease-in-out infinite;
 }
+
+/* ============================================================
+   v1.3 Styling Enhancements — Margin Alerts, Health Gauge,
+   Recently Viewed, and micro-interactions
+   ============================================================ */
+
+/* Bell icon shake animation for critical alerts */
+@keyframes bell-shake {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(8deg); }
+  40% { transform: rotate(-8deg); }
+  60% { transform: rotate(6deg); }
+  80% { transform: rotate(-4deg); }
+}
+.bell-shake-on-hover:hover .bell-icon {
+  animation: bell-shake 0.6s ease-in-out;
+}
+
+/* Alert badge pulse for critical count */
+@keyframes badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+.badge-pulse {
+  animation: badge-pulse 1.5s ease-in-out infinite;
+}
+
+/* Alert panel slide-in */
+@keyframes alert-slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-alert-slide-in {
+  animation: alert-slide-in 300ms ease-out both;
+}
+
+/* Health gauge ring draw animation */
+@keyframes ring-draw {
+  from { stroke-dashoffset: var(--ring-circumference); }
+  to { stroke-dashoffset: var(--ring-offset); }
+}
+
+/* Health gauge score count-up */
+@keyframes score-count {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-score-count {
+  animation: score-count 800ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Recently viewed card hover lift */
+.recent-card {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.recent-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 16px -4px rgba(16, 185, 129, 0.15);
+}
+
+/* Breakdown bar fill animation */
+@keyframes bar-fill {
+  from { width: 0%; }
+}
+.animate-bar-fill {
+  animation: bar-fill 1.2s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Status dot pulse for active alerts */
+@keyframes dot-pulse-critical {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+.dot-pulse-critical {
+  animation: dot-pulse-critical 2s ease-in-out infinite;
+}
