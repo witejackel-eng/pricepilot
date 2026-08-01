@@ -647,7 +647,7 @@ export function ProductsPage() {
                       <TableCell>
                         <Checkbox checked={selectedProducts.includes(p.id)} onCheckedChange={() => toggleSelect(p.id)} onClick={e => e.stopPropagation()} />
                       </TableCell>
-                      <TableCell className="font-semibold text-slate-800 max-w-[280px] truncate" title={p.name}>{p.name}</TableCell>
+                      <TableCell data-testid="product-name-cell" className="font-semibold text-slate-800 max-w-[280px] truncate" title={p.name}>{p.name}</TableCell>
                       <TableCell className="text-xs text-slate-500">{p.sku}</TableCell>
                       <TableCell className="text-xs text-slate-600">{p.category || '—'}</TableCell>
                       <TableCell className="max-w-[120px]">

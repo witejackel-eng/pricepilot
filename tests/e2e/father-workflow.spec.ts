@@ -94,7 +94,14 @@ async function openProductBySku(page: Page, sku: string): Promise<void> {
 
   const productRow = page.locator(`[data-testid="product-row"][data-sku="${sku}"]`).first();
   await expect(productRow, `Product row with SKU "${sku}" must be visible`).toBeVisible({ timeout: 10_000 });
-  await productRow.click();
+  // Click the product NAME cell (not the row center) to avoid the
+  // selection checkbox in the first column, which has stopPropagation.
+  // On Firefox/WebKit the row-center click can land on the checkbox
+  // and fail to trigger the row's onClick (which opens the detail
+  // drawer). Clicking the name cell is deterministic and works on
+  // every browser.
+  const nameCell = productRow.locator('[data-testid="product-name-cell"]').first();
+  await nameCell.click();
 
   // Verify the drawer opened. 10s accommodates the Radix Sheet open
   // animation on slower engines (Firefox/WebKit) — this is a
