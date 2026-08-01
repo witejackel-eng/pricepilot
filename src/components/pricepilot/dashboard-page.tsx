@@ -12,7 +12,7 @@ import { StatusBadge } from './status-badge';
 import { formatCurrency, formatPercentage, safeNumberValue } from '@/lib/pricepilot/formatting';
 import { buildNonEmptyOptions, UNCATEGORISED_FILTER, UNKNOWN_BRAND_FILTER, categoryMatchesFilter, brandMatchesFilter, categoryFilterLabel, brandFilterLabel } from '@/lib/pricepilot/safe-select';
 import { toast } from 'sonner';
-import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target, RefreshCw, CheckCircle2, HeartPulse, Lightbulb, LayoutDashboard, Activity, Sparkles, BarChart2 } from 'lucide-react';
+import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target, RefreshCw, CheckCircle2, HeartPulse, Lightbulb, LayoutDashboard, Activity, Sparkles, BarChart2, Wallet, Percent, Calendar, History } from 'lucide-react';
 import {
   PieChart as RechartsPie,
   Pie,
@@ -21,6 +21,8 @@ import {
   Bar,
   AreaChart as RechartsArea,
   Area,
+  LineChart as RechartsLine,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -190,8 +192,57 @@ function getOutcome(p: { calculatedPriceOutcome?: PriceOutcome; calculatedMargin
   };
 }
 
+// v1.5 Task 5-e: Custom tooltip for revenue projection (formats as currency)
+function RevenueTooltip({ active, payload, label, currencyCode }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string; currencyCode: string }) {
+  if (!active || !payload || payload.length === 0) return null;
+  return (
+    <div className="bg-white/95 backdrop-blur-md shadow-xl rounded-xl border border-emerald-100/60 px-4 py-3">
+      {label && <p className="text-xs font-semibold text-slate-700 mb-1.5">{label}</p>}
+      {payload.map((entry, index) => (
+        <div key={index} className="flex items-center gap-2 text-sm">
+          <span className="h-2.5 w-2.5 rounded-full ring-1 ring-white/50" style={{ backgroundColor: entry.color }} />
+          <span className="text-slate-600">{entry.name}:</span>
+          <span className="font-semibold text-slate-800">{formatCurrency(entry.value, currencyCode)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// v1.5 Task 5-e: Custom tooltip for margin distribution (count + percentage)
+function MarginDistTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; color: string; payload: { label: string; range: string; count: number; pct: number } }>; label?: string }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const entry = payload[0];
+  return (
+    <div className="bg-white/95 backdrop-blur-md shadow-xl rounded-xl border border-emerald-100/60 px-4 py-3">
+      <p className="text-xs font-semibold text-slate-700 mb-1.5">{entry.payload.range ?? label}</p>
+      <div className="flex items-center gap-2 text-sm">
+        <span className="h-2.5 w-2.5 rounded-full ring-1 ring-white/50" style={{ backgroundColor: entry.color }} />
+        <span className="text-slate-600">Products:</span>
+        <span className="font-semibold text-slate-800">{entry.value}</span>
+        <span className="text-xs text-slate-400">({entry.payload.pct}%)</span>
+      </div>
+    </div>
+  );
+}
+
+// v1.5 Task 5-e: Custom tooltip for price activity line chart
+function PriceActivityTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; color: string }>; label?: string }) {
+  if (!active || !payload || payload.length === 0) return null;
+  return (
+    <div className="bg-white/95 backdrop-blur-md shadow-xl rounded-xl border border-emerald-100/60 px-4 py-3">
+      {label && <p className="text-xs font-semibold text-slate-700 mb-1.5">{label}</p>}
+      <div className="flex items-center gap-2 text-sm">
+        <span className="h-2.5 w-2.5 rounded-full ring-1 ring-white/50" style={{ backgroundColor: payload[0].color }} />
+        <span className="text-slate-600">Price changes:</span>
+        <span className="font-semibold text-slate-800">{payload[0].value}</span>
+      </div>
+    </div>
+  );
+}
+
 export function DashboardPage() {
-  const { products, businessSettings, setCurrentView, loadSampleData, recentlyViewedIds, recalculateProducts, bulkApprovePrices, setInitialFilterTab, onboardingCompleted } = usePricePilotStore();
+  const { products, businessSettings, setCurrentView, loadSampleData, recentlyViewedIds, recalculateProducts, bulkApprovePrices, setInitialFilterTab, onboardingCompleted, priceHistory } = usePricePilotStore();
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterBrand, setFilterBrand] = useState('all');
   const [showSkeleton, setShowSkeleton] = useState(true);
@@ -273,6 +324,134 @@ export function DashboardPage() {
     const topPerformerMargin = topPerformer ? getOutcome(topPerformer).effectiveMarginPercent : 0;
     return { profitableCount, profitablePct, avgMargin, needsAttention, topPerformer, topPerformerMargin };
   }, [filtered]);
+
+  // ============================================================
+  // v1.5 Task 5-e: Dashboard Enhancements data
+  // Revenue projection, margin distribution, price activity.
+  // Declared before early returns so hook order stays stable.
+  // ============================================================
+
+  // Revenue Projection: top 8 products by expected monthly revenue
+  const revenueProjectionData = useMemo(() => {
+    return [...filtered]
+      .map(p => {
+        const units = p.expectedMonthlyUnits || 0;
+        const currentRevenue = units * (p.currentSellingPrice || 0);
+        const recPrice = p.recommendedPrices?.balanced ?? p.currentSellingPrice ?? 0;
+        const potentialRevenue = units * (recPrice || 0);
+        const shortName = p.name.length > 14 ? `${p.name.slice(0, 12)}…` : p.name;
+        return {
+          name: shortName,
+          fullName: p.name,
+          current: Math.round(currentRevenue * 100) / 100,
+          potential: Math.round(potentialRevenue * 100) / 100,
+        };
+      })
+      .sort((a, b) => b.potential - a.potential)
+      .slice(0, 8);
+  }, [filtered]);
+
+  const totalProjectedMonthlyRevenue = useMemo(
+    () => revenueProjectionData.reduce((sum, r) => sum + r.current, 0),
+    [revenueProjectionData],
+  );
+  const totalPotentialMonthlyRevenue = useMemo(
+    () => revenueProjectionData.reduce((sum, r) => sum + r.potential, 0),
+    [revenueProjectionData],
+  );
+  const potentialRevenueUplift = totalPotentialMonthlyRevenue - totalProjectedMonthlyRevenue;
+
+  // Margin Distribution buckets per spec (0-5%, 5-10%, 10-15%, 15-20%, 20-30%, 30%+)
+  const marginDistributionBuckets = useMemo(() => {
+    const total = filtered.length;
+    const buckets = [
+      { label: '0-5%', range: '0% to 5%', count: 0 },
+      { label: '5-10%', range: '5% to 10%', count: 0 },
+      { label: '10-15%', range: '10% to 15%', count: 0 },
+      { label: '15-20%', range: '15% to 20%', count: 0 },
+      { label: '20-30%', range: '20% to 30%', count: 0 },
+      { label: '30%+', range: '30% and above', count: 0 },
+    ];
+    filtered.forEach(p => {
+      const margin = getOutcome(p).effectiveMarginPercent;
+      if (margin < 0) return; // loss-making excluded from positive buckets
+      if (margin < 5) buckets[0].count++;
+      else if (margin < 10) buckets[1].count++;
+      else if (margin < 15) buckets[2].count++;
+      else if (margin < 20) buckets[3].count++;
+      else if (margin < 30) buckets[4].count++;
+      else buckets[5].count++;
+    });
+    return buckets.map(b => ({
+      ...b,
+      pct: total > 0 ? Math.round((b.count / total) * 1000) / 10 : 0,
+    }));
+  }, [filtered]);
+
+  // Margin legend groups (broader categories for the legend below the chart)
+  const marginLegendGroups = useMemo(() => {
+    let loss = 0, low = 0, healthy = 0, high = 0;
+    filtered.forEach(p => {
+      const m = getOutcome(p).effectiveMarginPercent;
+      if (m < 0) loss++;
+      else if (m < 10) low++;
+      else if (m < 25) healthy++;
+      else high++;
+    });
+    return [
+      { label: 'Loss-making', sub: '< 0%', count: loss, color: '#ef4444' },
+      { label: 'Low margin', sub: '0-10%', count: low, color: '#f59e0b' },
+      { label: 'Healthy', sub: '10-25%', count: healthy, color: '#10b981' },
+      { label: 'High margin', sub: '25%+', count: high, color: '#14b8a6' },
+    ];
+  }, [filtered]);
+
+  // Price Change Activity: last 7 (or 14) days of changes from priceHistory
+  const priceActivityData = useMemo(() => {
+    if (!priceHistory || priceHistory.length === 0) return [] as { label: string; count: number; iso: string }[];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const hasOldData = priceHistory.some(r => {
+      const ts = new Date(r.timestamp).getTime();
+      return (today.getTime() - ts) > sevenDaysMs;
+    });
+    const days = hasOldData ? 14 : 7;
+    const buckets: { label: string; count: number; iso: string }[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      buckets.push({
+        label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        count: 0,
+        iso: d.toISOString().slice(0, 10),
+      });
+    }
+    const bucketMap = new Map(buckets.map(b => [b.iso, b]));
+    priceHistory.forEach(r => {
+      const recDate = new Date(r.timestamp);
+      recDate.setHours(0, 0, 0, 0);
+      const iso = recDate.toISOString().slice(0, 10);
+      const b = bucketMap.get(iso);
+      if (b) b.count++;
+    });
+    return buckets;
+  }, [priceHistory]);
+
+  const priceActivityStats = useMemo(() => {
+    if (priceActivityData.length === 0) {
+      return { mostActiveDay: '—', mostActiveCount: 0, totalThisWeek: 0 };
+    }
+    const last7 = priceActivityData.slice(-7);
+    const totalThisWeek = last7.reduce((s, d) => s + d.count, 0);
+    let mostActive = last7[0];
+    for (const d of last7) if (d.count > mostActive.count) mostActive = d;
+    return {
+      mostActiveDay: mostActive.count > 0 ? mostActive.label : '—',
+      mostActiveCount: mostActive.count,
+      totalThisWeek,
+    };
+  }, [priceActivityData]);
 
   // Show skeleton placeholders on initial load
   if (showSkeleton && products.length === 0 && !onboardingCompleted) {
@@ -1222,6 +1401,223 @@ export function DashboardPage() {
                 </div>
                 <div className="text-xs text-slate-400 mt-1">Products within ±1 of recommended price</div>
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* ============================================================
+          v1.5 Task 5-e: Dashboard Enhancements — Revenue Projection,
+          Margin Distribution, Price Change Activity
+          ============================================================ */}
+      <div>
+        <div className="mb-4 flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center shadow-sm">
+            <Sparkles className="h-4 w-4 text-emerald-600" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">Revenue &amp; Activity Insights</h2>
+            <p className="text-sm text-slate-500">Projected revenue, margin spread, and recent pricing activity</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* ───────── Card 1: Revenue Projection (full width on lg) ───────── */}
+          <Card
+            className="lg:col-span-2 rounded-xl shadow-md border border-emerald-100/30 overflow-hidden bg-white/70 backdrop-blur-md hover:shadow-lg transition-all duration-300 py-0 gap-0 animate-in fade-in slide-in-from-bottom-4 duration-500"
+            style={{ animationDelay: '0ms' }}
+          >
+            {/* 2px gradient accent bar */}
+            <div className="h-0.5 w-full bg-gradient-to-r from-emerald-500 to-teal-500" />
+            {/* Gradient background header */}
+            <div className="relative bg-gradient-to-br from-emerald-50/80 to-teal-50/40 px-6 pt-6 pb-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shadow-sm">
+                    <Wallet className="h-5 w-5 text-white" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base font-semibold text-slate-800">Revenue Projection</CardTitle>
+                    <CardDescription className="text-xs text-slate-500 mt-0.5">Projected monthly revenue based on current prices and expected sales</CardDescription>
+                  </div>
+                </div>
+                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 whitespace-nowrap">
+                  Top {revenueProjectionData.length} products
+                </Badge>
+              </div>
+            </div>
+            <CardContent className="px-6 pb-6 pt-4">
+              {revenueProjectionData.length === 0 ? (
+                <div className="h-72 flex flex-col items-center justify-center text-center">
+                  <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 flex items-center justify-center mb-3">
+                    <Wallet className="h-7 w-7 text-emerald-300" />
+                  </div>
+                  <p className="text-sm font-medium text-slate-600">No revenue data to project</p>
+                  <p className="text-xs text-slate-400 mt-1">Add products with expected monthly units to see revenue projections</p>
+                </div>
+              ) : (
+                <>
+                  <div className="h-80 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsBar data={revenueProjectionData} barGap={4} barSize={18}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} interval={0} angle={-15} textAnchor="end" height={56} />
+                        <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={64} tickFormatter={(v: number) => formatCurrency(v, businessSettings.currencyCode, { compact: true })} />
+                        <Tooltip content={<RevenueTooltip currencyCode={businessSettings.currencyCode} />} cursor={{ fill: 'rgba(148,163,184,0.08)' }} />
+                        <Legend content={<CustomLegend />} />
+                        <Bar dataKey="current" name="Current Revenue" fill="#10b981" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="potential" name="Potential at Recommended" fill="#14b8a6" radius={[4, 4, 0, 0]} />
+                      </RechartsBar>
+                    </ResponsiveContainer>
+                  </div>
+                  {/* Highlighted stats below chart */}
+                  <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50/60 p-4 border border-emerald-100/60">
+                      <div className="flex items-center gap-2 text-xs font-medium text-emerald-700">
+                        <Wallet className="h-3.5 w-3.5" /> Total Projected Monthly Revenue
+                      </div>
+                      <p className="text-2xl font-bold text-emerald-700 mt-1 tabular-nums">{formatCurrency(totalProjectedMonthlyRevenue, businessSettings.currencyCode, { compact: true })}</p>
+                    </div>
+                    <div className="rounded-xl bg-teal-50/60 p-4 border border-teal-100/60">
+                      <div className="flex items-center gap-2 text-xs font-medium text-teal-700">
+                        <TrendingUp className="h-3.5 w-3.5" /> Potential at Recommended
+                      </div>
+                      <p className="text-2xl font-bold text-teal-700 mt-1 tabular-nums">{formatCurrency(totalPotentialMonthlyRevenue, businessSettings.currencyCode, { compact: true })}</p>
+                    </div>
+                    <div className={`rounded-xl p-4 border ${potentialRevenueUplift >= 0 ? 'bg-emerald-50/50 border-emerald-100/60' : 'bg-red-50/50 border-red-100/60'}`}>
+                      <div className={`flex items-center gap-2 text-xs font-medium ${potentialRevenueUplift >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {potentialRevenueUplift >= 0 ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />} Revenue Uplift Potential
+                      </div>
+                      <p className={`text-2xl font-bold mt-1 tabular-nums ${potentialRevenueUplift >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {potentialRevenueUplift >= 0 ? '+' : ''}{formatCurrency(potentialRevenueUplift, businessSettings.currencyCode, { compact: true })}
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ───────── Card 2: Margin Distribution ───────── */}
+          <Card
+            className="rounded-xl shadow-md border border-emerald-100/30 overflow-hidden bg-white/70 backdrop-blur-md hover:shadow-lg transition-all duration-300 py-0 gap-0 animate-in fade-in slide-in-from-bottom-4 duration-500"
+            style={{ animationDelay: '100ms' }}
+          >
+            <div className="h-0.5 w-full bg-gradient-to-r from-emerald-500 to-teal-500" />
+            <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shadow-sm">
+                  <Percent className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-semibold text-slate-800">Margin Distribution</CardTitle>
+                  <CardDescription className="text-xs text-slate-500 mt-0.5">How your products are distributed by margin range</CardDescription>
+                </div>
+              </div>
+              <Badge className="bg-teal-50 text-teal-700 border-teal-200 whitespace-nowrap">
+                {filtered.length} products
+              </Badge>
+            </div>
+            <CardContent className="px-6 pb-6">
+              <div className="h-72 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsArea data={marginDistributionBuckets} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="marginDistGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10b981" stopOpacity={0.7} />
+                        <stop offset="100%" stopColor="#14b8a6" stopOpacity={0.2} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
+                    <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={32} allowDecimals={false} />
+                    <Tooltip content={<MarginDistTooltip />} cursor={{ stroke: '#10b981', strokeWidth: 1, strokeDasharray: '3 3' }} />
+                    <Area type="monotone" dataKey="count" name="Products" stroke="#10b981" strokeWidth={2.5} fill="url(#marginDistGradient)" dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6, fill: '#14b8a6', strokeWidth: 2, stroke: '#fff' }} />
+                  </RechartsArea>
+                </ResponsiveContainer>
+              </div>
+              {/* Legend below with broader category breakdown */}
+              <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-emerald-100/50">
+                {marginLegendGroups.map(g => (
+                  <div key={g.label} className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full ring-1 ring-white/50 flex-shrink-0" style={{ backgroundColor: g.color }} />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-slate-700 truncate">{g.label}</p>
+                      <p className="text-[10px] text-slate-400">{g.sub} · {g.count}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ───────── Card 3: Price Change Activity ───────── */}
+          <Card
+            className="rounded-xl shadow-md border border-emerald-100/30 overflow-hidden bg-white/70 backdrop-blur-md hover:shadow-lg transition-all duration-300 py-0 gap-0 animate-in fade-in slide-in-from-bottom-4 duration-500"
+            style={{ animationDelay: '200ms' }}
+          >
+            <div className="h-0.5 w-full bg-gradient-to-r from-emerald-500 to-teal-500" />
+            <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shadow-sm">
+                  <Activity className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-semibold text-slate-800">Price Change Activity</CardTitle>
+                  <CardDescription className="text-xs text-slate-500 mt-0.5">Recent pricing actions over time</CardDescription>
+                </div>
+              </div>
+              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">
+                {priceActivityData.length === 0 ? 'No data' : `${priceActivityStats.totalThisWeek} this week`}
+              </Badge>
+            </div>
+            <CardContent className="px-6 pb-6">
+              {priceHistory.length === 0 ? (
+                <div className="h-72 flex flex-col items-center justify-center text-center">
+                  <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center mb-3">
+                    <History className="h-7 w-7 text-slate-300" />
+                  </div>
+                  <p className="text-sm font-medium text-slate-600">No price changes recorded yet</p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-xs">Approve or adjust product prices to start building your price change activity timeline</p>
+                  <Button variant="outline" size="sm" className="mt-4 border-emerald-200 text-emerald-700 hover:bg-emerald-50" onClick={() => setCurrentView('review-prices')}>
+                    <ArrowUpRight className="h-3.5 w-3.5 mr-1.5" /> Review Prices
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="h-72 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsLine data={priceActivityData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                        <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
+                        <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={32} allowDecimals={false} />
+                        <Tooltip content={<PriceActivityTooltip />} cursor={{ stroke: '#10b981', strokeWidth: 1, strokeDasharray: '3 3' }} />
+                        <Line type="monotone" dataKey="count" name="Price Changes" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6, fill: '#14b8a6', strokeWidth: 2, stroke: '#fff' }} />
+                      </RechartsLine>
+                    </ResponsiveContainer>
+                  </div>
+                  {/* Stats below: most active day + total this week */}
+                  <div className="mt-4 grid grid-cols-2 gap-3 pt-3 border-t border-emerald-100/50">
+                    <div className="rounded-xl bg-emerald-50/50 p-3 border border-emerald-100/50">
+                      <div className="flex items-center gap-2 text-xs font-medium text-emerald-700">
+                        <Calendar className="h-3.5 w-3.5" /> Most Active Day
+                      </div>
+                      <p className="text-lg font-bold text-emerald-700 mt-0.5 tabular-nums">
+                        {priceActivityStats.mostActiveDay}
+                        {priceActivityStats.mostActiveCount > 0 && (
+                          <span className="text-xs font-normal text-emerald-500 ml-1.5">({priceActivityStats.mostActiveCount} changes)</span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-teal-50/50 p-3 border border-teal-100/50">
+                      <div className="flex items-center gap-2 text-xs font-medium text-teal-700">
+                        <Activity className="h-3.5 w-3.5" /> Total Changes This Week
+                      </div>
+                      <p className="text-lg font-bold text-teal-700 mt-0.5 tabular-nums">{priceActivityStats.totalThisWeek}</p>
+                    </div>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>

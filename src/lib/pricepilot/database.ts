@@ -79,6 +79,29 @@ export interface MetadataRecord {
   updatedAt: string;
 }
 
+/**
+ * v1.5: Price history audit log entry.
+ * Records every price-related action for full traceability.
+ */
+export interface PriceHistoryRecord {
+  id: string;                   // Unique ID (UUID)
+  productId: string;            // Product ID the action affected
+  productSku: string;           // SKU (denormalized for quick display)
+  productName: string;          // Product name (denormalized)
+  action: 'price-approve' | 'price-apply' | 'price-edit' | 'price-reject' | 'bulk-approve' | 'bulk-apply' | 'import';
+  oldPrice: number | null;      // Previous selling price (null for new products)
+  newPrice: number | null;      // New selling price (null for deletions)
+  oldMargin: number | null;     // Previous margin %
+  newMargin: number | null;     // New margin %
+  timestamp: string;            // ISO date string
+  description: string;          // Human-readable description
+  metadata?: {
+    batchId?: string;           // Import batch ID if action = import
+    ruleId?: string;            // Pricing rule that triggered the change
+    source?: 'manual' | 'import' | 'bulk-action' | 'rule-engine';
+  };
+}
+
 // ============================================================
 // Database Class
 // ============================================================
@@ -93,6 +116,7 @@ export class PricePilotDatabase extends Dexie {
   undoActions!: Table<UndoAction & { id: string }, string>;
   backups!: Table<AutoBackup, string>;
   metadata!: Table<MetadataRecord, string>;
+  priceHistory!: Table<PriceHistoryRecord, string>;
 
   constructor() {
     super('pricepilot');
@@ -107,6 +131,11 @@ export class PricePilotDatabase extends Dexie {
       undoActions: 'id, timestamp, type',
       backups: 'id, timestamp, trigger',
       metadata: 'key',
+    });
+    // v1.5: Add priceHistory table for audit log.
+    // Indexed on productId, action, and timestamp for fast filtering.
+    this.version(2).stores({
+      priceHistory: 'id, productId, action, timestamp, productSku',
     });
   }
 }
@@ -225,7 +254,7 @@ export async function clearAllDataForE2E(): Promise<void> {
     'rw',
     [db.products, db.businessSettings, db.pricingRules, db.scenarios,
      db.importBatches, db.importIssues, db.undoActions, db.backups,
-     db.metadata],
+     db.metadata, db.priceHistory],
     async () => {
       await Promise.all([
         db.products.clear(),
@@ -237,6 +266,7 @@ export async function clearAllDataForE2E(): Promise<void> {
         db.undoActions.clear(),
         db.backups.clear(),
         db.metadata.clear(),
+        db.priceHistory.clear(),
       ]);
     },
   );
@@ -364,7 +394,7 @@ export async function atomicRestoreBackup(payload: {
 export async function atomicResetAll(): Promise<void> {
   const db = getDb();
   // Use the array form for >7 tables.
-  return db.transaction('rw', [db.products, db.businessSettings, db.pricingRules, db.scenarios, db.importBatches, db.importIssues, db.undoActions, db.backups], async () => {
+  return db.transaction('rw', [db.products, db.businessSettings, db.pricingRules, db.scenarios, db.importBatches, db.importIssues, db.undoActions, db.backups, db.priceHistory], async () => {
     await db.products.clear();
     await db.businessSettings.clear();
     await db.pricingRules.clear();
@@ -373,6 +403,7 @@ export async function atomicResetAll(): Promise<void> {
     await db.importIssues.clear();
     await db.undoActions.clear();
     await db.backups.clear();
+    await db.priceHistory.clear();
     // Keep metadata table — it tracks migration state.
   });
 }
@@ -621,3 +652,80 @@ export async function exportAllDataFromDb(): Promise<{
 
 // Local import to avoid circular dependency at module load.
 // (Moved to top of file alongside other type imports.)
+
+// ============================================================
+// v1.5: Price History Audit Log
+// ============================================================
+
+/**
+ * Load all price history entries, sorted by timestamp descending
+ * (most recent first). Returns empty array if table is empty.
+ */
+export async function loadPriceHistoryFromDb(): Promise<PriceHistoryRecord[]> {
+  const db = getDb();
+  const records = await db.priceHistory.toArray();
+  return records.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+}
+
+/**
+ * Load price history for a specific product, sorted by timestamp
+ * descending. Used by sparkline / trend components.
+ */
+export async function loadPriceHistoryForProduct(productId: string): Promise<PriceHistoryRecord[]> {
+  const db = getDb();
+  const records = await db.priceHistory
+    .where('productId')
+    .equals(productId)
+    .toArray();
+  return records.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+}
+
+/**
+ * Add a single price history entry. Non-atomic — callers that need
+ * to record history alongside a product update should use
+ * addPriceHistoryWithProduct instead.
+ */
+export async function addPriceHistoryEntry(entry: PriceHistoryRecord): Promise<void> {
+  const db = getDb();
+  await db.priceHistory.put(entry);
+}
+
+/**
+ * Add a price history entry atomically with a product update.
+ * Either both commit or neither does.
+ */
+export async function addPriceHistoryWithProduct(
+  product: Product,
+  entry: PriceHistoryRecord,
+): Promise<void> {
+  const db = getDb();
+  await db.transaction('rw', db.products, db.priceHistory, async () => {
+    await db.products.put(product);
+    await db.priceHistory.put(entry);
+  });
+}
+
+/**
+ * Bulk-add price history entries (e.g. from a bulk approval action).
+ */
+export async function bulkAddPriceHistory(entries: PriceHistoryRecord[]): Promise<void> {
+  if (entries.length === 0) return;
+  const db = getDb();
+  await db.priceHistory.bulkPut(entries);
+}
+
+/**
+ * Clear all price history entries. Used by reset / data cleanup.
+ */
+export async function clearPriceHistoryInDb(): Promise<void> {
+  const db = getDb();
+  await db.priceHistory.clear();
+}
+
+/**
+ * Get a count of price history entries for dashboard metrics.
+ */
+export async function getPriceHistoryCount(): Promise<number> {
+  const db = getDb();
+  return db.priceHistory.count();
+}

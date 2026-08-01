@@ -783,3 +783,171 @@ input[type="number"] {
   background: linear-gradient(90deg, #10b981, #14b8a6, #06b6d4);
   border-radius: 0.75rem 0.75rem 0 0;
 }
+
+/* ============================================================
+   v1.5 Animations & Styles
+   ============================================================ */
+
+/* Timeline dot pulse for recent entries */
+@keyframes timeline-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(16, 185, 129, 0); }
+}
+.timeline-dot-pulse {
+  animation: timeline-dot-pulse 2s ease-in-out infinite;
+}
+
+/* Slide in from left for timeline entries */
+@keyframes slide-in-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.animate-slide-in-left {
+  animation: slide-in-from-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Sparkline draw animation */
+@keyframes sparkline-draw {
+  from {
+    stroke-dashoffset: 200;
+    opacity: 0;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+.sparkline-draw {
+  stroke-dasharray: 200;
+  animation: sparkline-draw 0.8s ease-out both;
+}
+
+/* Competitor badge subtle glow */
+@keyframes competitor-badge-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(20, 184, 166, 0); }
+  50% { box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.15); }
+}
+.competitor-badge-glow:hover {
+  animation: competitor-badge-glow 1.5s ease-in-out infinite;
+}
+
+/* Revenue chart bar grow */
+@keyframes bar-grow {
+  from {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+.animate-bar-grow {
+  transform-origin: bottom;
+  animation: bar-grow 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Custom scrollbar for tables and timelines */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #10b981, #14b8a6);
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #059669, #0d9488);
+}
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #14b8a6 transparent;
+}
+
+/* Stat card gradient backgrounds */
+.stat-card-emerald {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(20, 184, 166, 0.04));
+  border-color: rgba(16, 185, 129, 0.2);
+}
+.stat-card-teal {
+  background: linear-gradient(135deg, rgba(20, 184, 166, 0.08), rgba(6, 182, 212, 0.04));
+  border-color: rgba(20, 184, 166, 0.2);
+}
+.stat-card-amber {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(251, 191, 36, 0.04));
+  border-color: rgba(245, 158, 11, 0.2);
+}
+.stat-card-rose {
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.08), rgba(251, 113, 133, 0.04));
+  border-color: rgba(244, 63, 94, 0.2);
+}
+.stat-card-blue {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.06), rgba(99, 102, 241, 0.03));
+  border-color: rgba(59, 130, 246, 0.15);
+}
+
+/* Table row hover with emerald tint */
+.table-row-hover:hover {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.04), rgba(20, 184, 166, 0.02));
+}
+
+/* Striped table rows */
+.table-row-striped:nth-child(even) {
+  background: rgba(0, 0, 0, 0.015);
+}
+.dark .table-row-striped:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Page header gradient bar */
+.page-header-gradient {
+  background: linear-gradient(135deg, #10b981 0%, #14b8a6 50%, #06b6d4 100%);
+}
+
+/* Floating animation for empty state icons */
+@keyframes float-icon {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.float-icon {
+  animation: float-icon 3s ease-in-out infinite;
+}
+
+/* Pulse ring for notification dot */
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.1); opacity: 0.4; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+.pulse-ring {
+  animation: pulse-ring 2s ease-in-out infinite;
+}
+
+/* Shimmer effect for loading placeholders */
+@keyframes shimmer-sweep {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer-bg {
+  background: linear-gradient(90deg, transparent 0%, rgba(16, 185, 129, 0.08) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer-sweep 1.5s ease-in-out infinite;
+}
+
+/* Price gap badge transitions */
+.price-gap-badge {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.price-gap-badge:hover {
+  transform: scale(1.05);
+}
