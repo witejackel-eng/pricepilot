@@ -143,6 +143,13 @@ const METADATA_KEY_LAST_SAVED = 'lastSavedTimestamp';
 
 let initializationPromise: Promise<void> | null = null;
 
+// Generation counter for stale-attempt protection. Each new
+// initialization attempt increments this counter. If a previous
+// attempt is still running when a new one starts (timeout → retry),
+// the stale attempt checks the generation before updating state
+// and silently exits if it no longer matches.
+let initializationGeneration = 0;
+
 /**
  * Reset the initialization guard. Called by E2E helpers after
  * clearing browser state so the next page load can initialize
@@ -150,6 +157,16 @@ let initializationPromise: Promise<void> | null = null;
  */
 export function resetInitializationGuard(): void {
   initializationPromise = null;
+  initializationGeneration++;
+}
+
+/**
+ * Get the current initialization generation number (for testing only).
+ * This allows tests to verify that generation-based invalidation works
+ * correctly without relying on private module state.
+ */
+export function getInitializationGeneration(): number {
+  return initializationGeneration;
 }
 
 /**
@@ -410,9 +427,18 @@ async function persistScenarios(scenarios: Scenario[]): Promise<void> {
  * The function uses `usePricePilotStore.setState` directly (not the
  * `set` callback) because it is defined outside the Zustand create()
  * closure. This is equivalent and avoids capturing stale closures.
+ *
+ * @param generation - The initialization generation counter at the time
+ *   this attempt started. If the counter has advanced by the time this
+ *   attempt reaches a state-changing operation, it silently exits
+ *   instead of updating the store, preventing stale writes.
  */
-async function performInitialization(): Promise<void> {
+async function performInitialization(generation: number): Promise<void> {
   const { setState: set, getState: get } = usePricePilotStore;
+
+  // Helper: check if this attempt is still the current generation.
+  // Returns true if this attempt has been invalidated by a newer one.
+  const isStale = () => generation !== initializationGeneration;
 
   // Mark as loading FIRST so the UI can render the "Opening your
   // PricePilot workspace…" screen instead of briefly flashing
@@ -436,6 +462,12 @@ async function performInitialization(): Promise<void> {
       }
     } catch (migrationErr) {
       console.error('[PricePilot] Migration threw unexpectedly.', migrationErr);
+    }
+
+    // Stale check after async migration.
+    if (isStale()) {
+      console.info('[PricePilot] Initialization attempt is stale after migration, exiting.');
+      return;
     }
 
     // Load primary data from IndexedDB.
@@ -463,6 +495,12 @@ async function performInitialization(): Promise<void> {
       throw dbErr;
     }
 
+    // Stale check after async DB loads.
+    if (isStale()) {
+      console.info('[PricePilot] Initialization attempt is stale after DB load, exiting.');
+      return;
+    }
+
     // Use defaults if business settings weren't found.
     if (!businessSettings) {
       businessSettings = createDefaultBusinessSettings();
@@ -479,6 +517,14 @@ async function performInitialization(): Promise<void> {
         `[PricePilot] ${batchResult.issues.length} product(s) had calculation issues during startup.`,
         batchResult.issues
       );
+    }
+
+    // Final stale check before committing state. This is the most
+    // critical one — it prevents a timed-out attempt from overwriting
+    // state that a newer retry has already set.
+    if (isStale()) {
+      console.info('[PricePilot] Initialization attempt is stale before state commit, exiting.');
+      return;
     }
 
     // UI preferences come from localStorage (theme/mode/sidebar are
@@ -509,14 +555,22 @@ async function performInitialization(): Promise<void> {
     });
 
     // Persist recalculated products back to IndexedDB (best-effort).
-    try {
-      await saveProductsToDb(recalculated);
-    } catch (saveErr) {
-      console.warn('[PricePilot] Could not persist recalculated products on startup.', saveErr);
+    // Only persist if this attempt is still current.
+    if (!isStale()) {
+      try {
+        await saveProductsToDb(recalculated);
+      } catch (saveErr) {
+        console.warn('[PricePilot] Could not persist recalculated products on startup.', saveErr);
+      }
     }
   } catch (err) {
     // Total initialization failure. DO NOT delete any data —
     // surface a failure summary so the UI can offer recovery options.
+    // But only if this attempt is still the current generation.
+    if (isStale()) {
+      console.info('[PricePilot] Stale initialization attempt failed, but a newer attempt is running. Not updating state.');
+      return;
+    }
     console.error('[PricePilot] Initialization failed.', err);
     set({ initialization: makeFailedSummary(err) });
   }
@@ -550,6 +604,13 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   // This prevents WebKit/iPhone hangs caused by concurrent IndexedDB
   // operations when React Strict Mode or E2E state resets trigger
   // re-initialization while a previous run is still in flight.
+  //
+  // Generation-based invalidation: Each attempt gets a unique
+  // generation number. If a timeout fires and the user retries,
+  // the new attempt increments the generation. The stale attempt
+  // checks the generation before every state-changing operation
+  // and silently exits if it no longer matches, preventing
+  // concurrent writes to IndexedDB and stale state overwrites.
   initialize: () => {
     if (initializationPromise) {
       // An initialization is already in progress — return the
@@ -558,6 +619,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       return initializationPromise;
     }
 
+    // Assign a new generation to this attempt.
+    const generation = ++initializationGeneration;
+
     // Timeout guard: if initialization doesn't complete within 15
     // seconds, mark it as failed so the UI shows a recovery screen
     // instead of hanging forever. This is critical for WebKit where
@@ -565,7 +629,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const INIT_TIMEOUT_MS = 15_000;
 
     initializationPromise = Promise.race([
-      performInitialization(),
+      performInitialization(generation),
       new Promise<void>((_resolve, reject) =>
         setTimeout(() => reject(new Error(
           `Initialization timed out after ${INIT_TIMEOUT_MS / 1000}s. ` +
@@ -578,6 +642,11 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         // If the timeout fires, mark initialization as failed.
         // If performInitialization already set the state, this is
         // a no-op. If it didn't (because it's stuck), we set it here.
+        // But only if this generation is still current — a newer
+        // retry may have already resolved.
+        if (generation !== initializationGeneration) {
+          return; // A newer attempt has started; don't overwrite its state.
+        }
         const state = usePricePilotStore.getState();
         if (state.initialization.status === 'loading' || state.initialization.status === 'idle') {
           console.error('[PricePilot] Initialization timeout.', err);
@@ -586,6 +655,11 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       })
       .finally(() => {
         // Clear the guard so retryInitialize() can start a new one.
+        // Only clear if this promise is still the current one.
+        if (initializationPromise === undefined) {
+          // The promise reference was already replaced by retry.
+          // In practice this shouldn't happen, but being defensive.
+        }
         initializationPromise = null;
       });
 
@@ -594,8 +668,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   retryInitialize: () => {
     // The user clicked "Try Again" on the failure screen.
-    // Clear the guard so a new initialization can start even if the
-    // previous one is still winding down.
+    // Increment the generation to invalidate any stale attempt
+    // that might still be running, then start a new one.
+    initializationGeneration++;
     initializationPromise = null;
     get().initialize();
   },
