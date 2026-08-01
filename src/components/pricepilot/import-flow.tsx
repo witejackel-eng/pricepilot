@@ -1436,6 +1436,28 @@ export function ImportFlow() {
               </Alert>
             )}
 
+            {/* Missing purchase cost warning */}
+            {(() => {
+              const allImportable = [...groupedResults.valid, ...groupedResults.needsReview];
+              const rowsWithCost = allImportable.filter(r => r.product && r.product.purchaseCost > 0);
+              const rowsWithoutCost = allImportable.filter(r => r.product && r.product.purchaseCost === 0);
+              const costCoveragePercent = allImportable.length > 0 ? Math.round((rowsWithCost.length / allImportable.length) * 100) : 100;
+              if (rowsWithoutCost.length > 0 && costCoveragePercent < 80) {
+                return (
+                  <Alert className="border-red-200 bg-red-50/50">
+                    <AlertTriangle className="h-4 w-4 text-red-600" />
+                    <AlertTitle className="text-red-800 text-xs font-medium">Purchase Cost Not Detected</AlertTitle>
+                    <AlertDescription className="text-xs text-slate-700">
+                      Purchase cost was not detected for {rowsWithoutCost.length} of {allImportable.length} products.
+                      PricePilot cannot calculate reliable selling prices without purchase cost.
+                      Please verify the column mapping or these products will be imported as &ldquo;Needs Cost&rdquo;.
+                    </AlertDescription>
+                  </Alert>
+                );
+              }
+              return null;
+            })()}
+
             {/* Rejected rows note */}
             {groupedResults.rejected.length > 0 && (
               <Alert className="border-red-200 bg-red-50/50">

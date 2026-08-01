@@ -1245,7 +1245,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       description: `Imported ${safeToAdd.length} product(s), updated ${safeToUpdate.length} product(s)`,
     });
 
-    set({ products: allProducts, currentView: 'products' });
+    set({ products: allProducts });
     get().resetImportState();
     return { ...ok(undefined, `Imported ${safeToAdd.length} product(s), updated ${safeToUpdate.length} product(s).`), commitResult };
   },
