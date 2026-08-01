@@ -62,7 +62,7 @@ export default function Home() {
   }
 
   if (!onboardingCompleted) {
-    return <div data-testid="app-initialization-ready"><OnboardingFlow /></div>;
+    return <OnboardingFlow />;
   }
 
   return <div data-testid="app-initialization-ready"><AppShell /></div>;

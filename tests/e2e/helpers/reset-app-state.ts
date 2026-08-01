@@ -369,7 +369,10 @@ export async function waitForAppStartup(
 
   // Wait for any of the startup states to appear using an or-locator.
   // This avoids the polling loop with fixed waitForTimeout(200).
-  const anyStartupMarker = onboardingForm.or(ownerHome).or(initReady).or(initFailed);
+  // Use .first() to avoid strict-mode violations when multiple
+  // markers are visible simultaneously (e.g., app-initialization-ready
+  // wraps onboarding-form after initialization succeeds).
+  const anyStartupMarker = onboardingForm.or(ownerHome).or(initReady).or(initFailed).first();
   await expect(anyStartupMarker, 'App must reach a startup state').toBeVisible({ timeout });
 
   // Now determine which state we reached.
