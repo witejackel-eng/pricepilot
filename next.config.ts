@@ -49,8 +49,18 @@ const securityHeaders = [
       "base-uri 'self'",
       // Form actions must target self.
       "form-action 'self'",
-      // Upgrade insecure requests (defence in depth).
-      "upgrade-insecure-requests",
+      // NOTE: 'upgrade-insecure-requests' was intentionally REMOVED.
+      // It is a defence-in-depth directive that upgrades http://
+      // subresource requests to https://. On WebKit (Safari), localhost
+      // is NOT exempted from this upgrade the way Chromium/Firefox
+      // exempt it, so the E2E test server (http://localhost:3000) had
+      // its JS chunk requests upgraded to https://localhost:3000 —
+      // which fails (no TLS on the test server) — leaving WebKit with
+      // no client JS and the app permanently stuck on the SSR loading
+      // screen. Removing the directive does not meaningfully weaken
+      // security: production is HTTPS via Vercel (HSTS is already set
+      // below), and every script/style/font/img source is already
+      // restricted to 'self' + data/blob.
     ].join("; "),
   },
   {
