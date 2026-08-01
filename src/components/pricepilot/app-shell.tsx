@@ -393,11 +393,11 @@ export function AppShell() {
               {/* Mobile menu */}
               <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" className="lg:hidden">
+                  <Button variant="ghost" size="icon" className="lg:hidden min-h-[44px] min-w-[44px]" data-testid="mobile-navigation-trigger">
                     <Menu className="h-5 w-5" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="left" className="w-72 p-0 bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700">
+                <SheetContent side="left" className="w-72 p-0 bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700" data-testid="mobile-navigation-drawer">
                   <SheetTitle className="px-4 pt-4 pb-2 text-sm font-semibold text-emerald-200">Navigation</SheetTitle>
                   <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} onNavClick={() => setMobileOpen(false)} applicationMode={applicationMode} />
                 </SheetContent>
@@ -436,7 +436,7 @@ export function AppShell() {
                   <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200">
                     <Download className="h-4 w-4 mr-1" /> Download
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setHelpPanelOpen(true)} className="transition-colors duration-200">
+                  <Button variant="ghost" size="sm" onClick={() => setHelpPanelOpen(true)} className="transition-colors duration-200 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0">
                     <HelpCircle className="h-4 w-4" />
                   </Button>
                 </>
@@ -451,7 +451,7 @@ export function AppShell() {
                 </>
               )}
               <Select value={businessSettings.currencyCode} onValueChange={v => updateBusinessSettings({ currencyCode: v })}>
-                <SelectTrigger className="w-[80px] h-8 text-xs shadow-sm rounded-lg">
+                <SelectTrigger className="w-[80px] h-8 text-xs shadow-sm rounded-lg min-h-[44px] sm:min-h-8">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -464,7 +464,7 @@ export function AppShell() {
           </header>
 
           {/* Content */}
-          <main className="flex-1 p-6 lg:p-8 overflow-auto bg-slate-50/30 dark:bg-slate-900/30 relative">
+          <main className="flex-1 min-h-0 p-6 lg:p-8 overflow-auto bg-slate-50/30 dark:bg-slate-900/30 relative">
             <div key={currentView} className="animate-fade-in">
               {renderView()}
             </div>

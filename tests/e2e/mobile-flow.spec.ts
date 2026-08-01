@@ -11,7 +11,7 @@
  *   - Export works
  *   - Settings page is accessible
  *   - No horizontal overflow
- *   - No clipped controls
+ *   - No clipped controls (excluding hidden/off-canvas elements)
  *   - Dialogs fit on screen
  *   - Buttons remain tappable
  *   - Mobile menu closes after navigation
@@ -39,15 +39,26 @@ async function assertNoHorizontalOverflow(page: Page): Promise<void> {
   expect(hasOverflow, 'Page must not have horizontal overflow').toBe(false);
 }
 
-/** Check that all buttons in the viewport are tappable (min 44×44 touch target). */
+/** Check that all visible buttons in the viewport are tappable (min 44×44 touch target). */
 async function assertButtonsAreTappable(page: Page): Promise<void> {
   const smallButtons = await page.evaluate(() => {
     const buttons = Array.from(document.querySelectorAll('button, [role="button"], a'));
     const small: string[] = [];
     for (const btn of buttons) {
+      // Skip elements that are not actually visible/interactive
       const rect = btn.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0 && (rect.width < 44 || rect.height < 44)) {
-        small.push(`Button "${btn.textContent?.slice(0, 30)}" is ${rect.width}×${rect.height}`);
+      if (rect.width === 0 || rect.height === 0) continue;
+      // Skip elements inside closed drawers, inert subtrees, or aria-hidden
+      if (btn.closest('[aria-hidden="true"]')) continue;
+      if (btn.closest('[inert]')) continue;
+      // Skip elements with display:none or visibility:hidden
+      const style = window.getComputedStyle(btn);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+      // Skip elements in the desktop sidebar on mobile (off-screen)
+      if (btn.closest('aside.hidden.lg\\:block')) continue;
+      // Check touch target size
+      if (rect.width < 44 || rect.height < 44) {
+        small.push(`Button "${btn.textContent?.slice(0, 30)}" is ${Math.round(rect.width)}×${Math.round(rect.height)}`);
       }
     }
     return small;
@@ -74,27 +85,103 @@ async function assertDialogsFitOnScreen(page: Page): Promise<void> {
   expect(dialogOverflow, 'Dialogs must fit within viewport').toEqual([]);
 }
 
-/** Check that no controls are clipped (partially off-screen). */
+/**
+ * Check that no visible controls are clipped (partially off-screen).
+ *
+ * Excludes elements that are:
+ * - display: none, visibility: hidden, opacity: 0
+ * - Inside [aria-hidden="true"]
+ * - Inside an inert subtree
+ * - Inside a closed dialog (data-state !== "open")
+ * - Inside the desktop sidebar on mobile (off-canvas)
+ * - Zero width/height (not rendered)
+ * - Deliberately positioned off-screen (e.g. sr-only)
+ *
+ * Uses clamped geometry to ensure the ratio is always between 0 and 1.
+ */
 async function assertNoClippedControls(page: Page): Promise<void> {
   const clipped = await page.evaluate(() => {
     const interactives = Array.from(document.querySelectorAll('button, input, select, textarea, [role="button"], [role="tab"]'));
     const issues: string[] = [];
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
     for (const el of interactives) {
       const rect = el.getBoundingClientRect();
+
+      // Skip zero-size elements (not rendered in active layout)
       if (rect.width === 0 || rect.height === 0) continue;
-      if (rect.left < 0 || rect.top < 0 || rect.right > window.innerWidth || rect.bottom > window.innerHeight) {
-        const visibleWidth = Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0);
-        const visibleHeight = Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
-        const visibleArea = visibleWidth * visibleHeight;
-        const totalArea = rect.width * rect.height;
-        if (visibleArea < totalArea * 0.5) {
-          issues.push(`Clipped control: "${el.textContent?.slice(0, 30)}" only ${Math.round((visibleArea / totalArea) * 100)}% visible`);
-        }
+
+      // Skip elements with display:none, visibility:hidden, opacity:0
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+
+      // Skip elements inside aria-hidden subtrees
+      if (el.closest('[aria-hidden="true"]')) continue;
+
+      // Skip elements inside inert subtrees
+      if (el.closest('[inert]')) continue;
+
+      // Skip elements inside closed dialogs
+      const dialog = el.closest('[role="dialog"], [data-slot="dialog-content"]');
+      if (dialog && dialog.getAttribute('data-state') !== 'open') continue;
+
+      // Skip elements inside closed sheets/drawers
+      const sheet = el.closest('[data-slot="sheet-content"]');
+      if (sheet && sheet.getAttribute('data-state') !== 'open') continue;
+
+      // Skip elements inside inactive tabs
+      const tabPanel = el.closest('[role="tabpanel"]');
+      if (tabPanel && tabPanel.getAttribute('data-state') !== 'active') continue;
+
+      // Skip elements inside the desktop sidebar on mobile
+      // (the sidebar has class "hidden lg:block", so on mobile it's off-canvas)
+      if (el.closest('aside.hidden.lg\\:block')) continue;
+
+      // Skip sr-only elements
+      if (el.closest('.sr-only')) continue;
+
+      // Skip hidden file inputs (they're intentionally invisible)
+      if (el.tagName === 'INPUT' && el.getAttribute('type') === 'file' && style.display === 'none') continue;
+
+      // Check if element is ENTIRELY outside the viewport (just needs
+      // scrolling — not a clipping issue).
+      const isEntirelyAbove = rect.bottom < 0;
+      const isEntirelyBelow = rect.top > vh;
+      const isEntirelyLeft = rect.right < 0;
+      const isEntirelyRight = rect.left > vw;
+      if (isEntirelyAbove || isEntirelyBelow || isEntirelyLeft || isEntirelyRight) continue;
+
+      // Calculate viewport intersection with clamping
+      const visibleWidth = Math.max(
+        0,
+        Math.min(rect.right, vw) - Math.max(rect.left, 0),
+      );
+      const visibleHeight = Math.max(
+        0,
+        Math.min(rect.bottom, vh) - Math.max(rect.top, 0),
+      );
+
+      const totalArea = rect.width * rect.height;
+      const visibleArea = visibleWidth * visibleHeight;
+
+      // Ratio is always between 0 and 1 (clamped)
+      const ratio = totalArea > 0
+        ? Math.min(1, Math.max(0, visibleArea / totalArea))
+        : 0;
+
+      // Only flag elements that are PARTIALLY visible (partially
+      // clipped by the viewport edge). Elements that are 0% visible
+      // are entirely off-screen and just need scrolling. Elements
+      // that are 100% visible are fine. The concern is elements
+      // that are 0% < ratio < 100% — they're cut off.
+      if (ratio > 0 && ratio < 0.5) {
+        issues.push(`Clipped control: "${el.textContent?.slice(0, 30)}" only ${Math.round(ratio * 100)}% visible (${Math.round(rect.width)}×${Math.round(rect.height)} at ${Math.round(rect.left)},${Math.round(rect.top)})`);
       }
     }
     return issues;
   });
-  expect(clipped, 'No controls should be clipped off-screen').toEqual([]);
+  expect(clipped, 'No controls should be clipped at viewport edge').toEqual([]);
 }
 
 /** Dismiss the tour invitation if it appears (to avoid visual overlap with buttons). */
@@ -207,9 +294,14 @@ test.describe('Mobile Flow E2E', () => {
     // Navigate to Import
     await navigateTo(page, 'import');
 
-    // File upload input should be visible
-    const fileInput = page.locator('input[type="file"]').first();
-    await expect(fileInput, 'File upload input must be visible').toBeVisible({ timeout: 5_000 });
+    // File upload trigger should be visible (the drop zone / click target)
+    const fileTrigger = page.getByTestId('import-file-trigger');
+    await expect(fileTrigger, 'Import file trigger must be visible').toBeVisible({ timeout: 5_000 });
+
+    // Hidden file input should be attached and enabled (but NOT visible)
+    const fileInput = page.getByTestId('import-file-input');
+    await expect(fileInput, 'Import file input must be attached').toBeAttached();
+    await expect(fileInput, 'Import file input must be enabled').toBeEnabled();
 
     // No horizontal overflow on import page
     await assertNoHorizontalOverflow(page);
@@ -411,20 +503,26 @@ test.describe('Mobile Flow E2E', () => {
       await completeOnboarding(page);
     }
 
-    // Open mobile menu
-    const sidebarToggle = page.getByRole('button', { name: /menu|toggle sidebar|open sidebar/i }).first();
-    if (await sidebarToggle.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await sidebarToggle.click();
+    // Open mobile menu using the specific test ID
+    const mobileMenuTrigger = page.getByTestId('mobile-navigation-trigger');
+    if (await mobileMenuTrigger.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await mobileMenuTrigger.click();
 
-      // Menu should be visible
-      const navButton = page.getByTestId('nav-products');
+      // Mobile drawer should be visible
+      const mobileDrawer = page.getByTestId('mobile-navigation-drawer');
+      await expect(mobileDrawer, 'Mobile navigation drawer must open').toBeVisible({ timeout: 5_000 });
+
+      // Navigation button should be visible in the drawer
+      // Scope to the mobile drawer to avoid strict-mode violations
+      // (both desktop sidebar and mobile drawer have the same test ID)
+      const navButton = mobileDrawer.getByTestId('nav-products');
       await expect(navButton, 'Navigation button must be visible in mobile menu').toBeVisible({ timeout: 5_000 });
 
       // Click a navigation item
       await navButton.click();
 
       // Menu should close after navigation
-      const sheet = page.locator('[data-state="open"]').first();
+      const sheet = page.locator('[data-slot="sheet-overlay"][data-state="open"]').first();
       // The sheet should be closed or closing
       await expect(sheet, 'Mobile menu should close after navigation').not.toBeVisible({ timeout: 3_000 }).catch(() => {
         // Some implementations may keep the sheet open briefly —

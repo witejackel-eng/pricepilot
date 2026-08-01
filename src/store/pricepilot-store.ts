@@ -127,6 +127,31 @@ function recalcProduct(product: Product, settings: BusinessSettings, rules: Pric
 /** Metadata key under which the last-successful-save timestamp is stored. */
 const METADATA_KEY_LAST_SAVED = 'lastSavedTimestamp';
 
+// ============================================================
+// Initialization Singleton Guard
+// ============================================================
+//
+// WebKit and iPhone 14 hang when concurrent initialize() calls run
+// (React Strict Mode fires useEffect twice in dev, and hot-reload
+// or E2E state reset can trigger re-initialization while a previous
+// run is still in flight). The guard ensures at most one
+// initialization Promise runs at a time. After completion (success
+// or failure), the promise is cleared so retry works.
+//
+// For E2E: `resetInitializationGuard()` MUST be called after
+// clearing IndexedDB so the next page load can start fresh.
+
+let initializationPromise: Promise<void> | null = null;
+
+/**
+ * Reset the initialization guard. Called by E2E helpers after
+ * clearing browser state so the next page load can initialize
+ * from a clean slate.
+ */
+export function resetInitializationGuard(): void {
+  initializationPromise = null;
+}
+
 /**
  * Read the last-saved timestamp from IndexedDB metadata. Returns null
  * if missing. Synchronous callers should use the cached `lastSaved`
@@ -370,6 +395,133 @@ async function persistScenarios(scenarios: Scenario[]): Promise<void> {
   }
 }
 
+// ============================================================
+// Initialization Implementation
+// ============================================================
+
+/**
+ * Perform the actual initialization sequence.
+ *
+ * This function MUST only be called through the singleton guard
+ * (`initialize()` on the store) so that at most one initialization
+ * runs at a time. WebKit and iPhone 14 hang when concurrent
+ * IndexedDB operations race.
+ *
+ * The function uses `usePricePilotStore.setState` directly (not the
+ * `set` callback) because it is defined outside the Zustand create()
+ * closure. This is equivalent and avoids capturing stale closures.
+ */
+async function performInitialization(): Promise<void> {
+  const { setState: set, getState: get } = usePricePilotStore;
+
+  // Mark as loading FIRST so the UI can render the "Opening your
+  // PricePilot workspace…" screen instead of briefly flashing
+  // onboarding.
+  set({ initialization: makeLoadingSummary() });
+
+  try {
+    // Migrate UI preferences from the legacy localStorage key if needed.
+    migrateLegacyAppSettingsIfNeeded();
+
+    // Run the localStorage → IndexedDB migration first. Idempotent
+    // and atomic — if it fails, the original localStorage data is
+    // untouched.
+    let migrationResult: MigrationResult | null = null;
+    try {
+      migrationResult = await migrateLegacyDataIfNeeded();
+      if (migrationResult.status === 'failed') {
+        console.warn('[PricePilot] localStorage migration failed.', migrationResult.message);
+      } else if (migrationResult.status === 'complete' && migrationResult.hadLegacyData) {
+        console.info('[PricePilot] localStorage migration completed.', migrationResult.message);
+      }
+    } catch (migrationErr) {
+      console.error('[PricePilot] Migration threw unexpectedly.', migrationErr);
+    }
+
+    // Load primary data from IndexedDB.
+    let products: Product[] = [];
+    let businessSettings: BusinessSettings | null = null;
+    let pricingRules: PricingRule[] = [];
+    let scenarios: Scenario[] = [];
+    let undoHistory: UndoAction[] = [];
+    let backups: AutoBackup[] = [];
+    let lastSaved: string | null = null;
+
+    try {
+      products = await loadAllProducts();
+      businessSettings = await loadBusinessSettingsFromDb();
+      pricingRules = await loadPricingRulesFromDb();
+      scenarios = await loadScenariosFromDb();
+      undoHistory = await loadUndoHistoryFromDb();
+      backups = await loadBackupsFromDb();
+      lastSaved = await loadLastSavedTimestampFromDb();
+    } catch (dbErr) {
+      console.error('[PricePilot] Could not load from IndexedDB.', dbErr);
+      // No localStorage fallback anymore — IndexedDB is the single
+      // source of truth. The user sees an initialization failure
+      // screen with retry / start-empty options.
+      throw dbErr;
+    }
+
+    // Use defaults if business settings weren't found.
+    if (!businessSettings) {
+      businessSettings = createDefaultBusinessSettings();
+    }
+
+    // Run calculations on all loaded products using the SAFE batch helper
+    // so a single malformed stored product cannot blank the whole app.
+    const batchResult = safelyRecalculateProducts(
+      products, businessSettings, pricingRules
+    );
+    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    if (batchResult.issues.length > 0) {
+      console.warn(
+        `[PricePilot] ${batchResult.issues.length} product(s) had calculation issues during startup.`,
+        batchResult.issues
+      );
+    }
+
+    // UI preferences come from localStorage (theme/mode/sidebar are
+    // explicitly UI preferences, not primary data).
+    const appSettings = loadAppSettings();
+    const actualMode = appSettings.applicationMode || 'owner';
+    const defaultView: AppView = actualMode === 'owner' ? 'owner-home' : 'dashboard';
+
+    // Build the initialization summary.
+    const needsReviewCount = recalculated.filter(
+      p => p.lifecycleStatus === 'needs-review' || p.calculatedPricingStatus === 'missing-data'
+    ).length;
+    const successfulCount = recalculated.length - needsReviewCount;
+    const summary = makeReadySummary(successfulCount, needsReviewCount);
+
+    set({
+      businessSettings: businessSettings as BusinessSettings,
+      products: recalculated,
+      pricingRules,
+      scenarios,
+      appSettings,
+      onboardingCompleted: (businessSettings as BusinessSettings).onboardingCompleted ?? false,
+      lastSaved,
+      currentView: (businessSettings as BusinessSettings).onboardingCompleted ? defaultView : 'dashboard',
+      autoBackups: backups,
+      undoHistory,
+      initialization: summary,
+    });
+
+    // Persist recalculated products back to IndexedDB (best-effort).
+    try {
+      await saveProductsToDb(recalculated);
+    } catch (saveErr) {
+      console.warn('[PricePilot] Could not persist recalculated products on startup.', saveErr);
+    }
+  } catch (err) {
+    // Total initialization failure. DO NOT delete any data —
+    // surface a failure summary so the UI can offer recovery options.
+    console.error('[PricePilot] Initialization failed.', err);
+    set({ initialization: makeFailedSummary(err) });
+  }
+}
+
 export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   // Initial state
   businessSettings: createDefaultBusinessSettings(),
@@ -393,118 +545,33 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   helpPanelOpen: false,
   guidedTourOpen: false,
 
-  // Initialize from IndexedDB (single source of truth)
-  initialize: async () => {
-    // Mark as loading FIRST so the UI can render the "Opening your
-    // PricePilot workspace…" screen instead of briefly flashing
-    // onboarding.
-    set({ initialization: makeLoadingSummary() });
+  // Initialize from IndexedDB (single source of truth).
+  // Singleton guard: only one initialization Promise may run at a time.
+  // This prevents WebKit/iPhone hangs caused by concurrent IndexedDB
+  // operations when React Strict Mode or E2E state resets trigger
+  // re-initialization while a previous run is still in flight.
+  initialize: () => {
+    if (initializationPromise) {
+      // An initialization is already in progress — return the
+      // existing promise so callers can await it, but do NOT start
+      // a second concurrent initialization.
+      return initializationPromise;
+    }
 
-    try {
-      // Migrate UI preferences from the legacy localStorage key if needed.
-      migrateLegacyAppSettingsIfNeeded();
-
-      // Run the localStorage → IndexedDB migration first. Idempotent
-      // and atomic — if it fails, the original localStorage data is
-      // untouched.
-      let migrationResult: MigrationResult | null = null;
-      try {
-        migrationResult = await migrateLegacyDataIfNeeded();
-        if (migrationResult.status === 'failed') {
-          console.warn('[PricePilot] localStorage migration failed.', migrationResult.message);
-        } else if (migrationResult.status === 'complete' && migrationResult.hadLegacyData) {
-          console.info('[PricePilot] localStorage migration completed.', migrationResult.message);
-        }
-      } catch (migrationErr) {
-        console.error('[PricePilot] Migration threw unexpectedly.', migrationErr);
-      }
-
-      // Load primary data from IndexedDB.
-      let products: Product[] = [];
-      let businessSettings: BusinessSettings | null = null;
-      let pricingRules: PricingRule[] = [];
-      let scenarios: Scenario[] = [];
-      let undoHistory: UndoAction[] = [];
-      let backups: AutoBackup[] = [];
-      let lastSaved: string | null = null;
-
-      try {
-        products = await loadAllProducts();
-        businessSettings = await loadBusinessSettingsFromDb();
-        pricingRules = await loadPricingRulesFromDb();
-        scenarios = await loadScenariosFromDb();
-        undoHistory = await loadUndoHistoryFromDb();
-        backups = await loadBackupsFromDb();
-        lastSaved = await loadLastSavedTimestampFromDb();
-      } catch (dbErr) {
-        console.error('[PricePilot] Could not load from IndexedDB.', dbErr);
-        // No localStorage fallback anymore — IndexedDB is the single
-        // source of truth. The user sees an initialization failure
-        // screen with retry / start-empty options.
-        throw dbErr;
-      }
-
-      // Use defaults if business settings weren't found.
-      if (!businessSettings) {
-        businessSettings = createDefaultBusinessSettings();
-      }
-
-      // Run calculations on all loaded products using the SAFE batch helper
-      // so a single malformed stored product cannot blank the whole app.
-      const batchResult = safelyRecalculateProducts(
-        products, businessSettings, pricingRules
-      );
-      const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-      if (batchResult.issues.length > 0) {
-        console.warn(
-          `[PricePilot] ${batchResult.issues.length} product(s) had calculation issues during startup.`,
-          batchResult.issues
-        );
-      }
-
-      // UI preferences come from localStorage (theme/mode/sidebar are
-      // explicitly UI preferences, not primary data).
-      const appSettings = loadAppSettings();
-      const actualMode = appSettings.applicationMode || 'owner';
-      const defaultView: AppView = actualMode === 'owner' ? 'owner-home' : 'dashboard';
-
-      // Build the initialization summary.
-      const needsReviewCount = recalculated.filter(
-        p => p.lifecycleStatus === 'needs-review' || p.calculatedPricingStatus === 'missing-data'
-      ).length;
-      const successfulCount = recalculated.length - needsReviewCount;
-      const summary = makeReadySummary(successfulCount, needsReviewCount);
-
-      set({
-        businessSettings: businessSettings as BusinessSettings,
-        products: recalculated,
-        pricingRules,
-        scenarios,
-        appSettings,
-        onboardingCompleted: (businessSettings as BusinessSettings).onboardingCompleted ?? false,
-        lastSaved,
-        currentView: (businessSettings as BusinessSettings).onboardingCompleted ? defaultView : 'dashboard',
-        autoBackups: backups,
-        undoHistory,
-        initialization: summary,
+    initializationPromise = performInitialization()
+      .finally(() => {
+        // Clear the guard so retryInitialize() can start a new one.
+        initializationPromise = null;
       });
 
-      // Persist recalculated products back to IndexedDB (best-effort).
-      try {
-        await saveProductsToDb(recalculated);
-      } catch (saveErr) {
-        console.warn('[PricePilot] Could not persist recalculated products on startup.', saveErr);
-      }
-    } catch (err) {
-      // Total initialization failure. DO NOT delete any data —
-      // surface a failure summary so the UI can offer recovery options.
-      console.error('[PricePilot] Initialization failed.', err);
-      set({ initialization: makeFailedSummary(err) });
-    }
+    return initializationPromise;
   },
 
   retryInitialize: () => {
     // The user clicked "Try Again" on the failure screen.
+    // Clear the guard so a new initialization can start even if the
+    // previous one is still winding down.
+    initializationPromise = null;
     get().initialize();
   },
 

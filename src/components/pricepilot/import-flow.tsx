@@ -818,6 +818,7 @@ export function ImportFlow() {
               onDrop={handleDrop}
               onDragOver={e => e.preventDefault()}
               onClick={() => document.getElementById('file-upload')?.click()}
+              data-testid="import-file-trigger"
             >
               <span className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
                 <FileSpreadsheet className="h-7 w-7 text-emerald-600" />

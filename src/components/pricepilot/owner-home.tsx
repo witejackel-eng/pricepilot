@@ -234,7 +234,7 @@ export function OwnerHome() {
   const recentActivity = undoHistory.slice(0, 5);
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto" data-testid="owner-home">
+    <div className="space-y-6 max-w-5xl mx-auto pb-4" data-testid="owner-home">
       {/* Header with gradient banner */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 dark:from-emerald-700 dark:via-emerald-600 dark:to-teal-600 p-6 shadow-lg shadow-emerald-500/20">
         {/* Decorative circles */}
