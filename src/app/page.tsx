@@ -47,6 +47,47 @@ export default function Home() {
     }
   }, [initialization.status, initialization.message, initialization.needsReviewCount]);
 
+  // Phase 4 (WebKit reliability): Independent safety net so the app
+  // can NEVER remain indefinitely on the "Opening your workspace…"
+  // loader. The store already has a 15s init-timeout guard, but on
+  // some browsers (notably WebKit/iPhone Safari) a blocked IndexedDB
+  // operation can prevent even that guard from surfacing. This
+  // component-level timer is completely independent of the store's
+  // promise machinery: if the app is still in `idle` or `loading`
+  // after 25 seconds, we force the store to the `failed` state so
+  // the owner sees the recovery screen (Retry / Download / Start
+  // Empty) instead of a permanent spinner.
+  //
+  // 25s is chosen so it fires AFTER the store's 15s timeout (giving
+  // the store first attempt) but BEFORE the 30s Playwright test
+  // timeout, so tests see a clear `app-initialization-failed` marker
+  // rather than an opaque timeout.
+  useEffect(() => {
+    if (initialization.status !== 'idle' && initialization.status !== 'loading') {
+      return;
+    }
+    const SAFETY_NET_MS = 25_000;
+    const timer = setTimeout(() => {
+      const current = usePricePilotStore.getState().initialization;
+      if (current.status === 'idle' || current.status === 'loading') {
+        console.error(
+          '[PricePilot] Initialization safety net: still loading after 25s. Forcing recovery screen.',
+        );
+        usePricePilotStore.setState({
+          initialization: {
+            status: 'failed',
+            successfulCount: 0,
+            needsReviewCount: 0,
+            failedCount: 0,
+            message: 'PricePilot could not open your saved workspace.\n\nYour browser data has not been deleted.',
+            error: 'Initialization did not complete within 25 seconds. This usually means a blocked storage operation. Try refreshing the page.',
+          },
+        });
+      }
+    }, SAFETY_NET_MS);
+    return () => clearTimeout(timer);
+  }, [initialization.status]);
+
   // Never briefly render onboarding while initialization is still in
   // flight. The owner sees "Opening your PricePilot workspace…"
   // instead of a flash of the onboarding wizard.

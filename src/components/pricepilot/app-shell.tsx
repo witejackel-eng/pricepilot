@@ -50,13 +50,22 @@ import { GuidedTour, TourInvitation } from './guided-tour';
 import { CommandPalette } from './command-palette';
 import { toast } from 'sonner';
 
-// Owner mode navigation items
+// Owner mode navigation items.
+//
+// Phase 5 (navigation predictability): Settings is a primary view and
+// MUST have a stable, always-visible navigation target. Previously it
+// was nested inside the collapsible "Advanced Tools" section, which
+// made it unreachable for keyboard users, screen readers and E2E
+// navigation when the collapsible failed to expand reliably across
+// browsers. It is now a top-level item so every primary view is
+// reachable without expanding anything.
 const OWNER_NAV_ITEMS: { view: AppView; label: string; icon: React.ElementType }[] = [
   { view: 'owner-home', label: 'Home', icon: Home },
   { view: 'products', label: 'Products', icon: Package },
   { view: 'import', label: 'Import Price List', icon: FileUp },
   { view: 'review-prices', label: 'Review Prices', icon: ClipboardCheck },
   { view: 'export', label: 'Download Excel', icon: Download },
+  { view: 'settings', label: 'Settings', icon: Settings },
 ];
 
 // Advanced mode navigation items
@@ -71,12 +80,14 @@ const ADVANCED_NAV_ITEMS: { view: AppView; label: string; icon: React.ElementTyp
   { view: 'settings', label: 'Settings', icon: Settings },
 ];
 
-// Advanced tools section for owner mode
+// Advanced tools section for owner mode. These are genuinely "advanced"
+// power-user tools that benefit from being grouped behind a collapsible
+// to keep the primary navigation simple for the nontechnical owner.
+// Settings is intentionally NOT in this list — see OWNER_NAV_ITEMS.
 const ADVANCED_TOOLS_ITEMS: { view: AppView; label: string; icon: React.ElementType }[] = [
   { view: 'pricing-rules', label: 'Pricing Rules', icon: Scale },
   { view: 'price-simulator', label: 'Price Simulator', icon: Calculator },
   { view: 'scenarios', label: 'Saved Scenarios', icon: Bookmark },
-  { view: 'settings', label: 'Advanced Settings', icon: Settings },
 ];
 
 const VIEW_LABELS: Record<AppView, string> = {

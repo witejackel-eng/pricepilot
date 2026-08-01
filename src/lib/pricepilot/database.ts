@@ -157,6 +157,50 @@ export function resetDbForTesting(): void {
   }
 }
 
+/**
+ * Phase 4 (WebKit reliability): Close the singleton Dexie connection
+ * and drop the cached instance so the next `getDb()` reopens fresh.
+ *
+ * This is exposed on `window.__pricepilotCloseDb` so the Playwright
+ * E2E state-reset helper can close the app's OWN Dexie connection
+ * BEFORE deleting the IndexedDB database. On WebKit, calling
+ * `indexedDB.deleteDatabase()` while a Dexie connection is still
+ * open fires `onblocked` and the database is never actually deleted —
+ * the next page load then hangs indefinitely on Dexie's `open()`.
+ *
+ * Closing the connection via the app's own singleton (rather than
+ * opening a SECOND raw `indexedDB.open()` connection from the test)
+ * avoids the cross-connection table-clearing race that previously
+ * left WebKit's Dexie connection in a broken state.
+ *
+ * Returns true if a connection was closed, false if none was open.
+ */
+export function closeDbForReset(): boolean {
+  let closed = false;
+  if (dbInstance) {
+    try {
+      dbInstance.close();
+      closed = true;
+    } catch {
+      // ignore — already closed
+    }
+    dbInstance = null;
+  }
+  return closed;
+}
+
+// Expose the closer on window for the E2E reset helper. This is a
+// no-op on the server (typeof window === 'undefined'). We attach it
+// at module load time so it is available as soon as the client bundle
+// executes, even before initialization completes.
+if (typeof window !== 'undefined') {
+  // Avoid overwriting if already set (e.g. hot reload).
+  if (!(window as unknown as { __pricepilotCloseDb?: unknown }).__pricepilotCloseDb) {
+    (window as unknown as { __pricepilotCloseDb: () => boolean }).__pricepilotCloseDb =
+      closeDbForReset;
+  }
+}
+
 // ============================================================
 // Constants
 // ============================================================

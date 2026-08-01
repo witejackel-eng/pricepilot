@@ -103,12 +103,50 @@ export async function resetPricePilotState(
       }
     }
 
-    // IndexedDB: Clear all tables instead of deleting the database.
-    // This avoids the WebKit `onblocked` issue where deleteDatabase
-    // fails silently if a connection is still open.
-    const knownDbNames = ['pricepilot', 'pricepilot_v1', 'PricePilotDB'];
+    // ── IndexedDB reset (WebKit-safe) ──────────────────────────
+    //
+    // CRITICAL (Phase 4 WebKit fix): On WebKit, calling
+    // `indexedDB.deleteDatabase()` while a Dexie connection is open
+    // fires `onblocked` and the database is NEVER deleted. The next
+    // page load then hangs indefinitely on Dexie's `open()`, leaving
+    // the app stuck on the "Opening your workspace…" loader forever.
+    //
+    // The previous strategy opened a SECOND raw `indexedDB.open()`
+    // connection from the test and cleared tables through it. That
+    // raced with the app's own Dexie connection and, on WebKit,
+    // corrupted it — producing the same permanent-loader hang.
+    //
+    // The correct strategy: ask the APP to close its own Dexie
+    // connection first (via the `window.__pricepilotCloseDb` global
+    // that database.ts exposes), THEN delete the database. With no
+    // open connections, `deleteDatabase` succeeds immediately on
+    // every browser (Chromium, Firefox, WebKit, iPhone Safari).
+    //
+    // We wait for each deletion to settle (success, error, OR blocked)
+    // so the reload never happens mid-deletion.
 
-    // Try to get all databases if supported (Chromium, Firefox)
+    // 1. Close the app's Dexie connection. Best-effort — if the app
+    //    hasn't loaded yet (no global), we fall through to the raw
+    //    delete which will still work on Chromium/Firefox.
+    try {
+      const closer = (window as unknown as {
+        __pricepilotCloseDb?: () => boolean;
+      }).__pricepilotCloseDb;
+      if (typeof closer === 'function') {
+        closer();
+      }
+    } catch {
+      // ignore — closing is best-effort
+    }
+
+    // 2. Give the close a microtask to settle (Dexie.close() is sync
+    //    but the underlying IDB connection release is async). A short
+    //    delay is the only reliable cross-browser way to ensure the
+    //    connection is fully released before deleteDatabase runs.
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    // 3. Collect candidate database names.
+    const knownDbNames = ['pricepilot', 'pricepilot_v1', 'PricePilotDB'];
     let dbNames: string[] = knownDbNames;
     if (typeof indexedDB.databases === 'function') {
       try {
@@ -119,62 +157,33 @@ export async function resetPricePilotState(
           .filter((name) => !knownDbNames.includes(name));
         dbNames = [...knownDbNames, ...extraNames];
       } catch {
-        // Fall back to known names
+        // WebKit does not implement indexedDB.databases() — fall back
+        // to the known names list above.
       }
     }
 
-    // Strategy: Try to clear tables first (WebKit-safe), then fall
-    // back to database deletion if clearing fails.
-    for (const name of dbNames) {
-      let cleared = false;
-      try {
-        // Open the database and clear all object stores
-        const db: IDBDatabase = await new Promise((resolve, reject) => {
-          const request = indexedDB.open(name);
-          request.onsuccess = () => resolve(request.result);
-          request.onerror = () => reject(request.error);
-          request.onupgradeneeded = () => {
-            // Database doesn't exist yet — that's fine
-            resolve(request.result);
-          };
-          request.onblocked = () => reject(new Error('blocked'));
-        });
-
-        // Clear all object stores
-        const storeNames = Array.from(db.objectStoreNames);
-        if (storeNames.length > 0) {
-          const tx = db.transaction(storeNames, 'readwrite');
-          await new Promise<void>((resolve, reject) => {
-            for (const storeName of storeNames) {
-              tx.objectStore(storeName).clear();
-            }
-            tx.oncomplete = () => {
-              db.close();
-              resolve();
-            };
-            tx.onerror = () => {
-              db.close();
-              reject(tx.error);
-            };
-          });
-        } else {
-          db.close();
-        }
-        cleared = true;
-      } catch {
-        // Clearing failed — fall through to deletion
-      }
-
-      if (!cleared) {
-        // Fallback: delete the database entirely
-        await new Promise<void>((resolve) => {
+    // 4. Delete each database. With the Dexie connection closed, this
+    //    succeeds without `onblocked` on WebKit. We resolve on success,
+    //    error, OR blocked (treat blocked as "best effort done" so the
+    //    test doesn't hang — a blocked delete on a closed connection
+    //    would only happen if a stray connection survived, which the
+    //    reload will tear down anyway).
+    const deleteDb = (name: string): Promise<void> =>
+      new Promise<void>((resolve) => {
+        try {
           const request = indexedDB.deleteDatabase(name);
           request.onsuccess = () => resolve();
           request.onerror = () => resolve();
           request.onblocked = () => resolve();
-        });
-      }
-    }
+          // Safety net: if none of the above fires (shouldn't happen),
+          // resolve after 2s so the test never hangs here.
+          setTimeout(resolve, 2000);
+        } catch {
+          resolve();
+        }
+      });
+
+    await Promise.all(dbNames.map((name) => deleteDb(name)));
   });
 
   // Wait for IndexedDB operations to settle before reload.
@@ -285,10 +294,14 @@ export async function navigateTo(
     scopeContainer = desktopSidebar;
   }
 
-  // In owner mode, some nav items (Settings, Pricing Rules, etc.) are
-  // inside an "Advanced Tools" collapsible section. These items need
-  // the collapsible to be expanded before they become visible.
-  const ADVANCED_TOOLS_TARGETS = new Set(['settings', 'pricing-rules', 'price-simulator', 'scenarios']);
+  // In owner mode, some nav items (Pricing Rules, Price Simulator,
+  // Saved Scenarios) are inside an "Advanced Tools" collapsible
+  // section. These items need the collapsible to be expanded before
+  // they become visible.
+  //
+  // NOTE: Settings is NO LONGER in this set — it was promoted to a
+  // top-level navigation item in Phase 5 so it is always visible.
+  const ADVANCED_TOOLS_TARGETS = new Set(['pricing-rules', 'price-simulator', 'scenarios']);
 
   // First, if this is an Advanced Tools target, try to expand the
   // collapsible section so the button becomes visible.
