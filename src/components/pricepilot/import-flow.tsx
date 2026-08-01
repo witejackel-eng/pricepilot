@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { usePricePilotStore, AutoBackup } from '@/store/pricepilot-store';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -63,6 +63,7 @@ import {
   ClipboardCheck,
   GitMerge,
   CheckCircle,
+  CheckCircle2,
   X,
   AlertCircle,
   Info,
@@ -80,6 +81,13 @@ import {
   SkipForward,
   RefreshCw,
   CheckSquare,
+  PartyPopper,
+  Sparkles,
+  CircleCheck,
+  CircleDot,
+  Circle,
+  Lightbulb,
+  FileUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -185,8 +193,22 @@ export function ImportFlow() {
   // Expanded duplicate rows
   const [expandedDuplicates, setExpandedDuplicates] = useState<Set<number>>(new Set());
 
+  // Drag-and-drop state
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  // Confetti celebration state
+  const [showConfetti, setShowConfetti] = useState(false);
+  const confettiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const stepIndex = STEPS.indexOf(step);
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
+
+  // Cleanup confetti timer on unmount
+  useEffect(() => {
+    return () => {
+      if (confettiTimerRef.current) clearTimeout(confettiTimerRef.current);
+    };
+  }, []);
 
   // Existing SKUs for duplicate detection
   const existingSkus = useMemo(() => {
@@ -376,6 +398,7 @@ export function ImportFlow() {
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
+    setIsDragOver(false);
     const file = e.dataTransfer.files[0];
     if (file) handleFileUpload(file);
   }, [handleFileUpload]);
@@ -572,6 +595,8 @@ export function ImportFlow() {
 
       setImportSummary(commitResult);
       setImportComplete(true);
+      setShowConfetti(true);
+      confettiTimerRef.current = setTimeout(() => setShowConfetti(false), 5000);
     } catch (err) {
       toast.error('Import failed', {
         description: err instanceof Error ? err.message : 'An unexpected error occurred.',
@@ -602,6 +627,9 @@ export function ImportFlow() {
     setReconciliationResults([]);
     setExpandedDuplicates(new Set());
     setIsImporting(false);
+    setIsDragOver(false);
+    setShowConfetti(false);
+    if (confettiTimerRef.current) clearTimeout(confettiTimerRef.current);
   };
 
   const downloadTemplate = () => {
@@ -653,36 +681,83 @@ export function ImportFlow() {
     <div className="space-y-4 max-w-3xl mx-auto">
       {/* Import completion summary */}
       {importComplete && importSummary && (
-        <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><CheckCircle className="h-5 w-5 text-emerald-600" /> Import Complete</CardTitle>
+        <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10 relative overflow-hidden">
+          {/* Confetti celebration particles */}
+          {showConfetti && (
+            <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
+              {Array.from({ length: 30 }).map((_, i) => {
+                const colors = ['bg-emerald-400', 'bg-teal-400', 'bg-amber-400', 'bg-rose-400', 'bg-sky-400', 'bg-violet-400'];
+                const left = Math.random() * 100;
+                const delay = Math.random() * 2;
+                const duration = 2 + Math.random() * 2;
+                const size = 4 + Math.random() * 6;
+                const isCircle = Math.random() > 0.5;
+                return (
+                  <div
+                    key={i}
+                    className={`absolute ${colors[i % colors.length]} ${isCircle ? 'rounded-full' : 'rounded-sm'}`}
+                    style={{
+                      left: `${left}%`,
+                      top: '-10px',
+                      width: `${size}px`,
+                      height: `${size}px`,
+                      animation: `confettiFall ${duration}s ease-in ${delay}s forwards`,
+                      opacity: 0.9,
+                    }}
+                  />
+                );
+              })}
+              <style jsx>{`
+                @keyframes confettiFall {
+                  0% { transform: translateY(0) rotate(0deg); opacity: 0.9; }
+                  100% { transform: translateY(500px) rotate(720deg); opacity: 0; }
+                }
+              `}</style>
+            </div>
+          )}
+          <CardHeader className="relative z-20">
+            <div className="flex items-center gap-2">
+              <PartyPopper className="h-5 w-5 text-emerald-600" />
+              <CardTitle className="text-emerald-800">Import Complete!</CardTitle>
+            </div>
             <CardDescription>Your products have been imported successfully</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 relative z-20">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <div className="bg-emerald-50 rounded-lg p-3 text-center border border-emerald-200">
+              <div className="bg-emerald-50 rounded-lg p-3 text-center border border-emerald-200 shadow-sm">
                 <p className="text-lg font-semibold text-emerald-700">{importSummary.added}</p>
                 <p className="text-xs text-emerald-600">Products added</p>
               </div>
-              <div className="bg-blue-50 rounded-lg p-3 text-center border border-blue-200">
-                <p className="text-lg font-semibold text-blue-700">{importSummary.updated}</p>
-                <p className="text-xs text-blue-600">Products updated</p>
+              <div className="bg-teal-50 rounded-lg p-3 text-center border border-teal-200 shadow-sm">
+                <p className="text-lg font-semibold text-teal-700">{importSummary.updated}</p>
+                <p className="text-xs text-teal-600">Products updated</p>
               </div>
-              <div className="bg-sky-50 rounded-lg p-3 text-center border border-sky-200">
+              <div className="bg-sky-50 rounded-lg p-3 text-center border border-sky-200 shadow-sm">
                 <p className="text-lg font-semibold text-sky-700">{importSummary.filledMissing}</p>
                 <p className="text-xs text-sky-600">Missing fields filled</p>
               </div>
-              <div className="bg-amber-50 rounded-lg p-3 text-center border border-amber-200">
+              <div className="bg-amber-50 rounded-lg p-3 text-center border border-amber-200 shadow-sm">
                 <p className="text-lg font-semibold text-amber-700">{importSummary.needsReview}</p>
                 <p className="text-xs text-amber-600">Need review</p>
               </div>
-              <div className="bg-slate-50 rounded-lg p-3 text-center border border-slate-200">
+              <div className="bg-slate-50 rounded-lg p-3 text-center border border-slate-200 shadow-sm">
                 <p className="text-lg font-semibold text-slate-700">{importSummary.skipped}</p>
                 <p className="text-xs text-slate-600">Skipped</p>
               </div>
-              <div className="bg-red-50 rounded-lg p-3 text-center border border-red-200">
+              <div className="bg-red-50 rounded-lg p-3 text-center border border-red-200 shadow-sm">
                 <p className="text-lg font-semibold text-red-700">{importSummary.rejected}</p>
                 <p className="text-xs text-red-600">Rejected</p>
+              </div>
+            </div>
+
+            {/* Quick stats summary */}
+            <div className="bg-emerald-50/50 border border-emerald-100 rounded-lg p-3 flex items-center gap-3">
+              <Sparkles className="h-5 w-5 text-emerald-600 flex-shrink-0" />
+              <div className="text-sm text-emerald-800">
+                <span className="font-semibold">{importSummary.added + importSummary.updated}</span> products were successfully processed from your file.
+                {importSummary.needsReview > 0 && (
+                  <span className="text-amber-700"> {importSummary.needsReview} product{importSummary.needsReview === 1 ? '' : 's'} need{importSummary.needsReview === 1 ? 's' : ''} your attention.</span>
+                )}
               </div>
             </div>
 
@@ -792,6 +867,53 @@ export function ImportFlow() {
       )}
 
       <Progress value={progress} className="h-2 rounded-full mb-2" />
+
+      {/* Visual Step Indicator */}
+      <div className="flex items-center justify-between mb-6 px-2">
+        {STEPS.map((s, i) => {
+          const isCompleted = i < stepIndex;
+          const isCurrent = i === stepIndex;
+          const isUpcoming = i > stepIndex;
+          const stepIcons = [Upload, Eye, Columns3, ClipboardCheck, GitMerge, CheckCircle2];
+          const StepIcon = stepIcons[i];
+          return (
+            <div key={s} className="flex items-center flex-1 last:flex-none">
+              <div className="flex flex-col items-center gap-1.5">
+                <div
+                  className={`flex items-center justify-center h-9 w-9 rounded-full border-2 transition-all duration-300 ${
+                    isCompleted
+                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-200'
+                      : isCurrent
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-600 shadow-md shadow-emerald-100 ring-4 ring-emerald-100/50'
+                        : 'bg-slate-50 border-slate-200 text-slate-400'
+                  }`}
+                >
+                  {isCompleted ? (
+                    <CheckCircle2 className="h-4 w-4" />
+                  ) : (
+                    <StepIcon className="h-4 w-4" />
+                  )}
+                </div>
+                <span
+                  className={`text-[10px] font-medium whitespace-nowrap transition-colors ${
+                    isCompleted ? 'text-emerald-700' : isCurrent ? 'text-emerald-600' : 'text-slate-400'
+                  }`}
+                >
+                  {STEP_LABELS[i]}
+                </span>
+              </div>
+              {i < STEPS.length - 1 && (
+                <div
+                  className={`flex-1 h-0.5 mx-2 mt-[-1.125rem] transition-all duration-500 ${
+                    isCompleted ? 'bg-emerald-500' : isCurrent ? 'bg-gradient-to-r from-emerald-500 to-slate-200' : 'bg-slate-200'
+                  }`}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
       <div className="flex items-center justify-between text-sm font-medium text-slate-600 mb-4">
         <span>Step {stepIndex + 1} of {STEPS.length}: {STEP_LABELS[stepIndex]}</span>
         <Button variant="ghost" size="sm" onClick={() => setCurrentView('products')} className="rounded-lg">
@@ -800,8 +922,33 @@ export function ImportFlow() {
       </div>
 
       {error && (
-        <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-center gap-2">
-          <AlertCircle className="h-4 w-4" /> {error}
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700 space-y-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-medium text-red-800">{error}</p>
+              <div className="mt-2 space-y-1.5">
+                {error.includes('Unsupported file type') && (
+                  <p className="text-xs text-red-600 flex items-start gap-1.5"><Lightbulb className="h-3 w-3 mt-0.5 flex-shrink-0" /> Convert your file to .xlsx or .csv format using Excel or Google Sheets, then try again.</p>
+                )}
+                {error.includes('too large') && (
+                  <p className="text-xs text-red-600 flex items-start gap-1.5"><Lightbulb className="h-3 w-3 mt-0.5 flex-shrink-0" /> Try splitting your data into smaller files or removing unnecessary columns to reduce file size.</p>
+                )}
+                {error.includes('empty') && (
+                  <p className="text-xs text-red-600 flex items-start gap-1.5"><Lightbulb className="h-3 w-3 mt-0.5 flex-shrink-0" /> Make sure the file has at least one header row and one data row. Download the template below for reference.</p>
+                )}
+                {error.includes('No data found') && (
+                  <p className="text-xs text-red-600 flex items-start gap-1.5"><Lightbulb className="h-3 w-3 mt-0.5 flex-shrink-0" /> Check that the correct sheet is selected and the header row is set correctly.</p>
+                )}
+                {error.includes('Failed to parse') && (
+                  <p className="text-xs text-red-600 flex items-start gap-1.5"><Lightbulb className="h-3 w-3 mt-0.5 flex-shrink-0" /> The file may be corrupted or in an unsupported format. Try re-saving it as .xlsx or .csv.</p>
+                )}
+                {!error.includes('Unsupported') && !error.includes('too large') && !error.includes('empty') && !error.includes('No data') && !error.includes('Failed to parse') && (
+                  <p className="text-xs text-red-600 flex items-start gap-1.5"><Lightbulb className="h-3 w-3 mt-0.5 flex-shrink-0" /> Try using the import template below to ensure your data is in the correct format.</p>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -814,17 +961,38 @@ export function ImportFlow() {
           </CardHeader>
           <CardContent>
             <div
-              className="bg-gradient-to-b from-slate-50 to-white rounded-xl border-2 border-dashed border-emerald-300 hover:border-emerald-500 hover:bg-emerald-50/20 transition-all p-12 text-center cursor-pointer"
+              className={`relative bg-gradient-to-b from-slate-50 to-white rounded-xl border-2 border-dashed transition-all p-12 text-center cursor-pointer overflow-hidden ${
+                isDragOver
+                  ? 'border-emerald-500 bg-emerald-50/30 scale-[1.02] shadow-lg shadow-emerald-200/50'
+                  : 'border-emerald-300 hover:border-emerald-500 hover:bg-emerald-50/20'
+              }`}
               onDrop={handleDrop}
-              onDragOver={e => e.preventDefault()}
+              onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
+              onDragEnter={e => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={() => setIsDragOver(false)}
               onClick={() => document.getElementById('file-upload')?.click()}
               data-testid="import-file-trigger"
             >
-              <span className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
-                <FileSpreadsheet className="h-7 w-7 text-emerald-600" />
+              {/* Pulsing animation overlay when dragging */}
+              {isDragOver && (
+                <div className="absolute inset-0 pointer-events-none">
+                  <div className="absolute inset-0 bg-emerald-100/40 animate-pulse" />
+                  <div className="absolute inset-0 border-2 border-emerald-400 rounded-xl animate-pulse" />
+                </div>
+              )}
+              <span className={`relative h-14 w-14 rounded-full flex items-center justify-center mx-auto mb-4 transition-all duration-300 ${
+                isDragOver ? 'bg-emerald-200 scale-110' : 'bg-emerald-100'
+              }`}>
+                {isDragOver ? (
+                  <FileUp className="h-7 w-7 text-emerald-700 animate-bounce" />
+                ) : (
+                  <FileSpreadsheet className="h-7 w-7 text-emerald-600" />
+                )}
               </span>
-              <p className="text-sm font-medium">Drag & drop your file here, or click to browse</p>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-sm font-medium relative">
+                {isDragOver ? 'Drop your file here!' : 'Drag & drop your file here, or click to browse'}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1 relative">
                 Supports .xlsx, .xls, .csv, .tsv — Max {MAX_FILE_SIZE_MB} MB
               </p>
               <input id="file-upload" type="file" accept=".xlsx,.xls,.csv,.tsv" className="hidden" onChange={handleFileInput} data-testid="import-file-input" />
@@ -950,16 +1118,43 @@ export function ImportFlow() {
               <div className="overflow-x-auto max-h-72 overflow-y-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow>
-                      {fileData.headers.map(h => <TableHead key={h} className="text-xs whitespace-nowrap">{h}</TableHead>)}
+                    <TableRow className="bg-slate-50/80">
+                      {fileData.headers.map(h => <TableHead key={h} className="text-xs whitespace-nowrap font-semibold text-slate-600">{h}</TableHead>)}
+                      <TableHead className="text-xs whitespace-nowrap font-semibold text-slate-600 w-16">Quality</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {fileData.rows.slice(0, 15).map((row, i) => (
-                      <TableRow key={i}>
-                        {fileData.headers.map(h => <TableCell key={h} className="text-xs max-w-[120px] truncate">{String(row[h] || '')}</TableCell>)}
-                      </TableRow>
-                    ))}
+                    {fileData.rows.slice(0, 15).map((row, i) => {
+                      // Calculate match quality for this row
+                      const filledCells = fileData.headers.filter(h => String(row[h] || '').trim()).length;
+                      const totalCells = fileData.headers.length;
+                      const fillRatio = filledCells / totalCells;
+                      const qualityLevel = fillRatio >= 0.8 ? 'good' : fillRatio >= 0.5 ? 'fair' : 'poor';
+                      const qualityColors = { good: 'bg-emerald-400', fair: 'bg-amber-400', poor: 'bg-red-400' };
+                      const qualityLabels = { good: 'Good', fair: 'Fair', poor: 'Poor' };
+                      const qualityTextColors = { good: 'text-emerald-700', fair: 'text-amber-700', poor: 'text-red-700' };
+
+                      return (
+                        <TableRow key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                          {fileData.headers.map(h => {
+                            const val = String(row[h] || '');
+                            const isEmpty = !val.trim();
+                            const isNumeric = !isEmpty && !isNaN(Number(val.replace(/[,]/g, '')));
+                            return (
+                              <TableCell key={h} className={`text-xs max-w-[120px] truncate ${isEmpty ? 'text-slate-300 italic' : isNumeric ? 'text-slate-700 font-medium' : ''}`}>
+                                {isEmpty ? '—' : val}
+                              </TableCell>
+                            );
+                          })}
+                          <TableCell className="text-xs">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`h-2 w-2 rounded-full ${qualityColors[qualityLevel]}`} />
+                              <span className={`text-[10px] font-medium ${qualityTextColors[qualityLevel]}`}>{qualityLabels[qualityLevel]}</span>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -981,16 +1176,62 @@ export function ImportFlow() {
             <CardDescription>Map each column from your file to the corresponding product field</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            {/* Mapping summary */}
+            <div className="flex items-center gap-3 mb-2">
+              {(() => {
+                const mapped = mappings.filter(m => m.targetField && m.targetField !== '__skip__').length;
+                const unmapped = mappings.filter(m => !m.targetField || m.targetField === '__skip__').length;
+                const requiredMapped = mappings.filter(m => {
+                  const target = m.targetField;
+                  if (!target || target === '__skip__') return false;
+                  return FIELD_OPTIONS.find(f => f.value === target)?.required;
+                }).length;
+                const requiredTotal = FIELD_OPTIONS.filter(f => f.required).length;
+                return (
+                  <>
+                    <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5">
+                      <CircleCheck className="h-3.5 w-3.5 text-emerald-600" />
+                      <span className="text-xs font-medium text-emerald-700">{mapped} mapped</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+                      <CircleDot className="h-3.5 w-3.5 text-amber-600" />
+                      <span className="text-xs font-medium text-amber-700">{unmapped} unmapped</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                      <span className="font-medium">{requiredMapped}/{requiredTotal}</span> required fields mapped
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
             {fileData.headers.map(header => {
               const existing = mappings.find(m => m.sourceColumn === header);
               const currentTarget = existing?.targetField || '__skip__';
               const isRequired = FIELD_OPTIONS.find(f => f.value === currentTarget)?.required;
+              const isMapped = currentTarget !== '__skip__';
+              const isAutoMapped = existing?.isManual === false;
 
               return (
-                <div key={header} className="bg-white rounded-lg p-3 shadow-sm border border-slate-100 hover:bg-slate-50 transition-colors flex items-center gap-3">
+                <div key={header} className={`rounded-lg p-3 shadow-sm border transition-all flex items-center gap-3 ${
+                  isMapped
+                    ? 'bg-emerald-50/50 border-emerald-200 hover:bg-emerald-50/80'
+                    : 'bg-amber-50/50 border-amber-200 hover:bg-amber-50/80'
+                }`}>
+                  <div className={`flex-shrink-0 h-7 w-7 rounded-full flex items-center justify-center ${
+                    isMapped
+                      ? 'bg-emerald-100 text-emerald-600'
+                      : 'bg-amber-100 text-amber-600'
+                  }`}>
+                    {isMapped ? <CircleCheck className="h-3.5 w-3.5" /> : <CircleDot className="h-3.5 w-3.5" />}
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <span className="text-sm font-medium truncate">{header}</span>
-                    <span className="text-xs text-muted-foreground ml-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium truncate">{header}</span>
+                      {isAutoMapped && isMapped && (
+                        <Badge variant="secondary" className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0">Auto</Badge>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
                       Sample: {String(fileData.rows[0]?.[header] || '—')}
                     </span>
                   </div>

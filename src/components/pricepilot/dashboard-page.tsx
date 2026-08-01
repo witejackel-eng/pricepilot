@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { usePricePilotStore } from '@/store/pricepilot-store';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { StatusBadge } from './status-badge';
 import { formatCurrency, formatPercentage, safeNumberValue } from '@/lib/pricepilot/formatting';
 import { buildNonEmptyOptions, UNCATEGORISED_FILTER, UNKNOWN_BRAND_FILTER, categoryMatchesFilter, brandMatchesFilter, categoryFilterLabel, brandFilterLabel } from '@/lib/pricepilot/safe-select';
 import { toast } from 'sonner';
-import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target, RefreshCw, CheckCircle2, HeartPulse, Lightbulb } from 'lucide-react';
+import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target, RefreshCw, CheckCircle2, HeartPulse, Lightbulb, LayoutDashboard, Activity, Sparkles, BarChart2 } from 'lucide-react';
 import {
   PieChart as RechartsPie,
   Pie,
@@ -36,25 +36,82 @@ const COLORS = {
   lowMargin: '#f59e0b',
   healthy: '#22c55e',
   highMargin: '#10b981',
-  aboveMarket: '#3b82f6',
+  aboveMarket: '#14b8a6',
   missingData: '#94a3b8',
-  needsReview: '#8b5cf6',
+  needsReview: '#d97706',
   approved: '#22c55e',
-  increase: '#22c55e',
+  increase: '#10b981',
   noChange: '#94a3b8',
   decrease: '#ef4444',
-  review: '#8b5cf6',
+  review: '#d97706',
 };
 
-// Custom tooltip component for charts
+// Animated number hook for KPI cards
+function useAnimatedNumber(target: number, duration = 1200) {
+  const [current, setCurrent] = useState(0);
+  const prevTarget = useRef(target);
+  const animationRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (prevTarget.current === target) return;
+    const start = prevTarget.current;
+    const diff = target - start;
+    const startTime = performance.now();
+
+    const animate = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCurrent(start + diff * eased);
+      if (progress < 1) {
+        animationRef.current = requestAnimationFrame(animate);
+      } else {
+        prevTarget.current = target;
+        setCurrent(target);
+      }
+    };
+
+    animationRef.current = requestAnimationFrame(animate);
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, [target, duration]);
+
+  // Initial mount animation
+  useEffect(() => {
+    const startTime = performance.now();
+    const startVal = 0;
+    const animate = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCurrent(startVal + (target - startVal) * eased);
+      if (progress < 1) {
+        animationRef.current = requestAnimationFrame(animate);
+      } else {
+        prevTarget.current = target;
+        setCurrent(target);
+      }
+    };
+    animationRef.current = requestAnimationFrame(animate);
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, [target, duration]);
+
+  return current;
+}
+
+// Custom tooltip component for charts (glass-morphism style)
 function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) {
   if (!active || !payload || payload.length === 0) return null;
   return (
-    <div className="bg-white shadow-lg rounded-lg border border-slate-100 px-4 py-3">
+    <div className="bg-white/90 backdrop-blur-md shadow-xl rounded-xl border border-emerald-100/50 px-4 py-3">
       {label && <p className="text-xs font-semibold text-slate-500 mb-1.5">{label}</p>}
       {payload.map((entry, index) => (
         <div key={index} className="flex items-center gap-2 text-sm">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+          <span className="h-2.5 w-2.5 rounded-full ring-1 ring-white/50" style={{ backgroundColor: entry.color }} />
           <span className="text-slate-600">{entry.name}:</span>
           <span className="font-semibold text-slate-800">{typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}</span>
         </div>
@@ -83,10 +140,10 @@ function MarginBucketTooltip({ active, payload, label }: { active?: boolean; pay
   if (!active || !payload || payload.length === 0) return null;
   const entry = payload[0];
   return (
-    <div className="bg-white shadow-lg rounded-lg border border-slate-100 px-4 py-3">
+    <div className="bg-white/90 backdrop-blur-md shadow-xl rounded-xl border border-emerald-100/50 px-4 py-3">
       <p className="text-xs font-semibold text-slate-500 mb-1.5">{entry.payload.range ?? label}</p>
       <div className="flex items-center gap-2 text-sm">
-        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+        <span className="h-2.5 w-2.5 rounded-full ring-1 ring-white/50" style={{ backgroundColor: entry.color }} />
         <span className="text-slate-600">Products:</span>
         <span className="font-semibold text-slate-800">{entry.value}</span>
       </div>
@@ -164,7 +221,7 @@ export function DashboardPage() {
       { label: '10-20%', range: 'Low (10-20%)', count: 0, color: '#f59e0b' },
       { label: '20-30%', range: 'Target (20-30%)', count: 0, color: '#10b981' },
       { label: '30-50%', range: 'Healthy (30-50%)', count: 0, color: '#10b981' },
-      { label: '> 50%', range: 'Premium (> 50%)', count: 0, color: '#3b82f6' },
+      { label: '> 50%', range: 'Premium (> 50%)', count: 0, color: '#14b8a6' },
     ];
     filtered.forEach(p => {
       const margin = getOutcome(p).effectiveMarginPercent;
@@ -221,10 +278,14 @@ export function DashboardPage() {
   if (showSkeleton && products.length === 0 && !onboardingCompleted) {
     return (
       <div className="space-y-8 bg-gradient-to-b from-slate-50/50 to-white min-h-screen p-1">
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-          <div>
-            <Skeleton className="h-8 w-40 bg-emerald-100/60" />
-            <Skeleton className="h-4 w-64 mt-2 bg-emerald-50/60" />
+        {/* Skeleton gradient banner */}
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 p-6 shadow-lg shadow-emerald-500/20">
+          <div className="absolute top-0 right-0 -mt-8 -mr-8 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
+          <div className="absolute bottom-0 left-0 -mb-8 -ml-8 h-24 w-24 rounded-full bg-white/10 blur-xl" />
+          <div className="relative space-y-2">
+            <Skeleton className="h-4 w-24 bg-white/20" />
+            <Skeleton className="h-8 w-48 bg-white/20" />
+            <Skeleton className="h-4 w-64 bg-white/15" />
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -243,7 +304,7 @@ export function DashboardPage() {
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Card key={i} className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-emerald-50/20 to-white">
+            <Card key={i} className="shadow-md border-0 overflow-hidden bg-white/60 backdrop-blur-sm border border-emerald-100/30 rounded-2xl">
               <CardHeader className="pb-2">
                 <Skeleton className="h-4 w-32 bg-emerald-100/50" />
               </CardHeader>
@@ -259,28 +320,57 @@ export function DashboardPage() {
 
   if (products.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 px-4 relative overflow-hidden rounded-xl bg-gradient-to-br from-emerald-50 via-white to-slate-50 min-h-[400px]">
-        {/* Decorative background pattern */}
+      <div className="flex flex-col items-center justify-center py-20 px-4 relative overflow-hidden min-h-[500px]">
+        {/* Decorative background */}
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-50/80 via-white to-teal-50/30" />
         <div className="absolute inset-0 opacity-[0.03]" style={{
           backgroundImage: 'radial-gradient(circle, #10b981 1px, transparent 1px)',
           backgroundSize: '24px 24px',
         }} />
-        {/* Animated icon */}
-        <div className="relative mb-6">
-          <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center shadow-md animate-[pulse_3s_ease-in-out_infinite]">
-            <Package className="h-10 w-10 text-emerald-600" />
+        {/* Gradient banner at top */}
+        <div className="absolute top-0 left-0 right-0 h-40 bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500" />
+        <div className="absolute top-0 left-0 right-0 h-40 bg-gradient-to-b from-transparent to-white/0" style={{ background: 'linear-gradient(to bottom, transparent, white)' }} />
+        {/* Decorative circles in banner */}
+        <div className="absolute top-0 right-0 -mt-4 -mr-4 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
+        <div className="absolute top-0 left-0 -mt-8 -ml-8 h-24 w-24 rounded-full bg-white/10 blur-xl" />
+
+        {/* Main content */}
+        <div className="relative bg-white/80 backdrop-blur-md rounded-2xl shadow-xl border border-emerald-100/50 p-8 max-w-md w-full text-center">
+          {/* Animated icon */}
+          <div className="relative mb-6 mx-auto">
+            <div className="h-24 w-24 rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center shadow-lg mx-auto animate-[pulse_3s_ease-in-out_infinite]">
+              <LayoutDashboard className="h-12 w-12 text-emerald-600" />
+            </div>
+            <div className="absolute -inset-2 rounded-3xl bg-emerald-200/20 animate-[ping_4s_ease-in-out_infinite]" />
+            <div className="absolute -top-1 -right-1 h-6 w-6 rounded-full bg-teal-400 flex items-center justify-center">
+              <Sparkles className="h-3 w-3 text-white" />
+            </div>
           </div>
-          <div className="absolute -inset-2 rounded-3xl bg-emerald-200/20 animate-[ping_4s_ease-in-out_infinite]" />
-        </div>
-        <h2 className="text-xl font-semibold text-slate-800 mb-2 relative">No products yet</h2>
-        <p className="text-muted-foreground mb-6 text-center max-w-md relative">Import your product spreadsheet or try sample data to see the dashboard in action.</p>
-        <div className="flex gap-3 relative">
-          <Button onClick={() => setCurrentView('import')} className="bg-gradient-to-r from-emerald-600 to-emerald-500 shadow-md shadow-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/30 transition-all duration-200">
-            <FileUp className="h-4 w-4 mr-2" /> Import Products
-          </Button>
-          <Button variant="outline" onClick={() => loadSampleData()} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 transition-all duration-200">
-            <Plus className="h-4 w-4 mr-2" /> Try Sample Data
-          </Button>
+          <h2 className="text-xl font-bold text-slate-800 mb-2">Your Dashboard Awaits</h2>
+          <p className="text-muted-foreground mb-6 text-sm">Import your product spreadsheet or try sample data to unlock powerful pricing insights and analytics.</p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button onClick={() => setCurrentView('import')} className="bg-gradient-to-r from-emerald-600 to-teal-500 shadow-md shadow-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/30 transition-all duration-200">
+              <FileUp className="h-4 w-4 mr-2" /> Import Products
+            </Button>
+            <Button variant="outline" onClick={() => loadSampleData()} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 transition-all duration-200">
+              <Plus className="h-4 w-4 mr-2" /> Try Sample Data
+            </Button>
+          </div>
+          {/* Feature preview hints */}
+          <div className="mt-6 pt-4 border-t border-emerald-100/50 grid grid-cols-3 gap-2">
+            <div className="flex flex-col items-center gap-1">
+              <BarChart2 className="h-4 w-4 text-emerald-400" />
+              <span className="text-[10px] text-slate-400 font-medium">Analytics</span>
+            </div>
+            <div className="flex flex-col items-center gap-1">
+              <Activity className="h-4 w-4 text-teal-400" />
+              <span className="text-[10px] text-slate-400 font-medium">Health Trends</span>
+            </div>
+            <div className="flex flex-col items-center gap-1">
+              <Target className="h-4 w-4 text-emerald-400" />
+              <span className="text-[10px] text-slate-400 font-medium">Optimization</span>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -439,27 +529,39 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-8 bg-gradient-to-b from-slate-50/50 to-white min-h-screen p-1">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Dashboard</h1>
-          <p className="text-sm text-slate-500 mt-1">Overview of your pricing performance and optimization opportunities</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Select value={filterCategory} onValueChange={setFilterCategory}>
-            <SelectTrigger className="w-[160px] bg-white"><SelectValue placeholder="All categories" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All categories</SelectItem>
-              {categories.map(c => <SelectItem key={c} value={c}>{categoryFilterLabel(c)}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={filterBrand} onValueChange={setFilterBrand}>
-            <SelectTrigger className="w-[160px] bg-white"><SelectValue placeholder="All brands" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All brands</SelectItem>
-              {brands.map(b => <SelectItem key={b} value={b}>{brandFilterLabel(b)}</SelectItem>)}
-            </SelectContent>
-          </Select>
+      {/* Header with gradient banner */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 p-6 shadow-lg shadow-emerald-500/20">
+        {/* Decorative circles */}
+        <div className="absolute top-0 right-0 -mt-8 -mr-8 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
+        <div className="absolute bottom-0 left-0 -mb-8 -ml-8 h-24 w-24 rounded-full bg-white/10 blur-xl" />
+        <div className="absolute top-1/2 right-1/4 h-16 w-16 rounded-full bg-teal-300/10 blur-lg" />
+        <div className="relative flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-emerald-100 text-xs font-medium uppercase tracking-wider mb-1">
+              <LayoutDashboard className="h-3.5 w-3.5" />
+              Dashboard
+            </div>
+            <h1 className="text-2xl font-bold text-white tracking-tight">
+              {businessSettings.businessName || 'PricePilot'}
+            </h1>
+            <p className="text-sm text-emerald-50/90 mt-1">Overview of your pricing performance and optimization opportunities</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <Select value={filterCategory} onValueChange={setFilterCategory}>
+              <SelectTrigger className="w-[160px] bg-white/15 backdrop-blur-sm border-white/20 text-white placeholder:text-emerald-100/70 hover:bg-white/25 transition-all"><SelectValue placeholder="All categories" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All categories</SelectItem>
+                {categories.map(c => <SelectItem key={c} value={c}>{categoryFilterLabel(c)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterBrand} onValueChange={setFilterBrand}>
+              <SelectTrigger className="w-[160px] bg-white/15 backdrop-blur-sm border-white/20 text-white placeholder:text-emerald-100/70 hover:bg-white/25 transition-all"><SelectValue placeholder="All brands" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All brands</SelectItem>
+                {brands.map(b => <SelectItem key={b} value={b}>{brandFilterLabel(b)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -468,25 +570,25 @@ export function DashboardPage() {
         <div className="flex gap-3 flex-wrap">
           <Button
             onClick={() => setCurrentView('import')}
-            className="rounded-lg shadow-md hover:shadow-lg bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white transition-all duration-200"
+            className="rounded-xl shadow-md hover:shadow-lg bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white transition-all duration-200"
           >
             <Plus className="h-4 w-4 mr-2" /> Add Product
           </Button>
           <Button
             onClick={() => setCurrentView('import')}
-            className="rounded-lg shadow-md hover:shadow-lg bg-gradient-to-r from-slate-600 to-slate-500 hover:from-slate-700 hover:to-slate-600 text-white transition-all duration-200"
+            className="rounded-xl shadow-md hover:shadow-lg bg-white/80 backdrop-blur-sm border border-slate-200 hover:bg-slate-50 text-slate-700 transition-all duration-200"
           >
             <FileUp className="h-4 w-4 mr-2" /> Import Data
           </Button>
           <Button
             onClick={() => { recalculateProducts(); toast.success('Recalculated', { description: 'All products have been recalculated with current settings' }); }}
-            className="rounded-lg shadow-md hover:shadow-lg bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-600 hover:to-amber-500 text-white transition-all duration-200"
+            className="rounded-xl shadow-md hover:shadow-lg bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-600 hover:to-amber-500 text-white transition-all duration-200"
           >
             <RefreshCw className="h-4 w-4 mr-2" /> Recalculate All
           </Button>
           <Button
             onClick={() => { bulkApprovePrices(products.map(p => p.id)); toast.success('All recommendations approved', { description: `${products.length} product prices have been approved` }); }}
-            className="rounded-lg shadow-md hover:shadow-lg bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white transition-all duration-200"
+            className="rounded-xl shadow-md hover:shadow-lg bg-gradient-to-r from-teal-600 to-emerald-500 hover:from-teal-700 hover:to-emerald-600 text-white transition-all duration-200"
           >
             <CheckCircle2 className="h-4 w-4 mr-2" /> Approve All Recommendations
           </Button>
@@ -498,7 +600,7 @@ export function DashboardPage() {
         <div>
           <div className="mb-3">
             <h2 className="text-lg font-semibold text-slate-800">Recently Viewed</h2>
-            <p className="text-sm text-slate-500">Products you've recently inspected</p>
+            <p className="text-sm text-slate-500">Products you&apos;ve recently inspected</p>
           </div>
           <div className="flex gap-3 flex-wrap">
             {recentlyViewedIds.map(id => {
@@ -510,11 +612,11 @@ export function DashboardPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => setCurrentView('products')}
-                  className="rounded-lg shadow-sm border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/50 transition-all duration-200 h-auto py-2 px-3"
+                  className="rounded-xl shadow-sm border-emerald-200/80 hover:border-emerald-300 hover:bg-emerald-50/50 hover:shadow-md transition-all duration-200 h-auto py-2 px-3 backdrop-blur-sm"
                 >
                   <Package className="h-3.5 w-3.5 mr-1.5 text-emerald-500" />
                   <span className="font-medium text-slate-700 text-sm">{p.name}</span>
-                  <Badge variant="secondary" className="text-xs ml-1.5">{p.sku}</Badge>
+                  <Badge variant="secondary" className="text-xs ml-1.5 bg-emerald-50 text-emerald-700">{p.sku}</Badge>
                 </Button>
               );
             })}
@@ -523,22 +625,23 @@ export function DashboardPage() {
       )}
 
       {/* KPI Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <SummaryCard title="Total Products" value={String(totalProducts)} icon={Package} color="slate" />
-        <SummaryCard title="Products Analysed" value={String(productsAnalysed)} icon={BarChart3} color="emerald" />
-        <SummaryCard title="Avg Existing Margin" value={formatPercentage(avgExistingMargin)} icon={TrendingUp} color={avgExistingMargin >= 0 ? 'emerald' : 'red'} />
-        <SummaryCard title="Avg Recommended Margin" value={formatPercentage(avgRecommendedMargin)} icon={Target} color="emerald" />
-        <SummaryCard title={`Current Est. Profit (${profitLabel})`} value={formatCurrency(currentEstimatedProfitPerUnit, businessSettings.currencyCode, { compact: true })} icon={DollarSign} color={currentEstimatedProfitPerUnit >= 0 ? 'emerald' : 'red'} />
-        <SummaryCard title={`Recommended Est. Profit (${profitLabel})`} value={formatCurrency(recommendedEstimatedProfitPerUnit, businessSettings.currencyCode, { compact: true })} icon={TrendingUp} color="emerald" />
-        <SummaryCard title={`Potential Improvement (${profitLabel})`} value={formatCurrency(potentialImprovement, businessSettings.currencyCode, { compact: true })} icon={potentialImprovement >= 0 ? ArrowUpRight : ArrowDownRight} color={potentialImprovement >= 0 ? 'emerald' : 'red'} />
-        <SummaryCard title="Loss-making Products" value={String(lossMaking)} icon={ShieldAlert} color={lossMaking > 0 ? 'red' : 'emerald'} />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <SummaryCard title="Total Products" value={totalProducts} icon={Package} color="slate" format="number" />
+        <SummaryCard title="Products Analysed" value={productsAnalysed} icon={BarChart3} color="emerald" format="number" />
+        <SummaryCard title="Avg Existing Margin" value={avgExistingMargin} icon={TrendingUp} color={avgExistingMargin >= 0 ? 'emerald' : 'red'} format="percent" />
+        <SummaryCard title="Avg Recommended Margin" value={avgRecommendedMargin} icon={Target} color="emerald" format="percent" />
+        <SummaryCard title={`Current Est. Profit (${profitLabel})`} value={currentEstimatedProfitPerUnit} icon={DollarSign} color={currentEstimatedProfitPerUnit >= 0 ? 'emerald' : 'red'} format="currency" currencyCode={businessSettings.currencyCode} />
+        <SummaryCard title={`Recommended Est. Profit (${profitLabel})`} value={recommendedEstimatedProfitPerUnit} icon={TrendingUp} color="emerald" format="currency" currencyCode={businessSettings.currencyCode} />
+        <SummaryCard title={`Potential Improvement (${profitLabel})`} value={potentialImprovement} icon={potentialImprovement >= 0 ? ArrowUpRight : ArrowDownRight} color={potentialImprovement >= 0 ? 'emerald' : 'red'} format="currency" currencyCode={businessSettings.currencyCode} />
+        <SummaryCard title="Loss-making Products" value={lossMaking} icon={ShieldAlert} color={lossMaking > 0 ? 'red' : 'emerald'} format="number" />
         {/* Feature 5: Average Health Score */}
         {productsAnalysed > 0 && (
           <SummaryCard
             title="Avg Health Score"
-            value={`${avgHealthScore}/100`}
+            value={avgHealthScore}
             icon={HeartPulse}
             color={avgHealthScore >= 70 ? 'emerald' : avgHealthScore >= 40 ? 'amber' : 'red'}
+            format="healthScore"
           />
         )}
       </div>
@@ -546,7 +649,7 @@ export function DashboardPage() {
       {/* Pricing Health Trends - Analytics Panel */}
       <div>
         <div className="mb-4 flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center shadow-sm">
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center shadow-sm">
             <TrendingUp className="h-4 w-4 text-emerald-600" />
           </div>
           <div>
@@ -556,18 +659,23 @@ export function DashboardPage() {
         </div>
 
         {filtered.length === 0 ? (
-          <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-slate-50/20">
+          <Card className="shadow-md border border-emerald-100/30 overflow-hidden bg-white/70 backdrop-blur-md rounded-2xl">
             <CardContent className="py-12 flex flex-col items-center justify-center text-center">
-              <Package className="h-10 w-10 text-slate-300 mb-3" />
+              <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center mb-4 shadow-inner">
+                <BarChart3 className="h-8 w-8 text-slate-300" />
+              </div>
               <p className="text-sm font-medium text-slate-600">No products to analyze</p>
-              <p className="text-xs text-slate-400 mt-1">Adjust your filters or add products to see pricing health trends</p>
+              <p className="text-xs text-slate-400 mt-1 max-w-xs">Adjust your filters or add products to see pricing health trends</p>
+              <Button variant="outline" size="sm" className="mt-4 border-emerald-200 text-emerald-700 hover:bg-emerald-50" onClick={() => setCurrentView('import')}>
+                <FileUp className="h-3.5 w-3.5 mr-1.5" /> Import Products
+              </Button>
             </CardContent>
           </Card>
         ) : (
           <>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Card A: Margin Distribution Histogram */}
-              <Card className="shadow-md border-0 overflow-hidden hover:shadow-lg transition-shadow duration-200 bg-gradient-to-b from-white to-slate-50/20">
+              <Card className="shadow-md border border-emerald-100/30 overflow-hidden hover:shadow-xl transition-all duration-300 bg-white/70 backdrop-blur-md rounded-2xl">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                     <BarChart3 className="h-4 w-4 text-emerald-500" />
@@ -591,7 +699,7 @@ export function DashboardPage() {
               </Card>
 
               {/* Card B: Pricing Status Breakdown (Donut) */}
-              <Card className="shadow-md border-0 overflow-hidden hover:shadow-lg transition-shadow duration-200 bg-gradient-to-b from-white to-emerald-50/20">
+              <Card className="shadow-md border border-emerald-100/30 overflow-hidden hover:shadow-xl transition-all duration-300 bg-white/70 backdrop-blur-md rounded-2xl">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                     <PieChart className="h-4 w-4 text-emerald-500" />
@@ -629,10 +737,10 @@ export function DashboardPage() {
                     </div>
                   </div>
                   {/* Legend below with color dots and counts */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 pt-3 border-t border-slate-100 mt-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 pt-3 border-t border-emerald-100/50 mt-1">
                     {statusBreakdown.map(s => (
-                      <div key={s.status} className="flex items-center gap-1.5">
-                        <span className={`h-2.5 w-2.5 rounded-full ${s.dot}`} />
+                      <div key={s.status} className="flex items-center gap-1.5 group">
+                        <span className={`h-2.5 w-2.5 rounded-full ${s.dot} ring-1 ring-white/50 group-hover:scale-125 transition-transform`} />
                         <span className="text-xs font-medium text-slate-600 truncate">{s.label}</span>
                         <span className="text-xs font-semibold text-slate-800 ml-auto">{s.count}</span>
                       </div>
@@ -643,7 +751,7 @@ export function DashboardPage() {
             </div>
 
             {/* Card C: Quick Insights */}
-            <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-amber-50/20 mt-4">
+            <Card className="shadow-md border border-amber-100/30 overflow-hidden bg-white/70 backdrop-blur-md rounded-2xl mt-4">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                   <Lightbulb className="h-4 w-4 text-amber-500" />
@@ -710,12 +818,12 @@ export function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => setCurrentView('review-prices')}
-                      className={`flex items-start gap-3 rounded-lg p-3 border ${toneClasses.bg} text-left transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-amber-300`}
+                      className={`flex items-start gap-3 rounded-xl p-3 border ${toneClasses.bg} text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-300 group`}
                     >
-                      <div className={`mt-0.5 ${toneClasses.icon}`}><AlertTriangle className="h-4 w-4" /></div>
+                      <div className={`mt-0.5 ${toneClasses.icon} ${n > 0 ? 'animate-pulse' : ''}`}><AlertTriangle className="h-4 w-4" /></div>
                       <div className="flex-1">
                         <p className="text-xs font-medium text-slate-500">Needs Attention</p>
-                        <p className={`text-sm font-semibold ${toneClasses.text}`}>{n} product{n === 1 ? '' : 's'} need attention <span className="text-xs font-normal text-slate-500 underline decoration-dotted">Review Prices →</span></p>
+                        <p className={`text-sm font-semibold ${toneClasses.text}`}>{n} product{n === 1 ? '' : 's'} need attention <span className="text-xs font-normal text-slate-500 underline decoration-dotted group-hover:text-emerald-600 transition-colors">Review Prices →</span></p>
                       </div>
                     </button>
                   );
@@ -726,7 +834,7 @@ export function DashboardPage() {
                   const p = pricingHealthInsights.topPerformer;
                   const m = pricingHealthInsights.topPerformerMargin;
                   return (
-                    <div className="flex items-start gap-3 rounded-lg p-3 border bg-emerald-50 border-emerald-100">
+                    <div className="flex items-start gap-3 rounded-xl p-3 border bg-emerald-50 border-emerald-100">
                       <div className="mt-0.5 text-emerald-600"><TrendingUp className="h-4 w-4" /></div>
                       <div className="flex-1">
                         <p className="text-xs font-medium text-slate-500">Top Performer</p>
@@ -743,13 +851,18 @@ export function DashboardPage() {
 
       {/* Charts Section */}
       <div>
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold text-slate-800">Analytics</h2>
-          <p className="text-sm text-slate-500">Visual breakdown of profitability and pricing recommendations</p>
+        <div className="mb-4 flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center shadow-sm">
+            <BarChart3 className="h-4 w-4 text-emerald-600" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">Analytics</h2>
+            <p className="text-sm text-slate-500">Visual breakdown of profitability and pricing recommendations</p>
+          </div>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Profitability distribution pie */}
-          <Card className="shadow-md border-0 overflow-hidden hover:shadow-lg transition-shadow duration-200 bg-gradient-to-b from-white to-slate-50/20">
+          <Card className="shadow-md border border-emerald-100/30 overflow-hidden hover:shadow-xl transition-all duration-300 bg-white/70 backdrop-blur-md rounded-2xl">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Profitability Distribution</CardTitle>
               <CardDescription className="text-xs text-slate-400">Product count by pricing status</CardDescription>
@@ -803,7 +916,7 @@ export function DashboardPage() {
           </Card>
 
           {/* Margin comparison by category */}
-          <Card className="shadow-md border-0 overflow-hidden hover:shadow-lg transition-shadow duration-200 bg-gradient-to-b from-white to-emerald-50/20">
+          <Card className="shadow-md border border-emerald-100/30 overflow-hidden hover:shadow-xl transition-all duration-300 bg-white/70 backdrop-blur-md rounded-2xl">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Existing vs Recommended Margin</CardTitle>
               <CardDescription className="text-xs text-slate-400">Average margin comparison by category</CardDescription>
@@ -817,14 +930,14 @@ export function DashboardPage() {
                   <Tooltip content={<CustomTooltip />} />
                   <Legend content={<CustomLegend />} />
                   <Bar dataKey="existing" name="Existing %" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="recommended" name="Recommended %" fill="#059669" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="recommended" name="Recommended %" fill="#10b981" radius={[4, 4, 0, 0]} />
                 </RechartsBar>
               </ResponsiveContainer>
             </CardContent>
           </Card>
 
           {/* Price recommendation distribution */}
-          <Card className="shadow-md border-0 overflow-hidden hover:shadow-lg transition-shadow duration-200 bg-gradient-to-b from-white to-slate-50/20">
+          <Card className="shadow-md border border-emerald-100/30 overflow-hidden hover:shadow-xl transition-all duration-300 bg-white/70 backdrop-blur-md rounded-2xl">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Price Recommendation Distribution</CardTitle>
               <CardDescription className="text-xs text-slate-400">How many products need price adjustments</CardDescription>
@@ -847,7 +960,7 @@ export function DashboardPage() {
 
         {/* Feature 3: Cost Breakdown Area Chart */}
         {costBreakdownByCategory.length > 0 && (
-          <Card className="shadow-md border-0 overflow-hidden hover:shadow-lg transition-shadow duration-200 bg-gradient-to-b from-white to-emerald-50/20 mt-6">
+          <Card className="shadow-md border border-emerald-100/30 overflow-hidden hover:shadow-xl transition-all duration-300 bg-white/70 backdrop-blur-md rounded-2xl mt-6">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Cost Breakdown by Category</CardTitle>
               <CardDescription className="text-xs text-slate-400">Stacked area chart showing cost composition per category</CardDescription>
@@ -862,9 +975,9 @@ export function DashboardPage() {
                   <Legend content={<CustomLegend />} />
                   <Area type="monotone" dataKey="PurchaseCost" name="Purchase Cost" stackId="1" stroke="#059669" fill="#059669" fillOpacity={0.6} />
                   <Area type="monotone" dataKey="Shipping" name="Shipping" stackId="1" stroke="#10b981" fill="#10b981" fillOpacity={0.5} />
-                  <Area type="monotone" dataKey="Packaging" name="Packaging" stackId="1" stroke="#34d399" fill="#34d399" fillOpacity={0.4} />
-                  <Area type="monotone" dataKey="Handling" name="Handling" stackId="1" stroke="#6ee7b7" fill="#6ee7b7" fillOpacity={0.3} />
-                  <Area type="monotone" dataKey="OtherCosts" name="Other Costs" stackId="1" stroke="#a7f3d0" fill="#a7f3d0" fillOpacity={0.2} />
+                  <Area type="monotone" dataKey="Packaging" name="Packaging" stackId="1" stroke="#14b8a6" fill="#14b8a6" fillOpacity={0.4} />
+                  <Area type="monotone" dataKey="Handling" name="Handling" stackId="1" stroke="#2dd4bf" fill="#2dd4bf" fillOpacity={0.3} />
+                  <Area type="monotone" dataKey="OtherCosts" name="Other Costs" stackId="1" stroke="#5eead4" fill="#5eead4" fillOpacity={0.2} />
                 </RechartsArea>
               </ResponsiveContainer>
             </CardContent>
@@ -875,15 +988,20 @@ export function DashboardPage() {
       {/* Top Improvement Opportunities */}
       {improvementOpps.length > 0 && (
         <div>
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold text-slate-800">Highest Improvement Opportunities</h2>
-            <p className="text-sm text-slate-500">Top products with the largest profit improvement potential (per unit)</p>
+          <div className="mb-4 flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center shadow-sm">
+              <ArrowUpRight className="h-4 w-4 text-emerald-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-800">Highest Improvement Opportunities</h2>
+              <p className="text-sm text-slate-500">Top products with the largest profit improvement potential (per unit)</p>
+            </div>
           </div>
-          <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-emerald-50/10">
+          <Card className="shadow-md border border-emerald-100/30 overflow-hidden bg-white/70 backdrop-blur-md rounded-2xl">
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-gradient-to-r from-slate-50 to-emerald-50/20 hover:bg-slate-50">
+                  <TableRow className="bg-gradient-to-r from-emerald-50/60 to-teal-50/40 hover:bg-emerald-50/60 border-b border-emerald-100/50">
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Product</TableHead>
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">SKU</TableHead>
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Current Profit/Unit</TableHead>
@@ -892,14 +1010,14 @@ export function DashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {improvementOpps.map(item => (
-                    <TableRow key={item.sku} className="hover:bg-emerald-50/30 transition-colors">
+                  {improvementOpps.map((item, idx) => (
+                    <TableRow key={item.sku} className={`hover:bg-emerald-50/30 transition-colors ${idx % 2 === 1 ? 'bg-emerald-50/10' : ''}`}>
                       <TableCell className="font-medium text-slate-800">{item.name}</TableCell>
                       <TableCell className="text-slate-500">{item.sku}</TableCell>
                       <TableCell className="text-right text-slate-700">{formatCurrency(item.currentProfit, businessSettings.currencyCode)}</TableCell>
                       <TableCell className="text-right text-slate-700">{formatCurrency(item.recommendedProfit, businessSettings.currencyCode)}</TableCell>
                       <TableCell className="text-right font-semibold text-emerald-600">
-                        <span className="inline-flex items-center gap-1 animate-pulse">
+                        <span className="inline-flex items-center gap-1">
                           <ArrowUpRight className="h-3.5 w-3.5" />
                           {formatCurrency(item.improvement, businessSettings.currencyCode)}
                         </span>
@@ -916,15 +1034,20 @@ export function DashboardPage() {
       {/* Highest Risk Products */}
       {riskProducts.length > 0 && (
         <div>
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold text-slate-800">Highest-risk Products</h2>
-            <p className="text-sm text-slate-500">Products with negative profit, low margins, or high fees</p>
+          <div className="mb-4 flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-red-100 to-orange-100 flex items-center justify-center shadow-sm">
+              <ShieldAlert className="h-4 w-4 text-red-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-800">Highest-risk Products</h2>
+              <p className="text-sm text-slate-500">Products with negative profit, low margins, or high fees</p>
+            </div>
           </div>
-          <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-red-50/10">
+          <Card className="shadow-md border border-red-100/30 overflow-hidden bg-white/70 backdrop-blur-md rounded-2xl">
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-gradient-to-r from-slate-50 to-red-50/20 hover:bg-slate-50">
+                  <TableRow className="bg-gradient-to-r from-red-50/40 to-orange-50/30 hover:bg-red-50/40 border-b border-red-100/50">
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">Product</TableHead>
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500">SKU</TableHead>
                     <TableHead className="text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Margin</TableHead>
@@ -933,17 +1056,17 @@ export function DashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {riskProducts.map(p => {
+                  {riskProducts.map((p, idx) => {
                     const outcome = getOutcome(p);
                     return (
                       <TableRow
                         key={p.id}
                         className={`transition-colors ${
                           outcome.effectiveMarginPercent < 0
-                            ? 'bg-red-50/40 hover:bg-red-50/60'
+                            ? `bg-red-50/40 hover:bg-red-50/60 ${idx % 2 === 1 ? 'bg-red-50/50' : ''}`
                             : outcome.effectiveMarginPercent < 10
-                              ? 'bg-amber-50/30 hover:bg-amber-50/50'
-                              : 'hover:bg-emerald-50/30'
+                              ? `bg-amber-50/30 hover:bg-amber-50/50 ${idx % 2 === 1 ? 'bg-amber-50/40' : ''}`
+                              : `hover:bg-emerald-50/30 ${idx % 2 === 1 ? 'bg-emerald-50/10' : ''}`
                         }`}
                       >
                         <TableCell className="font-medium text-slate-800">{p.name}</TableCell>
@@ -954,7 +1077,11 @@ export function DashboardPage() {
                         <TableCell className={`text-right font-semibold ${outcome.netProfit < 0 ? 'text-red-600' : 'text-slate-700'}`}>
                           {formatCurrency(outcome.netProfit, businessSettings.currencyCode)}
                         </TableCell>
-                        <TableCell><StatusBadge status={p.calculatedPricingStatus} /></TableCell>
+                        <TableCell>
+                          <span className={p.calculatedPricingStatus === 'needs-review' || p.calculatedPricingStatus === 'loss-making' || p.calculatedPricingStatus === 'below-break-even' ? 'animate-pulse' : ''}>
+                            <StatusBadge status={p.calculatedPricingStatus} />
+                          </span>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -967,14 +1094,19 @@ export function DashboardPage() {
 
       {/* Top Products Insights */}
       <div>
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold text-slate-800">Top Products Insights</h2>
-          <p className="text-sm text-slate-500">Profitability leaders and pricing change overview</p>
+        <div className="mb-4 flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center shadow-sm">
+            <TrendingUp className="h-4 w-4 text-emerald-600" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">Top Products Insights</h2>
+            <p className="text-sm text-slate-500">Profitability leaders and pricing change overview</p>
+          </div>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Top 5 Most Profitable */}
           {mostProfitableProducts.length > 0 && (
-            <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-emerald-50/10">
+            <Card className="shadow-md border border-emerald-100/30 overflow-hidden bg-white/70 backdrop-blur-md rounded-2xl hover:shadow-xl transition-all duration-300">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-semibold text-emerald-700 flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-emerald-500" />
@@ -985,17 +1117,17 @@ export function DashboardPage() {
               <CardContent className="p-0">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-emerald-50/30 hover:bg-emerald-50/30">
+                    <TableRow className="bg-emerald-50/30 hover:bg-emerald-50/30 border-b border-emerald-100/50">
                       <TableHead className="text-xs font-semibold text-slate-500">Product</TableHead>
                       <TableHead className="text-xs font-semibold text-right text-slate-500">Margin</TableHead>
                       <TableHead className="text-xs font-semibold text-right text-slate-500">Profit</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {mostProfitableProducts.map(p => {
+                    {mostProfitableProducts.map((p, idx) => {
                       const outcome = getOutcome(p);
                       return (
-                        <TableRow key={p.id} className="hover:bg-emerald-50/30 transition-colors">
+                        <TableRow key={p.id} className={`hover:bg-emerald-50/30 transition-colors ${idx % 2 === 1 ? 'bg-emerald-50/10' : ''}`}>
                           <TableCell className="font-medium text-slate-800 text-sm">{p.name}</TableCell>
                           <TableCell className="text-right font-semibold text-emerald-600">{formatPercentage(outcome.effectiveMarginPercent)}</TableCell>
                           <TableCell className="text-right text-emerald-700">{formatCurrency(outcome.netProfit, businessSettings.currencyCode)}</TableCell>
@@ -1010,7 +1142,7 @@ export function DashboardPage() {
 
           {/* Top 5 Least Profitable */}
           {leastProfitableProducts.length > 0 && (
-            <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-amber-50/10">
+            <Card className="shadow-md border border-amber-100/30 overflow-hidden bg-white/70 backdrop-blur-md rounded-2xl hover:shadow-xl transition-all duration-300">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-semibold text-amber-700 flex items-center gap-2">
                   <TrendingDown className="h-4 w-4 text-amber-500" />
@@ -1021,17 +1153,17 @@ export function DashboardPage() {
               <CardContent className="p-0">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-amber-50/30 hover:bg-amber-50/30">
+                    <TableRow className="bg-amber-50/30 hover:bg-amber-50/30 border-b border-amber-100/50">
                       <TableHead className="text-xs font-semibold text-slate-500">Product</TableHead>
                       <TableHead className="text-xs font-semibold text-right text-slate-500">Margin</TableHead>
                       <TableHead className="text-xs font-semibold text-right text-slate-500">Profit</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {leastProfitableProducts.map(p => {
+                    {leastProfitableProducts.map((p, idx) => {
                       const outcome = getOutcome(p);
                       return (
-                        <TableRow key={p.id} className="hover:bg-amber-50/30 transition-colors">
+                        <TableRow key={p.id} className={`hover:bg-amber-50/30 transition-colors ${idx % 2 === 1 ? 'bg-amber-50/10' : ''}`}>
                           <TableCell className="font-medium text-slate-800 text-sm">{p.name}</TableCell>
                           <TableCell className="text-right font-semibold text-amber-600">{formatPercentage(outcome.effectiveMarginPercent)}</TableCell>
                           <TableCell className="text-right text-amber-700">{formatCurrency(outcome.netProfit, businessSettings.currencyCode)}</TableCell>
@@ -1045,7 +1177,7 @@ export function DashboardPage() {
           )}
 
           {/* Price Changes Summary */}
-          <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-b from-white to-slate-50/30">
+          <Card className="shadow-md border border-emerald-100/30 overflow-hidden bg-white/70 backdrop-blur-md rounded-2xl hover:shadow-xl transition-all duration-300">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 <ArrowUpRight className="h-4 w-4 text-emerald-500" />
@@ -1054,9 +1186,9 @@ export function DashboardPage() {
               <CardDescription className="text-xs text-slate-400">How many products need price adjustments vs recommended</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="bg-emerald-50/60 rounded-lg p-4 border border-emerald-100">
+              <div className="bg-emerald-50/60 rounded-xl p-4 border border-emerald-100/50">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center shadow-sm">
                     <ArrowUpRight className="h-5 w-5 text-emerald-600" />
                   </div>
                   <div>
@@ -1066,9 +1198,9 @@ export function DashboardPage() {
                 </div>
                 <div className="text-xs text-emerald-500 mt-1">Products where recommended price is higher than current</div>
               </div>
-              <div className="bg-red-50/60 rounded-lg p-4 border border-red-100">
+              <div className="bg-red-50/60 rounded-xl p-4 border border-red-100/50">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
+                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-red-100 to-orange-100 flex items-center justify-center shadow-sm">
                     <ArrowDownRight className="h-5 w-5 text-red-600" />
                   </div>
                   <div>
@@ -1078,9 +1210,9 @@ export function DashboardPage() {
                 </div>
                 <div className="text-xs text-red-500 mt-1">Products where recommended price is lower than current</div>
               </div>
-              <div className="bg-slate-50/60 rounded-lg p-4 border border-slate-100">
+              <div className="bg-slate-50/60 rounded-xl p-4 border border-slate-100/50">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center">
+                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center shadow-sm">
                     <Target className="h-5 w-5 text-slate-500" />
                   </div>
                   <div>
@@ -1098,8 +1230,24 @@ export function DashboardPage() {
   );
 }
 
-function SummaryCard({ title, value, icon, color }: { title: string; value: string; icon: React.ElementType; color: string }) {
+function SummaryCard({ title, value, icon, color, format, currencyCode }: { title: string; value: number; icon: React.ElementType; color: string; format: 'number' | 'percent' | 'currency' | 'healthScore'; currencyCode?: string }) {
   const Icon = icon;
+  const animatedValue = useAnimatedNumber(value, 1000);
+
+  const displayValue = useMemo(() => {
+    switch (format) {
+      case 'number':
+        return Math.round(animatedValue).toLocaleString();
+      case 'percent':
+        return formatPercentage(animatedValue);
+      case 'currency':
+        return formatCurrency(animatedValue, currencyCode || 'USD', { compact: true });
+      case 'healthScore':
+        return `${Math.round(animatedValue)}/100`;
+      default:
+        return String(animatedValue);
+    }
+  }, [animatedValue, format, currencyCode]);
 
   const themeConfig: Record<string, {
     bg: string;
@@ -1109,15 +1257,17 @@ function SummaryCard({ title, value, icon, color }: { title: string; value: stri
     valueColor: string;
     gradient: string;
     borderAccent: string;
+    shadowColor: string;
   }> = {
     emerald: {
       bg: 'bg-gradient-to-br from-emerald-50/80 via-emerald-25/30 to-white',
-      iconBg: 'bg-gradient-to-br from-emerald-200 to-emerald-100',
+      iconBg: 'bg-gradient-to-br from-emerald-200 to-teal-100',
       iconColor: 'text-emerald-600',
-      accent: 'bg-gradient-to-r from-emerald-600 to-emerald-400',
+      accent: 'bg-gradient-to-r from-emerald-600 to-teal-400',
       valueColor: 'text-emerald-700',
       gradient: 'from-emerald-50 to-white',
       borderAccent: 'border-l-emerald-500',
+      shadowColor: 'shadow-emerald-500/10',
     },
     red: {
       bg: 'bg-gradient-to-br from-red-50/80 via-red-25/30 to-white',
@@ -1127,6 +1277,7 @@ function SummaryCard({ title, value, icon, color }: { title: string; value: stri
       valueColor: 'text-red-600',
       gradient: 'from-red-50 to-white',
       borderAccent: 'border-l-red-500',
+      shadowColor: 'shadow-red-500/10',
     },
     amber: {
       bg: 'bg-gradient-to-br from-amber-50/80 via-amber-25/30 to-white',
@@ -1136,6 +1287,7 @@ function SummaryCard({ title, value, icon, color }: { title: string; value: stri
       valueColor: 'text-amber-700',
       gradient: 'from-amber-50 to-white',
       borderAccent: 'border-l-amber-500',
+      shadowColor: 'shadow-amber-500/10',
     },
     slate: {
       bg: 'bg-gradient-to-br from-slate-50/80 via-slate-25/30 to-white',
@@ -1145,23 +1297,24 @@ function SummaryCard({ title, value, icon, color }: { title: string; value: stri
       valueColor: 'text-slate-800',
       gradient: 'from-slate-50 to-white',
       borderAccent: 'border-l-slate-400',
+      shadowColor: 'shadow-slate-500/10',
     },
   };
 
   const theme = themeConfig[color] || themeConfig.slate;
 
   return (
-    <Card className={`shadow-md border-0 overflow-hidden transition-all duration-200 hover:shadow-xl hover:scale-[1.02] hover:-translate-y-0.5 border-l-4 ${theme.borderAccent} ${theme.bg}`}>
+    <Card className={`shadow-md ${theme.shadowColor} border-0 overflow-hidden transition-all duration-300 hover:shadow-xl hover:scale-[1.03] hover:-translate-y-1 border-l-4 ${theme.borderAccent} ${theme.bg} rounded-2xl`}>
       {/* Accent strip */}
       <div className={`h-1 ${theme.accent}`} />
       <CardContent className="p-4 pt-3">
         <div className="flex items-center gap-3 mb-2">
-          <div className={`h-10 w-10 rounded-full ${theme.iconBg} flex items-center justify-center shadow-sm`}>
+          <div className={`h-10 w-10 rounded-xl ${theme.iconBg} flex items-center justify-center shadow-sm`}>
             <Icon className={`h-5 w-5 ${theme.iconColor}`} />
           </div>
-          <span className="text-sm font-medium text-slate-500">{title}</span>
+          <span className="text-sm font-medium text-slate-500 leading-tight">{title}</span>
         </div>
-        <p className={`text-2xl font-bold ${theme.valueColor}`}>{value}</p>
+        <p className={`text-2xl font-bold ${theme.valueColor} tabular-nums`}>{displayValue}</p>
       </CardContent>
     </Card>
   );

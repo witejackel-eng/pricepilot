@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,7 +14,11 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { usePricePilotStore } from '@/store/pricepilot-store';
 import { SUPPORTED_CURRENCIES, RoundingRule, TaxTreatment } from '@/lib/pricepilot/types';
-import { ArrowLeft, ArrowRight, SkipForward, Building2, Store, Coins, Settings, Sparkles, Info, CheckCircle2, HelpCircle } from 'lucide-react';
+import {
+  ArrowLeft, ArrowRight, SkipForward, Building2, Store, Coins, Settings,
+  Sparkles, Info, CheckCircle2, HelpCircle, Rocket, Globe, Receipt,
+  TrendingUp, ShoppingBag, ChevronRight, PartyPopper, MapPin, DollarSign
+} from 'lucide-react';
 
 const COUNTRIES = [
   { code: 'IN', name: 'India' },
@@ -39,12 +43,12 @@ const ROUNDING_RULES: { value: RoundingRule; label: string }[] = [
   { value: 'end-in-99-whole', label: 'End in 99 (whole)' },
 ];
 
-const TAX_TREATMENTS_QS: { value: string; label: string; desc: string }[] = [
-  { value: 'yes-inclusive', label: 'Yes, GST is already in my price', desc: 'e.g. ₹590 includes ₹90 GST — most common for Indian sellers' },
-  { value: 'no-exclusive', label: 'No, I add GST on top', desc: 'e.g. ₹500 + 18% = ₹590 — common for B2B sellers' },
-  { value: 'exempt', label: 'My products are tax exempt', desc: 'No GST/VAT applies' },
-  { value: 'composite', label: 'Composite GST (CGST+SGST)', desc: 'Split GST components' },
-  { value: 'not-sure', label: 'Not sure', desc: 'Skip for now — recommendations will be marked low-confidence until you confirm a rate in Settings' },
+const TAX_TREATMENTS_QS: { value: string; label: string; desc: string; icon: React.ElementType; color: string }[] = [
+  { value: 'yes-inclusive', label: 'Yes, GST is already in my price', desc: 'e.g. ₹590 includes ₹90 GST — most common for Indian sellers', icon: Receipt, color: 'emerald' },
+  { value: 'no-exclusive', label: 'No, I add GST on top', desc: 'e.g. ₹500 + 18% = ₹590 — common for B2B sellers', icon: DollarSign, color: 'teal' },
+  { value: 'exempt', label: 'My products are tax exempt', desc: 'No GST/VAT applies', icon: CheckCircle2, color: 'amber' },
+  { value: 'composite', label: 'Composite GST (CGST+SGST)', desc: 'Split GST components', icon: Receipt, color: 'cyan' },
+  { value: 'not-sure', label: 'Not sure', desc: 'Skip for now — recommendations will be marked low-confidence until you confirm a rate in Settings', icon: HelpCircle, color: 'slate' },
 ];
 
 /** Phase 12: GST rate question options. */
@@ -71,6 +75,7 @@ const labelClass = 'text-sm font-medium text-slate-600';
 
 /** Step-specific background gradients */
 const STEP_GRADIENTS: Record<string, string> = {
+  '0': 'from-emerald-200 via-emerald-50/50 to-slate-50',
   '1': 'from-emerald-100 via-emerald-50/30 to-slate-50',
   '2': 'from-teal-100 via-teal-50/30 to-slate-50',
   '3': 'from-amber-50 via-emerald-50/20 to-slate-50',
@@ -80,12 +85,26 @@ const STEP_GRADIENTS: Record<string, string> = {
 /** Step icon mapping */
 const STEP_ICONS: Record<string, React.ElementType> = {
   'quick-1': Building2,
-  'quick-2': Coins,
-  'quick-3': Coins,
-  'quick-4': Store,
+  'quick-2': Receipt,
+  'quick-3': TrendingUp,
+  'quick-4': ShoppingBag,
   'adv-1': Building2,
   'adv-2': Store,
   'adv-3': Coins,
+};
+
+/** Step label mapping for the progress indicator */
+const STEP_LABELS_QUICK: Record<number, string> = {
+  1: 'Business',
+  2: 'Tax',
+  3: 'Margins',
+  4: 'Channels',
+};
+
+const STEP_LABELS_ADV: Record<number, string> = {
+  1: 'Business',
+  2: 'Channels',
+  3: 'Costs',
 };
 
 /** Amber "Estimate" pill with tooltip explaining the value is a pre-filled estimate. */
@@ -139,38 +158,49 @@ function ChannelFeeInput({
   );
 }
 
-/** Animated step indicator dots */
-function StepIndicator({ current, total }: { current: number; total: number }) {
+/** Animated step indicator with labels and connecting lines */
+function StepIndicator({ current, total, labels }: { current: number; total: number; labels: Record<number, string> }) {
   return (
-    <div className="flex items-center justify-center gap-2">
+    <div className="flex items-center justify-center gap-0">
       {Array.from({ length: total }, (_, i) => {
         const stepNum = i + 1;
         const isActive = stepNum === current;
         const isCompleted = stepNum < current;
         return (
-          <div key={stepNum} className="flex items-center gap-2">
-            <div
-              className={`relative flex items-center justify-center rounded-full transition-all duration-500 ease-out ${
-                isActive
-                  ? 'h-9 w-9 bg-emerald-600 text-white shadow-md shadow-emerald-500/30 scale-110'
-                  : isCompleted
-                    ? 'h-7 w-7 bg-emerald-500 text-white shadow-sm'
-                    : 'h-7 w-7 bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
-              }`}
-            >
-              {isCompleted ? (
-                <CheckCircle2 className="h-4 w-4" />
-              ) : (
-                <span className={`text-xs font-semibold ${isActive ? 'text-white' : ''}`}>{stepNum}</span>
-              )}
-              {isActive && (
-                <span className="absolute inset-0 rounded-full bg-emerald-400/30 animate-ping" />
-              )}
+          <div key={stepNum} className="flex items-center">
+            <div className="flex flex-col items-center gap-1.5">
+              <div
+                className={`relative flex items-center justify-center rounded-full transition-all duration-500 ease-out ${
+                  isActive
+                    ? 'h-10 w-10 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/30 scale-110'
+                    : isCompleted
+                      ? 'h-8 w-8 bg-emerald-500 text-white shadow-sm'
+                      : 'h-8 w-8 bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
+                }`}
+              >
+                {isCompleted ? (
+                  <CheckCircle2 className="h-4 w-4" />
+                ) : (
+                  <span className={`text-xs font-semibold ${isActive ? 'text-white' : ''}`}>{stepNum}</span>
+                )}
+                {isActive && (
+                  <span className="absolute inset-0 rounded-full bg-emerald-400/30 animate-ping" />
+                )}
+              </div>
+              <span className={`text-[10px] font-medium transition-colors duration-300 ${
+                isActive ? 'text-emerald-700 dark:text-emerald-400' : isCompleted ? 'text-emerald-600 dark:text-emerald-500' : 'text-slate-400 dark:text-slate-500'
+              }`}>
+                {labels[stepNum] || ''}
+              </span>
             </div>
             {stepNum < total && (
-              <div className={`h-0.5 w-6 rounded-full transition-all duration-500 ${
-                isCompleted ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-700'
-              }`} />
+              <div className="relative h-0.5 w-8 sm:w-12 mx-1 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700">
+                <div
+                  className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ease-out ${
+                    isCompleted ? 'bg-emerald-500 w-full' : 'bg-slate-200 dark:bg-slate-700 w-0'
+                  }`}
+                />
+              </div>
             )}
           </div>
         );
@@ -179,21 +209,91 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
   );
 }
 
-/** Completion animation overlay */
-function CompletionAnimation() {
+/** Confetti particles for celebration */
+function ConfettiOverlay() {
+  const [particles] = useState(() =>
+    Array.from({ length: 30 }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      delay: Math.random() * 0.5,
+      duration: 1.5 + Math.random() * 1.5,
+      color: ['bg-emerald-400', 'bg-teal-400', 'bg-amber-400', 'bg-rose-400', 'bg-cyan-400', 'bg-purple-400'][Math.floor(Math.random() * 6)],
+      size: 4 + Math.random() * 6,
+      rotation: Math.random() * 360,
+    }))
+  );
+
   return (
-    <div className="flex flex-col items-center justify-center py-8 animate-fade-in-up">
-      <div className="relative mb-6">
-        <div className="h-20 w-20 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/30">
-          <CheckCircle2 className="h-10 w-10 text-white" />
+    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      {particles.map(p => (
+        <div
+          key={p.id}
+          className={`absolute ${p.color} rounded-sm opacity-0`}
+          style={{
+            left: `${p.x}%`,
+            top: '-5%',
+            width: p.size,
+            height: p.size * 0.6,
+            transform: `rotate(${p.rotation}deg)`,
+            animation: `confettiFall ${p.duration}s ease-out ${p.delay}s forwards`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Completion animation overlay with summary */
+function CompletionAnimation({ form, setupMode }: { form: Record<string, unknown>; setupMode: 'quick' | 'advanced' }) {
+  const currency = SUPPORTED_CURRENCIES.find(c => c.code === form.currencyCode);
+  const selectedChannels = CHANNELS.filter(c => (form.channels as string[]).includes(c.id));
+
+  return (
+    <div className="relative flex flex-col items-center justify-center py-6 animate-fade-in-up">
+      <ConfettiOverlay />
+      <div className="relative mb-5">
+        <div className="h-20 w-20 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/30">
+          <PartyPopper className="h-10 w-10 text-white" />
         </div>
         <div className="absolute inset-0 h-20 w-20 rounded-full bg-emerald-400/20 animate-ping" />
         <div className="absolute -inset-2 h-24 w-24 rounded-full border-2 border-emerald-300/30 animate-pulse" />
       </div>
-      <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50 mb-2">You&apos;re all set!</h2>
-      <p className="text-sm text-slate-500 dark:text-slate-400 text-center max-w-sm">
-        Your PricePilot workspace is ready. Start by importing your product list or adding products manually.
+      <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50 mb-1">Ready to go! 🎉</h2>
+      <p className="text-sm text-slate-500 dark:text-slate-400 text-center max-w-sm mb-5">
+        Your PricePilot workspace is configured. Here&apos;s a summary of your setup.
       </p>
+
+      {/* Summary card */}
+      <div className="w-full bg-gradient-to-b from-emerald-50/80 to-slate-50/50 dark:from-emerald-950/20 dark:to-slate-900/50 rounded-2xl border border-emerald-200/50 dark:border-emerald-800/30 p-4 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-400 mb-2">
+          <Sparkles className="h-4 w-4" />
+          Configuration Summary
+        </div>
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="bg-white/80 dark:bg-slate-800/50 rounded-xl p-3 border border-slate-100 dark:border-slate-700/50">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Business</p>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">{(form.businessName as string) || 'Not set'}</p>
+          </div>
+          <div className="bg-white/80 dark:bg-slate-800/50 rounded-xl p-3 border border-slate-100 dark:border-slate-700/50">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Currency</p>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{currency?.symbol} {String(form.currencyCode)}</p>
+          </div>
+          <div className="bg-white/80 dark:bg-slate-800/50 rounded-xl p-3 border border-slate-100 dark:border-slate-700/50">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Target Margin</p>
+            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">{String(form.targetMargin)}%</p>
+          </div>
+          <div className="bg-white/80 dark:bg-slate-800/50 rounded-xl p-3 border border-slate-100 dark:border-slate-700/50">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Channels</p>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{selectedChannels.length > 0 ? selectedChannels.map(c => c.label).join(', ') : 'Not selected'}</p>
+          </div>
+        </div>
+        {setupMode === 'quick' && (form.taxAnswer as string) !== 'not-sure' && (
+          <div className="bg-white/80 dark:bg-slate-800/50 rounded-xl p-3 border border-slate-100 dark:border-slate-700/50">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Tax Rate</p>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{String(form.taxRate)}% GST</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -201,8 +301,10 @@ function CompletionAnimation() {
 export function OnboardingFlow() {
   const { businessSettings, completeOnboarding, appSettings, updateAppSettings } = usePricePilotStore();
   const [setupMode, setSetupMode] = useState<'quick' | 'advanced'>('quick');
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(0); // 0 = welcome
   const [showCompletion, setShowCompletion] = useState(false);
+  const [slideDirection, setSlideDirection] = useState<'left' | 'right' | 'none'>('none');
+  const [isAnimating, setIsAnimating] = useState(false);
   const [form, setForm] = useState({
     businessName: businessSettings.businessName || '',
     currencyCode: businessSettings.currencyCode || 'INR',
@@ -234,15 +336,33 @@ export function OnboardingFlow() {
   const totalQuickSteps = 4;
   const totalAdvancedSteps = 3;
   const totalSteps = setupMode === 'quick' ? totalQuickSteps : totalAdvancedSteps;
-  const progress = (step / totalSteps) * 100;
+  // Step 0 is welcome, steps 1..totalSteps are the actual steps
+  const actualStep = step === 0 ? 0 : step;
+  const progress = step === 0 ? 0 : (step / totalSteps) * 100;
 
   const updateForm = (key: string, value: unknown) => {
     setForm(prev => ({ ...prev, [key]: value }));
   };
 
+  const navigateStep = useCallback((newStep: number) => {
+    if (isAnimating) return;
+    setSlideDirection(newStep > step ? 'left' : 'right');
+    setIsAnimating(true);
+    setTimeout(() => {
+      setStep(newStep);
+      setSlideDirection('none');
+      setIsAnimating(false);
+    }, 200);
+  }, [step, isAnimating]);
+
   const handleNext = () => {
+    if (step === 0) {
+      // Welcome step — just go to step 1
+      navigateStep(1);
+      return;
+    }
     if (step < totalSteps) {
-      setStep(step + 1);
+      navigateStep(step + 1);
     } else {
       // Show completion animation briefly before completing
       setShowCompletion(true);
@@ -306,38 +426,63 @@ export function OnboardingFlow() {
     completeOnboarding({});
   };
 
+  const handleBack = () => {
+    if (step > 0) {
+      navigateStep(step - 1);
+    }
+  };
+
   // Quick Setup steps
   const renderQuickStep = () => {
     switch (step) {
       case 1:
         return (
-          <div className="space-y-5 animate-fade-in">
-            <div>
-              <Label htmlFor="businessName" className={labelClass}>Business Name</Label>
-              <Input id="businessName" value={form.businessName} onChange={e => updateForm('businessName', e.target.value)} placeholder="Your business name" className={`mt-1.5 ${inputClass}`} />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="currency" className={labelClass}>Currency</Label>
-                <Select value={form.currencyCode} onValueChange={v => updateForm('currencyCode', v)}>
-                  <SelectTrigger id="currency" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {SUPPORTED_CURRENCIES.map(c => (
-                      <SelectItem key={c.code} value={c.code}>{c.symbol} {c.name} ({c.code})</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          <div className="space-y-5">
+            {/* Business Name group */}
+            <div className="bg-white/80 dark:bg-slate-800/30 rounded-xl p-4 border border-slate-100 dark:border-slate-700/50 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-50 dark:from-emerald-900/50 dark:to-emerald-800/30 flex items-center justify-center">
+                  <Building2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">Business Identity</span>
               </div>
               <div>
-                <Label htmlFor="country" className={labelClass}>Country</Label>
-                <Select value={form.country} onValueChange={v => updateForm('country', v)}>
-                  <SelectTrigger id="country" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {COUNTRIES.map(c => (
-                      <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="businessName" className={labelClass}>Business Name</Label>
+                <Input id="businessName" value={form.businessName} onChange={e => updateForm('businessName', e.target.value)} placeholder="Your business name" className={`mt-1.5 ${inputClass}`} />
+              </div>
+            </div>
+
+            {/* Currency & Country group */}
+            <div className="bg-white/80 dark:bg-slate-800/30 rounded-xl p-4 border border-slate-100 dark:border-slate-700/50 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-teal-100 to-teal-50 dark:from-teal-900/50 dark:to-teal-800/30 flex items-center justify-center">
+                  <Globe className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
+                </div>
+                <span className="text-xs font-semibold text-teal-700 dark:text-teal-400 uppercase tracking-wide">Location & Currency</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="currency" className={labelClass}>Currency</Label>
+                  <Select value={form.currencyCode} onValueChange={v => updateForm('currencyCode', v)}>
+                    <SelectTrigger id="currency" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {SUPPORTED_CURRENCIES.map(c => (
+                        <SelectItem key={c.code} value={c.code}>{c.symbol} {c.name} ({c.code})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="country" className={labelClass}>Country</Label>
+                  <Select value={form.country} onValueChange={v => updateForm('country', v)}>
+                    <SelectTrigger id="country" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {COUNTRIES.map(c => (
+                        <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
           </div>
@@ -345,14 +490,16 @@ export function OnboardingFlow() {
 
       case 2:
         return (
-          <div className="space-y-4 animate-fade-in">
+          <div className="space-y-4">
             <p className="text-sm text-muted-foreground font-medium">Does your selling price already include GST?</p>
             <RadioGroup value={form.taxAnswer} onValueChange={v => updateForm('taxAnswer', v)} className="space-y-3">
               {TAX_TREATMENTS_QS.map(t => {
                 const isNotSure = t.value === 'not-sure';
+                const Icon = t.icon;
+                const isSelected = form.taxAnswer === t.value;
                 return (
-                  <div key={t.value} className={`flex items-start space-x-3 p-3.5 rounded-xl border transition-all duration-200 cursor-pointer group ${
-                    form.taxAnswer === t.value
+                  <div key={t.value} className={`flex items-start space-x-3 p-4 rounded-xl border transition-all duration-200 cursor-pointer group ${
+                    isSelected
                       ? isNotSure
                         ? 'border-slate-300 bg-slate-50 dark:bg-slate-800/50 shadow-sm ring-1 ring-slate-200'
                         : 'border-emerald-300 bg-emerald-50/80 dark:bg-emerald-950/30 shadow-sm ring-1 ring-emerald-200/50'
@@ -363,20 +510,32 @@ export function OnboardingFlow() {
                     <RadioGroupItem value={t.value} id={t.value} className="mt-0.5" />
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
+                        <div className={`h-6 w-6 rounded-md flex items-center justify-center transition-colors duration-200 ${
+                          isSelected && !isNotSure
+                            ? 'bg-emerald-100 dark:bg-emerald-900/50'
+                            : 'bg-slate-100 dark:bg-slate-800'
+                        }`}>
+                          <Icon className={`h-3.5 w-3.5 ${
+                            isSelected && !isNotSure ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
+                          }`} />
+                        </div>
                         <Label htmlFor={t.value} className="font-medium cursor-pointer">{t.label}</Label>
                         {isNotSure && (
                           <HelpCircle className="h-4 w-4 text-slate-400" />
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{t.desc}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5 ml-8">{t.desc}</p>
                     </div>
+                    {isSelected && !isNotSure && (
+                      <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0 mt-0.5" />
+                    )}
                   </div>
                 );
               })}
             </RadioGroup>
 
             {(form.taxAnswer === 'yes-inclusive' || form.taxAnswer === 'no-exclusive' || form.taxAnswer === 'composite') && (
-              <div className="mt-4 p-4 rounded-xl border border-emerald-200 bg-emerald-50/30 animate-fade-in">
+              <div className="mt-4 p-4 rounded-xl border border-emerald-200 bg-emerald-50/30">
                 <Label className={labelClass}>Which GST rate normally applies?</Label>
                 <p className="text-xs text-muted-foreground mt-0.5 mb-3">Pick the rate that applies to most of your products. You can override per-product later.</p>
                 <RadioGroup
@@ -409,7 +568,7 @@ export function OnboardingFlow() {
             )}
 
             {form.taxAnswer === 'not-sure' && (
-              <div className="mt-4 p-4 rounded-xl border border-slate-300 bg-slate-50/50 dark:bg-slate-800/30 dark:border-slate-600 animate-fade-in">
+              <div className="mt-4 p-4 rounded-xl border border-slate-300 bg-slate-50/50 dark:bg-slate-800/30 dark:border-slate-600">
                 <p className="text-sm text-slate-700 dark:text-slate-300">
                   <Info className="inline h-4 w-4 mr-1.5 text-slate-500" />
                   Recommendations will be marked low-confidence until you confirm a GST rate in Settings.
@@ -422,29 +581,37 @@ export function OnboardingFlow() {
 
       case 3:
         return (
-          <div className="space-y-5 animate-fade-in">
-            <div>
-              <Label htmlFor="targetMargin" className={labelClass}>What profit margin do you normally aim for?</Label>
-              <div className="flex items-center gap-3 mt-2">
-                <Input id="targetMargin" type="number" value={form.targetMargin} onChange={e => updateForm('targetMargin', parseFloat(e.target.value) || 0)} className={inputClass} />
-                <span className="text-sm text-muted-foreground font-medium">%</span>
+          <div className="space-y-5">
+            <div className="bg-white/80 dark:bg-slate-800/30 rounded-xl p-4 border border-slate-100 dark:border-slate-700/50 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-50 dark:from-emerald-900/50 dark:to-emerald-800/30 flex items-center justify-center">
+                  <TrendingUp className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">Profit Targets</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-1.5">Default: 25% — this is the percentage of selling price that is profit</p>
-            </div>
-            <div>
-              <Label htmlFor="minimumMargin" className={labelClass}>What is the lowest profit margin you are willing to accept?</Label>
-              <div className="flex items-center gap-3 mt-2">
-                <Input id="minimumMargin" type="number" value={form.minimumMargin} onChange={e => updateForm('minimumMargin', parseFloat(e.target.value) || 0)} className={inputClass} />
-                <span className="text-sm text-muted-foreground font-medium">%</span>
+              <div>
+                <Label htmlFor="targetMargin" className={labelClass}>What profit margin do you normally aim for?</Label>
+                <div className="flex items-center gap-3 mt-2">
+                  <Input id="targetMargin" type="number" value={form.targetMargin} onChange={e => updateForm('targetMargin', parseFloat(e.target.value) || 0)} className={inputClass} />
+                  <span className="text-sm text-muted-foreground font-medium">%</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1.5">Default: 25% — this is the percentage of selling price that is profit</p>
               </div>
-              <p className="text-xs text-muted-foreground mt-1.5">Default: 10% — prices below this will be flagged as &quot;needs attention&quot;</p>
+              <div>
+                <Label htmlFor="minimumMargin" className={labelClass}>What is the lowest profit margin you are willing to accept?</Label>
+                <div className="flex items-center gap-3 mt-2">
+                  <Input id="minimumMargin" type="number" value={form.minimumMargin} onChange={e => updateForm('minimumMargin', parseFloat(e.target.value) || 0)} className={inputClass} />
+                  <span className="text-sm text-muted-foreground font-medium">%</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1.5">Default: 10% — prices below this will be flagged as &quot;needs attention&quot;</p>
+              </div>
             </div>
           </div>
         );
 
       case 4:
         return (
-          <div className="space-y-4 animate-fade-in">
+          <div className="space-y-4">
             {/* Estimate info banner */}
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
               <Info className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
@@ -532,49 +699,67 @@ export function OnboardingFlow() {
     switch (step) {
       case 1:
         return (
-          <div className="space-y-5 animate-fade-in">
-            <div>
-              <Label htmlFor="businessName" className={labelClass}>Business Name</Label>
-              <Input id="businessName" value={form.businessName} onChange={e => updateForm('businessName', e.target.value)} placeholder="Your business name" className={`mt-1.5 ${inputClass}`} />
+          <div className="space-y-5">
+            <div className="bg-white/80 dark:bg-slate-800/30 rounded-xl p-4 border border-slate-100 dark:border-slate-700/50 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-50 dark:from-emerald-900/50 dark:to-emerald-800/30 flex items-center justify-center">
+                  <Building2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">Business Identity</span>
+              </div>
+              <div>
+                <Label htmlFor="businessName" className={labelClass}>Business Name</Label>
+                <Input id="businessName" value={form.businessName} onChange={e => updateForm('businessName', e.target.value)} placeholder="Your business name" className={`mt-1.5 ${inputClass}`} />
+              </div>
+              <div>
+                <Label htmlFor="currency" className={labelClass}>Default Currency</Label>
+                <Select value={form.currencyCode} onValueChange={v => updateForm('currencyCode', v)}>
+                  <SelectTrigger id="currency" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {SUPPORTED_CURRENCIES.map(c => (
+                      <SelectItem key={c.code} value={c.code}>{c.symbol} {c.name} ({c.code})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="country" className={labelClass}>Country</Label>
+                <Select value={form.country} onValueChange={v => updateForm('country', v)}>
+                  <SelectTrigger id="country" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {COUNTRIES.map(c => (
+                      <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div>
-              <Label htmlFor="currency" className={labelClass}>Default Currency</Label>
-              <Select value={form.currencyCode} onValueChange={v => updateForm('currencyCode', v)}>
-                <SelectTrigger id="currency" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {SUPPORTED_CURRENCIES.map(c => (
-                    <SelectItem key={c.code} value={c.code}>{c.symbol} {c.name} ({c.code})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+
+            <div className="bg-white/80 dark:bg-slate-800/30 rounded-xl p-4 border border-slate-100 dark:border-slate-700/50 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-teal-100 to-teal-50 dark:from-teal-900/50 dark:to-teal-800/30 flex items-center justify-center">
+                  <Receipt className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
+                </div>
+                <span className="text-xs font-semibold text-teal-700 dark:text-teal-400 uppercase tracking-wide">Tax Configuration</span>
+              </div>
+              <div>
+                <Label htmlFor="taxTreatment" className={labelClass}>Tax Treatment</Label>
+                <Select value={form.taxTreatment} onValueChange={v => updateForm('taxTreatment', v)}>
+                  <SelectTrigger id="taxTreatment" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="inclusive">Tax inclusive (GST/VAT in price)</SelectItem>
+                    <SelectItem value="exclusive">Tax exclusive (add tax on top)</SelectItem>
+                    <SelectItem value="exempt">Tax exempt</SelectItem>
+                    <SelectItem value="composite">Composite (multi-component GST)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="taxRate" className={labelClass}>Default Tax Rate (%)</Label>
+                <Input id="taxRate" type="number" value={form.taxRate} onChange={e => updateForm('taxRate', parseFloat(e.target.value) || 0)} className={`mt-1.5 ${inputClass}`} />
+              </div>
             </div>
-            <div>
-              <Label htmlFor="country" className={labelClass}>Country</Label>
-              <Select value={form.country} onValueChange={v => updateForm('country', v)}>
-                <SelectTrigger id="country" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {COUNTRIES.map(c => (
-                    <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="taxTreatment" className={labelClass}>Tax Treatment</Label>
-              <Select value={form.taxTreatment} onValueChange={v => updateForm('taxTreatment', v)}>
-                <SelectTrigger id="taxTreatment" className={`mt-1.5 ${inputClass}`}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="inclusive">Tax inclusive (GST/VAT in price)</SelectItem>
-                  <SelectItem value="exclusive">Tax exclusive (add tax on top)</SelectItem>
-                  <SelectItem value="exempt">Tax exempt</SelectItem>
-                  <SelectItem value="composite">Composite (multi-component GST)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="taxRate" className={labelClass}>Default Tax Rate (%)</Label>
-              <Input id="taxRate" type="number" value={form.taxRate} onChange={e => updateForm('taxRate', parseFloat(e.target.value) || 0)} className={`mt-1.5 ${inputClass}`} />
-            </div>
+
             <Separator />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -602,7 +787,7 @@ export function OnboardingFlow() {
 
       case 2:
         return (
-          <div className="space-y-3 animate-fade-in">
+          <div className="space-y-3">
             <p className="text-sm text-muted-foreground font-medium">Select all channels where you sell products:</p>
             <div className="space-y-2.5">
               {CHANNELS.map(channel => (
@@ -630,7 +815,7 @@ export function OnboardingFlow() {
 
       case 3:
         return (
-          <div className="space-y-5 animate-fade-in">
+          <div className="space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="packagingCost" className={labelClass}>Packaging Cost</Label>
@@ -693,6 +878,7 @@ export function OnboardingFlow() {
   };
 
   const getStepTitle = () => {
+    if (step === 0) return 'Welcome to PricePilot';
     if (setupMode === 'quick') {
       switch (step) {
         case 1: return 'Business Details';
@@ -711,54 +897,84 @@ export function OnboardingFlow() {
   };
 
   const stepKey = setupMode === 'quick' ? `quick-${step}` : `adv-${step}`;
-  const StepIcon = STEP_ICONS[stepKey] || Building2;
+  const StepIcon = step === 0 ? Rocket : (STEP_ICONS[stepKey] || Building2);
 
   // Background gradient that changes per step
-  const bgGradient = STEP_GRADIENTS[String(step)] || STEP_GRADIENTS['1'];
+  const bgGradient = STEP_GRADIENTS[String(step)] || STEP_GRADIENTS['0'];
+
+  // Slide animation class
+  const slideClass = slideDirection === 'left'
+    ? 'animate-slide-out-left'
+    : slideDirection === 'right'
+      ? 'animate-slide-out-right'
+      : 'animate-fade-in';
 
   return (
     <div className={`min-h-screen flex flex-col items-center justify-center bg-gradient-to-br ${bgGradient} dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 transition-all duration-700 ease-out`}>
+      {/* Confetti keyframes */}
+      <style>{`
+        @keyframes confettiFall {
+          0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+        @keyframes slideOutLeft {
+          from { transform: translateX(0); opacity: 1; }
+          to { transform: translateX(-30px); opacity: 0; }
+        }
+        @keyframes slideOutRight {
+          from { transform: translateX(0); opacity: 1; }
+          to { transform: translateX(30px); opacity: 0; }
+        }
+        @keyframes slideInFromRight {
+          from { transform: translateX(30px); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideInFromLeft {
+          from { transform: translateX(-30px); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes fadeInUp {
+          from { transform: translateY(10px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes float {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-8px); }
+        }
+        @keyframes pulse-glow {
+          0%, 100% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.2); }
+          50% { box-shadow: 0 0 40px rgba(16, 185, 129, 0.4); }
+        }
+        .animate-slide-out-left { animation: slideOutLeft 0.2s ease-out forwards; }
+        .animate-slide-out-right { animation: slideOutRight 0.2s ease-out forwards; }
+        .animate-slide-in-right { animation: slideInFromRight 0.3s ease-out forwards; }
+        .animate-slide-in-left { animation: slideInFromLeft 0.3s ease-out forwards; }
+        .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        .animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+      `}</style>
+
       <div className="w-full max-w-xl">
         {/* Brand header */}
         <div className="mb-8 text-center">
           <div className="flex items-center justify-center gap-3 mb-3">
-            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-700 shadow-lg shadow-emerald-500/30 flex items-center justify-center text-white font-bold text-xl">P</div>
+            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-700 shadow-lg shadow-emerald-500/30 flex items-center justify-center text-white font-bold text-xl animate-pulse-glow">P</div>
             <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50">PricePilot</h1>
           </div>
           <p className="text-slate-500 dark:text-slate-400 text-base">Product Pricing & Profit Optimiser</p>
         </div>
 
-        {/* Setup mode selector (only on step 1) */}
-        {step === 1 && !showCompletion && (
-          <div className="flex gap-3 mb-6 justify-center animate-fade-in">
-            <Button
-              variant={setupMode === 'quick' ? 'default' : 'outline'}
-              onClick={() => { setSetupMode('quick'); setStep(1); }}
-              className={`rounded-xl transition-all duration-200 ${setupMode === 'quick' ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-md shadow-emerald-500/20' : 'hover:border-emerald-300 hover:bg-emerald-50/50'}`}
-            >
-              <Sparkles className="h-4 w-4 mr-1.5" /> Quick Setup
-            </Button>
-            <Button
-              variant={setupMode === 'advanced' ? 'default' : 'outline'}
-              onClick={() => { setSetupMode('advanced'); setStep(1); }}
-              className={`rounded-xl transition-all duration-200 ${setupMode === 'advanced' ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-md shadow-emerald-500/20' : 'hover:border-emerald-300 hover:bg-emerald-50/50'}`}
-            >
-              <Settings className="h-4 w-4 mr-1.5" /> Advanced Setup
-            </Button>
+        {/* Step indicator (only when not on welcome or completion) */}
+        {!showCompletion && step > 0 && (
+          <div className="mb-6">
+            <StepIndicator current={step} total={totalSteps} labels={setupMode === 'quick' ? STEP_LABELS_QUICK : STEP_LABELS_ADV} />
           </div>
         )}
 
-        {/* Step indicator */}
-        {!showCompletion && (
+        {/* Progress bar (only when not on welcome or completion) */}
+        {!showCompletion && step > 0 && (
           <div className="mb-6">
-            <StepIndicator current={step} total={totalSteps} />
-          </div>
-        )}
-
-        {/* Progress bar */}
-        {!showCompletion && (
-          <div className="mb-6">
-            <Progress value={progress} className="h-1.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30" />
+            <Progress value={progress} className="h-1.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 [&>div]:bg-gradient-to-r [&>div]:from-emerald-500 [&>div]:to-teal-500 [&>div]:transition-all [&>div]:duration-500 [&>div]:ease-out" />
             <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400 mt-2">
               <span>Step {step} of {totalSteps}</span>
               <span className="text-emerald-600 dark:text-emerald-400">{getStepTitle()}</span>
@@ -767,10 +983,86 @@ export function OnboardingFlow() {
         )}
 
         {/* Main card */}
-        <Card className="shadow-xl shadow-emerald-500/5 border-0 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm transition-all duration-300 hover:shadow-2xl" data-testid="onboarding-form">
+        <Card className="shadow-xl shadow-emerald-500/5 border-0 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm transition-all duration-300 hover:shadow-2xl overflow-hidden" data-testid="onboarding-form">
           {showCompletion ? (
             <CardContent className="p-8" data-testid="onboarding-complete">
-              <CompletionAnimation />
+              <CompletionAnimation form={form as unknown as Record<string, unknown>} setupMode={setupMode} />
+            </CardContent>
+          ) : step === 0 ? (
+            /* Welcome step */
+            <CardContent className="p-0">
+              <div className="bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 p-8 text-center relative overflow-hidden">
+                {/* Decorative circles */}
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+                <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
+                <div className="absolute top-1/2 left-1/2 w-48 h-48 bg-white/5 rounded-full -translate-x-1/2 -translate-y-1/2" />
+
+                <div className="relative z-10">
+                  <div className="h-20 w-20 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center mx-auto mb-5 shadow-lg animate-float">
+                    <span className="text-4xl font-bold text-white">P</span>
+                  </div>
+                  <h2 className="text-2xl font-bold text-white mb-2">Welcome to PricePilot</h2>
+                  <p className="text-emerald-100 text-sm max-w-sm mx-auto leading-relaxed">
+                    Set up your pricing workspace in under 2 minutes. We&apos;ll help you configure margins, taxes, and selling channels.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-4">
+                {/* Feature highlights */}
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="bg-emerald-50/80 dark:bg-emerald-950/20 rounded-xl p-3">
+                    <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400 mx-auto mb-1.5" />
+                    <p className="text-xs font-medium text-slate-700 dark:text-slate-300">Smart Pricing</p>
+                  </div>
+                  <div className="bg-teal-50/80 dark:bg-teal-950/20 rounded-xl p-3">
+                    <Receipt className="h-5 w-5 text-teal-600 dark:text-teal-400 mx-auto mb-1.5" />
+                    <p className="text-xs font-medium text-slate-700 dark:text-slate-300">Tax Aware</p>
+                  </div>
+                  <div className="bg-amber-50/80 dark:bg-amber-950/20 rounded-xl p-3">
+                    <ShoppingBag className="h-5 w-5 text-amber-600 dark:text-amber-400 mx-auto mb-1.5" />
+                    <p className="text-xs font-medium text-slate-700 dark:text-slate-300">Multi-Channel</p>
+                  </div>
+                </div>
+
+                {/* Setup mode selector */}
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 text-center">Choose your setup path</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => { setSetupMode('quick'); navigateStep(1); }}
+                      className="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50/50 hover:border-emerald-400 hover:bg-emerald-50 hover:shadow-md transition-all duration-200 group cursor-pointer"
+                    >
+                      <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-md group-hover:scale-110 transition-transform duration-200">
+                        <Sparkles className="h-5 w-5 text-white" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Quick Setup</p>
+                        <p className="text-[10px] text-muted-foreground">4 steps · 2 min</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => { setSetupMode('advanced'); navigateStep(1); }}
+                      className="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-slate-200 bg-slate-50/50 hover:border-slate-400 hover:bg-slate-50 hover:shadow-md transition-all duration-200 group cursor-pointer"
+                    >
+                      <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center shadow-md group-hover:scale-110 transition-transform duration-200">
+                        <Settings className="h-5 w-5 text-white" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Advanced Setup</p>
+                        <p className="text-[10px] text-muted-foreground">3 steps · 5 min</p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Skip button */}
+                <div className="text-center pt-1">
+                  <Button variant="ghost" onClick={handleSkip} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 text-xs rounded-lg transition-colors duration-200 h-auto py-1.5 px-3">
+                    <SkipForward className="h-3 w-3 mr-1.5" /> Skip setup for now
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           ) : (
             <>
@@ -786,24 +1078,31 @@ export function OnboardingFlow() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {setupMode === 'quick' ? renderQuickStep() : renderAdvancedStep()}
+                <div className={slideClass} key={step}>
+                  {setupMode === 'quick' ? renderQuickStep() : renderAdvancedStep()}
+                </div>
 
                 <Separator className="my-5" />
 
                 <div className="flex items-center justify-between">
-                  {step > 1 ? (
-                    <Button variant="outline" onClick={() => setStep(step - 1)} className="bg-white border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-all duration-200 hover:shadow-md">
+                  {step > 0 ? (
+                    <Button variant="outline" onClick={handleBack} className="bg-white border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-all duration-200 hover:shadow-md">
                       <ArrowLeft className="h-4 w-4 mr-1.5" /> Back
                     </Button>
                   ) : (
-                    <Button variant="ghost" onClick={handleSkip} className="text-slate-500 hover:text-slate-700 rounded-xl transition-colors duration-200">
-                      <SkipForward className="h-4 w-4 mr-1.5" /> Skip setup
-                    </Button>
+                    <span /> /* Empty spacer */
                   )}
-                  <Button data-testid="onboarding-next" onClick={handleNext} className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-md shadow-emerald-500/20 rounded-xl transition-all duration-200 hover:shadow-lg hover:translate-x-0.5">
-                    {step === totalSteps ? 'Complete Setup' : 'Continue'}
-                    {step < totalSteps && <ArrowRight className="h-4 w-4 ml-1.5" />}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {step > 0 && (
+                      <Button variant="ghost" onClick={handleSkip} className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 text-xs rounded-lg transition-colors duration-200 h-auto py-1.5 px-3">
+                        <SkipForward className="h-3 w-3 mr-1" /> Skip
+                      </Button>
+                    )}
+                    <Button data-testid="onboarding-next" onClick={handleNext} className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-md shadow-emerald-500/20 rounded-xl transition-all duration-200 hover:shadow-lg hover:translate-x-0.5">
+                      {step === totalSteps ? 'Complete Setup' : 'Continue'}
+                      {step < totalSteps && <ArrowRight className="h-4 w-4 ml-1.5" />}
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </>

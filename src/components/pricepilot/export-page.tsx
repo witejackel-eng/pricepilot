@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { ExportPreset } from '@/lib/pricepilot/types';
 import { createSpreadsheet, downloadSpreadsheet, sanitizeSpreadsheetRows } from '@/lib/pricepilot/spreadsheet-adapter';
-import { Download, FileSpreadsheet, FileText, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, AlertTriangle, CheckCircle2, Sparkles, TableProperties, ArrowRight, CheckCircle } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
 const PRESETS: { value: ExportPreset; label: string; desc: string; columns: string[] }[] = [
@@ -521,12 +521,28 @@ export function ExportPage() {
             {PRESETS.map(p => (
               <button
                 key={p.value}
-                className={`rounded-lg p-4 bg-white shadow-sm border text-left transition-all duration-200 cursor-pointer ${preset === p.value ? 'bg-emerald-50 border-emerald-300 shadow-md' : 'border-slate-100 hover:border-slate-200 hover:shadow'}`}
+                className={`group relative rounded-xl p-4 bg-white text-left transition-all duration-300 cursor-pointer overflow-hidden ${
+                  preset === p.value
+                    ? 'shadow-lg ring-2 ring-emerald-500 ring-offset-2 scale-[1.02]'
+                    : 'shadow-sm border border-slate-100 hover:border-emerald-200 hover:shadow-md hover:scale-[1.01]'
+                }`}
                 onClick={() => handlePresetChange(p.value)}
               >
-                <span className="font-medium text-slate-800">{p.label}</span>
-                <span className="block text-xs text-muted-foreground mt-0.5">{p.desc}</span>
-                <Badge variant="secondary" className="mt-2 text-xs">{p.columns.length} columns</Badge>
+                {/* Gradient border effect for selected */}
+                {preset === p.value && (
+                  <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 to-teal-50/50 rounded-xl" />
+                )}
+                {/* Selected indicator */}
+                {preset === p.value && (
+                  <div className="absolute top-2 right-2 h-5 w-5 rounded-full bg-emerald-600 flex items-center justify-center">
+                    <CheckCircle2 className="h-3 w-3 text-white" />
+                  </div>
+                )}
+                <div className="relative z-10">
+                  <span className="font-medium text-slate-800">{p.label}</span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">{p.desc}</span>
+                  <Badge variant="secondary" className={`mt-2 text-xs ${preset === p.value ? 'bg-emerald-100 text-emerald-700' : ''}`}>{p.columns.length} columns</Badge>
+                </div>
               </button>
             ))}
           </div>
@@ -571,8 +587,16 @@ export function ExportPage() {
       {/* Preview */}
       <Card className="shadow-md border-0 rounded-xl">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold text-slate-700">Preview</CardTitle>
-          <CardDescription>First {previewRows.length} of {exportProducts.length} products</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
+                <TableProperties className="h-4 w-4 text-emerald-600" />
+                Preview
+              </CardTitle>
+              <CardDescription>First {previewRows.length} of {exportProducts.length} products</CardDescription>
+            </div>
+            <Badge variant="secondary" className="text-xs">{selectedColumns.length} columns</Badge>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto max-h-72 overflow-y-auto border border-slate-100 rounded-lg">
@@ -587,7 +611,7 @@ export function ExportPage() {
               </TableHeader>
               <TableBody>
                 {previewRows.map((p, i) => (
-                  <TableRow key={i}>
+                  <TableRow key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                     {selectedColumns.map(col => (
                       <TableCell key={col} className="text-xs">
                         {getCellValue(p, col, cc)}
@@ -598,6 +622,47 @@ export function ExportPage() {
               </TableBody>
             </Table>
           </div>
+          {exportProducts.length > 5 && (
+            <p className="text-xs text-muted-foreground mt-2 text-center">
+              ... and {exportProducts.length - 5} more products
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Export Summary */}
+      <Card className="shadow-md border-0 rounded-xl bg-gradient-to-b from-white to-emerald-50/10">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-emerald-600" />
+            Export Summary
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-emerald-50 rounded-lg p-3 text-center border border-emerald-200 shadow-sm">
+              <p className="text-lg font-semibold text-emerald-700">{exportProducts.length}</p>
+              <p className="text-xs text-emerald-600">Products</p>
+            </div>
+            <div className="bg-teal-50 rounded-lg p-3 text-center border border-teal-200 shadow-sm">
+              <p className="text-lg font-semibold text-teal-700">{selectedColumns.length}</p>
+              <p className="text-xs text-teal-600">Columns</p>
+            </div>
+            <div className="bg-amber-50 rounded-lg p-3 text-center border border-amber-200 shadow-sm">
+              <p className="text-lg font-semibold text-amber-700">{format.toUpperCase()}</p>
+              <p className="text-xs text-amber-600">Format</p>
+            </div>
+            <div className="bg-slate-50 rounded-lg p-3 text-center border border-slate-200 shadow-sm">
+              <p className="text-lg font-semibold text-slate-700">{cc}</p>
+              <p className="text-xs text-slate-600">Currency</p>
+            </div>
+          </div>
+          {exportProducts.length > 0 && (
+            <div className="mt-3 text-xs text-slate-600 flex items-center gap-1.5">
+              <CheckCircle className="h-3 w-3 text-emerald-600" />
+              Ready to export <span className="font-medium">{exportProducts.length}</span> products with <span className="font-medium">{selectedColumns.length}</span> data columns
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -626,9 +691,12 @@ export function ExportPage() {
         <Button
           onClick={handleExport}
           disabled={exportProducts.length === 0 || selectedColumns.length === 0 || exportProgress !== null}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-lg font-semibold text-lg px-6 py-3 transition-all duration-200"
+          className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/25 rounded-xl font-semibold text-lg px-8 py-4 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98]"
         >
-          <Download className="h-5 w-5 mr-2" /> Download {format === 'xlsx' ? 'Excel' : 'CSV'} ({exportProducts.length} products)
+          <Download className="h-5 w-5 mr-2" />
+          Download {format === 'xlsx' ? 'Excel' : 'CSV'}
+          <ArrowRight className="h-5 w-5 ml-2 transition-transform group-hover:translate-x-1" />
+          <span className="ml-2 text-sm font-normal opacity-80">({exportProducts.length} products)</span>
         </Button>
       </div>
     </div>

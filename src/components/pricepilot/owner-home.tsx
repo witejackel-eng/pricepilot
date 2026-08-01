@@ -44,6 +44,7 @@ import { formatPercentage, formatCurrency } from '@/lib/pricepilot/formatting';
 import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from 'recharts';
 import { ProfitPotentialPanel } from './profit-potential-panel';
+import { PriceChangeTimeline } from './price-change-timeline';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -479,6 +480,9 @@ export function OwnerHome() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Price Change History Timeline — shows recent price approvals, applications, and edits */}
+      <PriceChangeTimeline />
 
       {/* Review group summary — simple counts, no accounting jargon */}
       <Card className="border-slate-200 dark:border-slate-800">

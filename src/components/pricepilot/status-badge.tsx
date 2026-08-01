@@ -16,14 +16,14 @@ const statusConfig: Record<PricingStatus, { label: string; variant: 'default' | 
   'approved': { label: 'Approved', variant: 'default', colorClass: 'bg-gradient-to-r from-emerald-100 to-emerald-50 text-emerald-700 border border-emerald-300', icon: CheckCircle },
 };
 
-export function StatusBadge({ status, className }: { status: PricingStatus; className?: string }) {
+export function StatusBadge({ status, className, pulse }: { status: PricingStatus; className?: string; pulse?: boolean }) {
   const config = statusConfig[status] || statusConfig['missing-data'];
   const Icon = config.icon;
 
   return (
     <Badge
       variant={config.variant}
-      className={`${config.colorClass} rounded-lg font-medium gap-1 px-2.5 py-0.5 shadow-sm transition-all duration-200 hover:shadow-md hover:scale-105 ${className || ''}`}
+      className={`${config.colorClass} rounded-lg font-medium gap-1 px-2.5 py-0.5 shadow-sm transition-all duration-200 hover:shadow-md hover:scale-105 ${pulse ? 'animate-pulse' : ''} ${className || ''}`}
     >
       <Icon className="h-3.5 w-3.5" />
       {config.label}
