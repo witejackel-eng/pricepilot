@@ -46,6 +46,8 @@ import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from 'recharts
 import { ProfitPotentialPanel } from './profit-potential-panel';
 import { PriceChangeTimeline } from './price-change-timeline';
 import { TopProductsLeaderboard } from './top-products-leaderboard';
+import { RecentlyViewedProducts } from './recently-viewed-products';
+import { PricingHealthGauge } from './pricing-health-gauge';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -256,6 +258,12 @@ export function OwnerHome() {
           </p>
         </div>
       </div>
+
+      {/* v1.3: Pricing Health Gauge — shows overall catalog wellness */}
+      <PricingHealthGauge />
+
+      {/* v1.3: Recently Viewed Products — quick access to recently opened products */}
+      <RecentlyViewedProducts />
 
       {/* Four action cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

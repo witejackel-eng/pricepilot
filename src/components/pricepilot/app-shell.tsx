@@ -53,6 +53,7 @@ import { HelpPanel } from './help-panel';
 import { GuidedTour, TourInvitation } from './guided-tour';
 import { CommandPalette } from './command-palette';
 import { CurrencyConverterWidget, CurrencyConverterTrigger } from './currency-converter-widget';
+import { MarginAlertsPanel } from './margin-alerts-panel';
 import { toast } from 'sonner';
 
 // Owner mode navigation items.
@@ -593,6 +594,7 @@ export function AppShell() {
                   <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200 rounded-xl">
                     <Download className="h-4 w-4 mr-1" /> Download
                   </Button>
+                  <MarginAlertsPanel />
                   <Button variant="ghost" size="sm" onClick={() => setHelpPanelOpen(true)} className="transition-colors duration-200 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 rounded-xl">
                     <HelpCircle className="h-4 w-4" />
                   </Button>
@@ -605,6 +607,7 @@ export function AppShell() {
                   <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200 rounded-xl">
                     <Download className="h-4 w-4 mr-1" /> Export
                   </Button>
+                  <MarginAlertsPanel />
                 </>
               )}
               <Select value={businessSettings.currencyCode} onValueChange={v => updateBusinessSettings({ currencyCode: v })}>
