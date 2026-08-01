@@ -157,3 +157,48 @@ Stage Summary — RELEASE COMPLETE:
 - CSP: strict, no unsafe-eval, no upgrade-insecure-requests.
 - Production: live on Vercel with the merged code.
 - V1 limitations documented in the release notes (local IndexedDB storage, no cloud sync, regular backups recommended).
+
+---
+Task ID: 9
+Agent: webDevReview cron (v1.1 feature development)
+Task: Post-v1.0.0 maintenance — QA production, then develop v1.1 feature + styling improvements.
+
+Current Project Status:
+- v1.0.0 is FULLY RELEASED: PR #1 merged (b2d15fb), tag pricepilot-v1.0.0 pushed, GitHub release published, production live on Vercel (https://pricepilot-self.vercel.app/).
+- CI was fully green at release: Verification + Desktop E2E 18/18 (Chromium/Firefox/WebKit) + Mobile E2E 39/39 (Pixel 7/iPhone 14/iPad) + 1064 unit tests.
+- Production verified healthy via agent-browser (HTTP 200, hydrates, onboarding works, Settings nav present).
+
+Goals / Completed Modifications:
+- Per cron instructions (improve styling + add features), developed a new v1.1 feature: **Profit Potential insights panel** on the Owner Home.
+- New file: `src/components/pricepilot/profit-potential-panel.tsx` (self-contained, ~470 lines).
+- Wired into `owner-home.tsx` between the action cards and the pricing summary.
+- The panel answers "How much money am I leaving on the table?" with:
+  1. Donut chart of margin distribution (healthy/low-margin/below-break-even/missing-data) with product count in center.
+  2. Three KPI cards: Extra profit/unit, Avg uplift/product, Pricing health (X/total).
+  3. Top 3 Quick Wins list — products with the biggest profit uplift, clickable to Review Prices.
+- Iterated on the KPI design based on VLM feedback: replaced the initial "Avg margin now → potential" KPI (which showed a confusing decrease because the balanced recommendation lowers prices for competitiveness) with "Avg uplift / product" (always positive, scoped to products with opportunities).
+- Safety: all product field accesses guarded with safeNumberValue (Phase 3 compliant); panel returns null when no products (empty-state unaffected).
+- Styling: gradient backdrop, emerald/teal palette, donut with legend, numbered quick-win rows with hover effects, animated opportunity badge, backdrop-blur KPI cards.
+
+Verification Results:
+- typecheck: PASS
+- lint: PASS
+- build: PASS (Turbopack, static prerender)
+- 1064 unit tests: all PASS (no regressions)
+- agent-browser visual QA: panel renders correctly with 12-product sample data (1 opportunity, ₹100 uplift, donut + KPIs + quick win all correct)
+- VLM analysis: confirms clean layout, good colors, no overflow
+- Screenshot: /home/z/my-project/download/profit-potential-panel-final.png
+
+Commit: d0a1b9a on release/pricepilot-v1 (pushed to origin).
+
+Unresolved Issues / Risks:
+- The v1.1 feature is on release/pricepilot-v1, NOT merged to main. main has branch protection (requires review). A future round should open a v1.1 PR and merge it.
+- CI will run on the release branch push; results not yet checked at time of writing.
+- The donut chart is visually redundant when ALL products are healthy (sample data case) but valuable when there's a mix of statuses — acceptable trade-off.
+- No unit tests added for computeProfitPotential() yet — a future round should add focused tests for the upside calculation (especially the safe-fallback paths).
+
+Priority Recommendations for Next Phase:
+1. Check CI results for d0a1b9a; fix any regressions.
+2. Add unit tests for computeProfitPotential() (edge cases: empty list, all-missing-data, all-healthy, mixed, negative uplift filtered).
+3. Open a v1.1 PR (release/pricepilot-v1 → main) and merge after CI green.
+4. Consider a second v1.1 feature: inline quick-edit of selling price in the products table with live margin feedback.
