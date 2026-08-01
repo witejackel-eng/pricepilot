@@ -265,15 +265,15 @@ export function OwnerHome() {
               disabled={card.disabled}
               className={`text-left transition-all duration-200 group ${card.disabled ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-lg hover:-translate-y-1 active:translate-y-0'}`}
             >
-              <Card className="overflow-hidden border-slate-200 dark:border-slate-800 h-full transition-colors group-hover:border-emerald-300 dark:group-hover:border-emerald-700">
+              <Card className="overflow-hidden border-slate-200 dark:border-slate-800 h-full transition-colors group-hover:border-emerald-300 dark:group-hover:border-emerald-700 py-0 md:py-6">
                 <CardContent className="p-0">
-                  <div className="flex items-start gap-4 p-5">
+                  <div className="flex items-start gap-4 p-4 md:p-5">
                     <div className={`h-12 w-12 rounded-xl flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-110 ${card.iconBg}`}>
                       <Icon className="h-6 w-6" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-slate-900 dark:text-slate-50">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <h3 className="font-semibold text-slate-900 dark:text-slate-50 min-w-0 break-words">
                           {card.title}
                         </h3>
                         {card.badge !== undefined && card.badge > 0 && (
@@ -286,7 +286,7 @@ export function OwnerHome() {
                         {card.description}
                       </p>
                     </div>
-                    <ArrowRight className="h-4 w-4 text-slate-300 dark:text-slate-600 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
+                    <ArrowRight className="h-4 w-4 shrink-0 text-slate-300 dark:text-slate-600 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
                   </div>
                 </CardContent>
               </Card>

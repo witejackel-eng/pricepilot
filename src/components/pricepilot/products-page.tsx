@@ -275,8 +275,8 @@ export function ProductsPage() {
           <Package className="h-20 w-20 text-slate-400" />
         </div>
         <h2 className="text-2xl font-bold text-slate-800 mb-2">No products yet</h2>
-        <p className="text-slate-500 mb-8 text-center max-w-md">Import your product spreadsheet or add your first product to get started.</p>
-        <div className="flex gap-3">
+        <p className="text-slate-500 mb-8 text-center w-full max-w-md mx-auto">Import your product spreadsheet or add your first product to get started.</p>
+        <div className="flex flex-wrap justify-center gap-3">
           <Button
             onClick={() => setCurrentView('import')}
             className="rounded-lg shadow-sm hover:shadow-md bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 transition-all duration-200"

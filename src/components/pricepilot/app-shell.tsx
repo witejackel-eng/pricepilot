@@ -387,7 +387,10 @@ export function AppShell() {
       <GuidedTour />
 
       {/* Desktop layout */}
-      <div className="flex flex-1">
+      {/* min-w-0: allow this row to shrink below its content's
+          min-width so wide page content (tables, grids) is contained
+          by main's overflow-auto instead of overflowing the viewport. */}
+      <div className="flex flex-1 min-w-0">
         {/* Desktop sidebar */}
         <aside className="hidden lg:block w-64 border-r bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700 h-screen sticky top-0 shadow-lg">
           <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} applicationMode={applicationMode} />
@@ -397,7 +400,7 @@ export function AppShell() {
         <FloatingHelpButton onClick={() => setHelpPanelOpen(true)} />
 
         {/* Main area */}
-        <div className="flex-1 flex flex-col min-h-screen">
+        <div className="flex-1 min-w-0 flex flex-col min-h-screen">
           {/* Header */}
           <header className="sticky top-0 z-30 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 shadow-sm px-4 py-2 flex items-center justify-between gap-4 border-b border-slate-200/60 dark:border-slate-800/60">
             <div className="flex items-center gap-3">
@@ -475,7 +478,10 @@ export function AppShell() {
           </header>
 
           {/* Content */}
-          <main className="flex-1 min-h-0 p-6 lg:p-8 overflow-auto bg-slate-50/30 dark:bg-slate-900/30 relative">
+          {/* min-w-0 + overflow-auto: wide page content (e.g. product
+              tables) scrolls inside main instead of pushing the layout
+              wider than the viewport (fixes mobile horizontal overflow). */}
+          <main className="flex-1 min-h-0 min-w-0 p-6 lg:p-8 overflow-auto bg-slate-50/30 dark:bg-slate-900/30 relative">
             <div key={currentView} className="animate-fade-in">
               {renderView()}
             </div>

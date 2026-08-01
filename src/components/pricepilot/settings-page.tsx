@@ -205,7 +205,7 @@ export function SettingsPage() {
             <Label htmlFor="businessName" className={labelClass}>Business Name</Label>
             <Input id="businessName" value={businessSettings.businessName} onChange={e => updateBusinessSettings({ businessName: e.target.value })} className={`mt-1.5 ${inputClass}`} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="currency" className={labelClass}>Default Currency</Label>
               <Select value={businessSettings.currencyCode} onValueChange={v => updateBusinessSettings({ currencyCode: v })}>
@@ -225,7 +225,7 @@ export function SettingsPage() {
               </Select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="taxTreatment" className={labelClass}>Tax Treatment</Label>
               <Select value={businessSettings.taxTreatment} onValueChange={v => updateBusinessSettings({ taxTreatment: v as TaxTreatment })}>
@@ -269,7 +269,7 @@ export function SettingsPage() {
               <span className="font-semibold">Fee estimates.</span> The default marketplace, payment gateway, and return/damage rate values below are typical estimates. Actual fees vary by product category and seller tier — please verify with each marketplace&apos;s official documentation.
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="targetMargin" className={labelClass}>Target Margin (%)</Label>
               <Input id="targetMargin" type="number" value={businessSettings.defaultTargetMarginPercent} onChange={e => updateBusinessSettings({ defaultTargetMarginPercent: parseFloat(e.target.value) || 0 })} className={`mt-1.5 ${inputClass}`} />
@@ -279,7 +279,7 @@ export function SettingsPage() {
               <Input id="minimumMargin" type="number" value={businessSettings.defaultMinimumMarginPercent} onChange={e => updateBusinessSettings({ defaultMinimumMarginPercent: parseFloat(e.target.value) || 0 })} className={`mt-1.5 ${inputClass}`} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="premiumMargin" className={labelClass}>Premium Margin (%)</Label>
               <Input id="premiumMargin" type="number" value={businessSettings.defaultMaximumMarginPercent} onChange={e => updateBusinessSettings({ defaultMaximumMarginPercent: parseFloat(e.target.value) || 0 })} className={`mt-1.5 ${inputClass}`} />
@@ -291,7 +291,7 @@ export function SettingsPage() {
             </div>
           </div>
           <Separator className="my-2" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="defaultShipping" className={labelClass}>Default Shipping Cost</Label>
               <Input id="defaultShipping" type="number" value={businessSettings.defaultShippingCost} onChange={e => updateBusinessSettings({ defaultShippingCost: parseFloat(e.target.value) || 0 })} className={`mt-1.5 ${inputClass}`} />
@@ -301,7 +301,7 @@ export function SettingsPage() {
               <Input id="defaultPackaging" type="number" value={businessSettings.defaultPackagingCost} onChange={e => updateBusinessSettings({ defaultPackagingCost: parseFloat(e.target.value) || 0 })} className={`mt-1.5 ${inputClass}`} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <div className="flex items-center gap-1 mb-1.5">
                 <Label htmlFor="defaultMarketplaceFee" className={labelClass}>Default Marketplace Fee (%)</Label>
@@ -317,7 +317,7 @@ export function SettingsPage() {
               <Input id="defaultPaymentFee" type="number" value={businessSettings.defaultPaymentFeePercent} onChange={e => updateBusinessSettings({ defaultPaymentFeePercent: parseFloat(e.target.value) || 0 })} className={inputClass} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <div className="flex items-center gap-1 mb-1.5">
                 <Label htmlFor="defaultReturnRate" className={labelClass}>Default Return Rate (%)</Label>
@@ -348,7 +348,7 @@ export function SettingsPage() {
         <CardContent className="space-y-4">
           <div>
             <Label className={labelClass}>Theme</Label>
-            <RadioGroup value={appSettings.theme} onValueChange={v => updateAppSettings({ theme: v as 'light' | 'dark' | 'system' })} className="flex gap-3 mt-2">
+            <RadioGroup value={appSettings.theme} onValueChange={v => updateAppSettings({ theme: v as 'light' | 'dark' | 'system' })} className="flex flex-wrap gap-3 mt-2">
               <div className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl border transition-all duration-200 cursor-pointer shadow-sm ${
                 appSettings.theme === 'light' ? 'border-emerald-300 bg-emerald-50/80 ring-1 ring-emerald-200/50' : 'border-slate-200 hover:bg-emerald-50/50 dark:border-slate-700 dark:hover:bg-emerald-950/20'
               }`}>
@@ -422,7 +422,7 @@ export function SettingsPage() {
             <span className="text-sm text-emerald-700 dark:text-emerald-300">Your data is stored locally in your browser and is never sent to any server.</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Button variant="outline" data-testid="download-backup-button" onClick={handleExportData} className="rounded-xl shadow-sm h-12 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
               <FileDown className="h-4 w-4 mr-2" /> Download Backup
             </Button>

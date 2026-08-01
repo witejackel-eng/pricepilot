@@ -53,3 +53,23 @@ Stage Summary:
 - WebKit startup blocker resolved at the root (reset helper) + defense-in-depth safety net.
 - Typecheck/lint/build still green after changes.
 - Next: fix mobile responsive overflow, commit, push, let CI run full matrix, then merge + tag + release.
+
+---
+Task ID: 4
+Agent: Main (mobile layout fix)
+Task: Fix Pixel 7 mobile horizontal-overflow + clipped-control failures.
+
+Work Log:
+- Downloaded CI mobile test-results artifact; inspected Pixel 7 error contexts.
+- Wrote a diagnostic Playwright spec to find elements exceeding the 412px viewport on each page (with tour invitation dismissed, matching completeOnboarding).
+- ROOT CAUSE: the app-shell layout row `<div className="flex flex-1">` (and `<main>`) lacked `min-w-0`. Flex items default to `min-width: auto` (min-content), so wide page content (e.g. product tables, settings grids) pushed the flex container and the sticky header beyond the viewport, causing document horizontal overflow. The earlier worklog entry added `min-h-0` (vertical) but missed `min-w-0` (horizontal).
+- Confirmed via diagnostic: settings scrollW=486 (+74px), products scrollW=555 (+143px) before the fix; the overflow also caused the "Download Updated Excel" control to be partially clipped (26% visible) on owner-home.
+- FIX: added `min-w-0` to the `flex flex-1` row container and to `<main>` (which already had `min-h-0` + `overflow-auto`). Now wide content scrolls inside main instead of overflowing the viewport.
+- Verified via diagnostic: settings/products/import/review/export all report scrollW=412 (NO OVERFLOW) after the fix.
+- Ran the 4 previously-failing Pixel 7 tests locally: ALL 4 PASS (owner home usable, settings accessible, no horizontal overflow, no clipped controls).
+- Typecheck, lint, 1064 unit tests: all green.
+
+Stage Summary:
+- Pixel 7 mobile layout blockers resolved (horizontal overflow + clipped control).
+- Desktop chromium unaffected by the change (min-w-0 only allows shrinking; desktop layout already fit).
+- iPhone 14 (webkit) startup hang is handled by the Task ID 2 reset-helper fix (pending CI verification — cannot run webkit locally due to missing system libs).
