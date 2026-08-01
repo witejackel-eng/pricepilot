@@ -94,3 +94,22 @@ Stage Summary:
 - Desktop Chromium: 6/6 PASS (verified locally + in CI).
 - Mobile Pixel 7: layout fixed (Task ID 4).
 - Next: push, observe CI full matrix. If WebKit still fails, investigate hydration angle (safety net not firing implies client JS may not be executing on WebKit).
+
+---
+Task ID: 6
+Agent: Main (exceljs dynamic import — WebKit hydration fix)
+Task: Remove exceljs from the hydration module graph to fix WebKit/iPhone startup hang.
+
+Work Log:
+- bcdc12a CI evidence: WebKit app stuck on loading screen even at 56.8s (father-workflow). The 25s component-level safety net did NOT fire → client React never mounted → hydration failure on WebKit (not an init/Dexie issue).
+- Investigated the app's static import graph: app-shell.tsx → import-flow.tsx → excel.ts → spreadsheet-adapter.ts → `import ExcelJS from 'exceljs'` (static, top-level).
+- Found `new Function("" + e)` in exceljs's bundle (node_modules/exceljs/dist/exceljs.js:42531) — a CSP eval-equivalent. The app's strict CSP (script-src 'self' 'unsafe-inline', no 'unsafe-eval') correctly blocks it. On Chromium/Firefox this is logged and execution continues; on WebKit, blocking a `new Function` at module-load time during hydration can throw fatally and prevent the React tree from mounting, leaving the app stuck on the SSR loading screen with no useEffect (so the 25s safety net never fires).
+- FIX: made exceljs a DYNAMIC import (`await import('exceljs')`) inside parseSpreadsheet() and createSpreadsheet().writeBuffer(). exceljs now loads ONLY when the user actually imports/exports a file — well after hydration. The CSP itself is NOT weakened; exceljs's new Function() is still blocked when it runs, just no longer during hydration.
+- Bonus: exceljs is large (~hundreds of KB); lazy-loading it shrinks the initial JS payload and speeds up hydration on every browser.
+- Refactored createSpreadsheet() to collect sheet data in memory and defer exceljs usage to writeBuffer() (preserving the builder API and empty-sheet behavior).
+- Verified locally on Chromium: 1064 unit tests PASS, father-workflow (exercises CSV import + export) + hydration 6/6 PASS (45.9s). Typecheck, lint, build green.
+
+Stage Summary:
+- WebKit hydration blocker (exceljs new Function at module load) removed from the hydration path.
+- Combined with Task ID 5 (robust deleteDatabase retry), this addresses both hypothesised WebKit root causes.
+- Pending CI verification of the full matrix (chromium, firefox, webkit, pixel 7, iphone 14, ipad).

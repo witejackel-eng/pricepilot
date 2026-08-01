@@ -16,8 +16,26 @@
  * `parseExcelFile` return value so callers do not need to change.
  */
 
-import ExcelJS from 'exceljs';
 import type { ImportError } from './types';
+
+// NOTE: exceljs is imported DYNAMICALLY (via `await import('exceljs')`)
+// inside parseSpreadsheet() and createSpreadsheet().writeBuffer() rather
+// than statically at module load. This is critical for two reasons:
+//
+//   1. WebKit hydration: exceljs's bundle contains a `new Function(...)`
+//      call (a CSP eval-equivalent used by a transitive dependency).
+//      The app's strict CSP (script-src 'self' 'unsafe-inline', no
+//      'unsafe-eval') correctly blocks it. On WebKit, blocking this at
+//      module-load time during hydration can throw fatally and prevent
+//      the app from mounting, leaving it stuck on the loading screen.
+//      Dynamic import defers exceljs loading to when the user actually
+//      imports/exports a file — well after hydration has completed.
+//
+//   2. Bundle size: exceljs is large; lazy-loading it keeps the initial
+//      JS payload small and the app fast to hydrate on every browser.
+//
+// The CSP itself is NOT weakened — exceljs's new Function() is still
+// blocked when it runs. The only difference is WHEN it runs.
 
 // ============================================================
 // Types
@@ -117,6 +135,8 @@ export async function parseSpreadsheet(fileBuffer: ArrayBuffer): Promise<ParseSp
   const sheets: ParsedSheet[] = [];
 
   try {
+    // Lazy-load exceljs only when actually parsing an XLSX file.
+    const ExcelJS = (await import('exceljs')).default;
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(fileBuffer);
 
@@ -193,45 +213,55 @@ export async function parseSpreadsheet(fileBuffer: ArrayBuffer): Promise<ParseSp
  *     .writeBuffer();
  */
 export function createSpreadsheet(): WorkbookBuilder {
-  const wb = new ExcelJS.Workbook();
+  // Collect sheet data in memory. exceljs is lazy-loaded only when
+  // writeBuffer() is called, so creating a builder does NOT pull in
+  // the (CSP-sensitive, large) exceljs bundle.
+  const sheets: { name: string; rows: Record<string, unknown>[] }[] = [];
 
   const builder: WorkbookBuilder = {
     addSheet(name, rows) {
-      const ws = wb.addWorksheet(name);
-
-      if (rows.length === 0) {
-        return builder;
-      }
-
-      // Determine the union of keys across every row, preserving
-      // the insertion order of the first row that introduces each key.
-      const keySet = new Set<string>();
-      const keys: string[] = [];
-      for (const row of rows) {
-        for (const key of Object.keys(row)) {
-          if (!keySet.has(key)) {
-            keySet.add(key);
-            keys.push(key);
-          }
-        }
-      }
-
-      // Header row
-      ws.columns = keys.map((key) => ({
-        header: key,
-        key,
-        width: Math.max(key.length + 2, 14),
-      }));
-
-      // Data rows
-      for (const row of rows) {
-        ws.addRow(row);
-      }
-
+      // Just collect the rows — exceljs is loaded in writeBuffer().
+      // Push even when rows is empty so an empty worksheet is still
+      // created (matches the previous exceljs-immediate behaviour).
+      sheets.push({ name, rows });
       return builder;
     },
 
     async writeBuffer() {
+      // Lazy-load exceljs only when actually writing the spreadsheet.
+      const ExcelJS = (await import('exceljs')).default;
+      const wb = new ExcelJS.Workbook();
+
+      for (const { name, rows } of sheets) {
+        const ws = wb.addWorksheet(name);
+        if (rows.length === 0) continue;
+
+        // Determine the union of keys across every row, preserving
+        // the insertion order of the first row that introduces each key.
+        const keySet = new Set<string>();
+        const keys: string[] = [];
+        for (const row of rows) {
+          for (const key of Object.keys(row)) {
+            if (!keySet.has(key)) {
+              keySet.add(key);
+              keys.push(key);
+            }
+          }
+        }
+
+        // Header row
+        ws.columns = keys.map((key) => ({
+          header: key,
+          key,
+          width: Math.max(key.length + 2, 14),
+        }));
+
+        // Data rows
+        for (const row of rows) {
+          ws.addRow(row);
+        }
+      }
+
       // ExcelJS declares `Buffer extends ArrayBuffer`, so `writeBuffer`
       // returns an object that satisfies the ArrayBuffer interface. In
       // browser builds the underlying value may be a Uint8Array or a
