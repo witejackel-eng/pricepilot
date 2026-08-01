@@ -52,6 +52,7 @@ import { KeyboardShortcuts, FloatingHelpButton } from './keyboard-shortcuts';
 import { HelpPanel } from './help-panel';
 import { GuidedTour, TourInvitation } from './guided-tour';
 import { CommandPalette } from './command-palette';
+import { CurrencyConverterWidget, CurrencyConverterTrigger } from './currency-converter-widget';
 import { toast } from 'sonner';
 
 // Owner mode navigation items.
@@ -406,6 +407,7 @@ export function AppShell() {
 
   const [addProductOpen, setAddProductOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [currencyConverterOpen, setCurrencyConverterOpen] = useState(false);
 
   // Cmd+K / Ctrl+K to open command palette
   useEffect(() => {
@@ -499,6 +501,13 @@ export function AppShell() {
         open={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}
         onAddProduct={() => setAddProductOpen(true)}
+      />
+
+      {/* Multi-Currency Converter Widget (v1.2) */}
+      <CurrencyConverterWidget
+        open={currencyConverterOpen}
+        onOpenChange={setCurrencyConverterOpen}
+        defaultFrom={businessSettings.currencyCode}
       />
 
       {/* Keyboard Shortcuts */}
@@ -608,6 +617,10 @@ export function AppShell() {
                   ))}
                 </SelectContent>
               </Select>
+              <CurrencyConverterTrigger
+                onOpen={() => setCurrencyConverterOpen(true)}
+                currencyCode={businessSettings.currencyCode}
+              />
             </div>
           </header>
 
@@ -660,7 +673,7 @@ export function AppShell() {
                 <span className="text-emerald-700 dark:text-emerald-300 font-medium">
                   {lastSaved ? `Last saved: ${new Date(lastSaved).toLocaleTimeString()}` : 'Not saved yet'}
                 </span>
-                <span className="text-emerald-700 dark:text-emerald-300 font-mono border border-emerald-300/50 dark:border-emerald-700/50 rounded px-1.5 py-0.5">v0.4</span>
+                <span className="text-emerald-700 dark:text-emerald-300 font-mono border border-emerald-300/50 dark:border-emerald-700/50 rounded px-1.5 py-0.5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40">v1.2.0</span>
               </div>
             </div>
           </footer>
