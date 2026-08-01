@@ -15,6 +15,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Separator } from '@/components/ui/separator';
 import { PricingRule, RuleLevel, RoundingRule, SalesChannel, createDefaultPricingRule } from '@/lib/pricepilot/types';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
+import { buildNonEmptyOptions, UNCATEGORISED_FILTER, UNKNOWN_BRAND_FILTER, categoryFilterLabel, brandFilterLabel } from '@/lib/pricepilot/safe-select';
 import { applyRoundingRule } from '@/lib/pricepilot/calculations';
 import { Plus, Copy, Trash2, Edit, RefreshCw, AlertTriangle } from 'lucide-react';
 
@@ -43,8 +44,8 @@ export function PricingRulesPage() {
   const [editRule, setEditRule] = useState<PricingRule | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  const categories = [...new Set(products.map(p => p.category))];
-  const brands = [...new Set(products.map(p => p.brand))];
+  const categories = buildNonEmptyOptions(products.map(p => p.category), UNCATEGORISED_FILTER);
+  const brands = buildNonEmptyOptions(products.map(p => p.brand), UNKNOWN_BRAND_FILTER);
   const channels = [...new Set(products.map(p => p.salesChannel))];
   const skus = products.map(p => ({ sku: p.sku, name: p.name }));
 
@@ -260,7 +261,7 @@ export function PricingRulesPage() {
                   <Select value={editRule.targetCategory || ''} onValueChange={v => setEditRule({ ...editRule, targetCategory: v })}>
                     <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
                     <SelectContent>
-                      {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                      {categories.map(c => <SelectItem key={c} value={c}>{categoryFilterLabel(c)}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -271,7 +272,7 @@ export function PricingRulesPage() {
                   <Select value={editRule.targetBrand || ''} onValueChange={v => setEditRule({ ...editRule, targetBrand: v })}>
                     <SelectTrigger><SelectValue placeholder="Select brand" /></SelectTrigger>
                     <SelectContent>
-                      {brands.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                      {brands.map(b => <SelectItem key={b} value={b}>{brandFilterLabel(b)}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>

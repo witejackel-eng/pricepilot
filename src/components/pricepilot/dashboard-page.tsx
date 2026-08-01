@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from './status-badge';
 import { formatCurrency, formatPercentage, safeNumberValue } from '@/lib/pricepilot/formatting';
+import { buildNonEmptyOptions, UNCATEGORISED_FILTER, UNKNOWN_BRAND_FILTER, categoryMatchesFilter, brandMatchesFilter, categoryFilterLabel, brandFilterLabel } from '@/lib/pricepilot/safe-select';
 import { toast } from 'sonner';
 import { Package, TrendingUp, TrendingDown, AlertTriangle, BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Plus, FileUp, DollarSign, ShieldAlert, Target, RefreshCw, CheckCircle2, HeartPulse, Lightbulb } from 'lucide-react';
 import {
@@ -143,12 +144,12 @@ export function DashboardPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  const categories = [...new Set(products.map(p => p.category))];
-  const brands = [...new Set(products.map(p => p.brand))];
+  const categories = buildNonEmptyOptions(products.map(p => p.category), UNCATEGORISED_FILTER);
+  const brands = buildNonEmptyOptions(products.map(p => p.brand), UNKNOWN_BRAND_FILTER);
 
   const filtered = useMemo(() => products.filter(p => {
-    if (filterCategory !== 'all' && p.category !== filterCategory) return false;
-    if (filterBrand !== 'all' && p.brand !== filterBrand) return false;
+    if (filterCategory !== 'all' && !categoryMatchesFilter(p.category, filterCategory)) return false;
+    if (filterBrand !== 'all' && !brandMatchesFilter(p.brand, filterBrand)) return false;
     return true;
   }), [products, filterCategory, filterBrand]);
 
@@ -449,14 +450,14 @@ export function DashboardPage() {
             <SelectTrigger className="w-[160px] bg-white"><SelectValue placeholder="All categories" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All categories</SelectItem>
-              {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              {categories.map(c => <SelectItem key={c} value={c}>{categoryFilterLabel(c)}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={filterBrand} onValueChange={setFilterBrand}>
             <SelectTrigger className="w-[160px] bg-white"><SelectValue placeholder="All brands" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All brands</SelectItem>
-              {brands.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+              {brands.map(b => <SelectItem key={b} value={b}>{brandFilterLabel(b)}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>

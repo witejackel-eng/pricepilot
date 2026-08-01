@@ -17,6 +17,8 @@ import { PricePilotErrorBoundary } from './error-boundary';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { Product, SalesChannel, PricingStatus, LifecycleStatus } from '@/lib/pricepilot/types';
+import { buildNonEmptyOptions, UNCATEGORISED_FILTER, UNKNOWN_BRAND_FILTER, categoryMatchesFilter, brandMatchesFilter, categoryFilterLabel, brandFilterLabel } from '@/lib/pricepilot/safe-select';
+import { safeLowerCase } from '@/lib/pricepilot/safe-product';
 import { Package, FileUp, Plus, Search, Trash2, CheckCircle, Eye, MoreHorizontal, Pencil, ArrowLeftRight, SlidersHorizontal, Columns3, X, ChevronDown, ChevronUp, CheckCircle2, PencilLine } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -129,10 +131,10 @@ export function ProductsPage() {
   // Show more columns toggle
   const [showMoreColumns, setShowMoreColumns] = useState(false);
 
-  const categories = [...new Set(products.map(p => p.category))];
-  const brands = [...new Set(products.map(p => p.brand))];
+  const categories = buildNonEmptyOptions(products.map(p => p.category), UNCATEGORISED_FILTER);
+  const brands = buildNonEmptyOptions(products.map(p => p.brand), UNKNOWN_BRAND_FILTER);
   const channels = [...new Set(products.map(p => p.salesChannel))];
-  const allTags = [...new Set(products.flatMap(p => p.tags || []))].sort();
+  const allTags = [...new Set(products.flatMap(p => p.tags || []))].filter(t => t && t.trim()).sort();
 
   // Check if any filters are active (beyond defaults)
   const hasActiveFilters = search !== '' || filterTab !== 'all' || filterCategory !== 'all' || filterBrand !== 'all' || filterChannel !== 'all' || filterTag !== 'all' || filterPricingStatus !== 'all' || filterLifecycleStatus !== 'all';
@@ -157,7 +159,7 @@ export function ProductsPage() {
     // Search
     if (search) {
       const q = search.toLowerCase();
-      result = result.filter(p => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q));
+      result = result.filter(p => safeLowerCase(p.name).includes(q) || safeLowerCase(p.sku).includes(q) || safeLowerCase(p.category).includes(q) || safeLowerCase(p.brand).includes(q));
     }
 
     // Tab filter
@@ -170,8 +172,8 @@ export function ProductsPage() {
     }
 
     // Category/Brand/Channel filters
-    if (filterCategory !== 'all') result = result.filter(p => p.category === filterCategory);
-    if (filterBrand !== 'all') result = result.filter(p => p.brand === filterBrand);
+    if (filterCategory !== 'all') result = result.filter(p => categoryMatchesFilter(p.category, filterCategory));
+    if (filterBrand !== 'all') result = result.filter(p => brandMatchesFilter(p.brand, filterBrand));
     if (filterChannel !== 'all') result = result.filter(p => p.salesChannel === filterChannel);
 
     // Tag filter
@@ -485,7 +487,18 @@ export function ProductsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
-              {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              {categories.map(c => <SelectItem key={c} value={c}>{categoryFilterLabel(c)}</SelectItem>)}
+            </SelectContent>
+          </Select>
+
+          {/* Brand filter */}
+          <Select value={filterBrand} onValueChange={v => { setFilterBrand(v); setPage(0); }}>
+            <SelectTrigger className="w-[140px] bg-white shadow-sm border-slate-200 hover:border-slate-300 transition-colors duration-150">
+              <SelectValue placeholder="Brand" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Brands</SelectItem>
+              {brands.map(b => <SelectItem key={b} value={b}>{brandFilterLabel(b)}</SelectItem>)}
             </SelectContent>
           </Select>
 
@@ -636,7 +649,7 @@ export function ProductsPage() {
                       </TableCell>
                       <TableCell className="font-semibold text-slate-800 max-w-[280px] truncate" title={p.name}>{p.name}</TableCell>
                       <TableCell className="text-xs text-slate-500">{p.sku}</TableCell>
-                      <TableCell className="text-xs text-slate-600">{p.category}</TableCell>
+                      <TableCell className="text-xs text-slate-600">{p.category || '—'}</TableCell>
                       <TableCell className="max-w-[120px]">
                         <div className="flex gap-1 flex-wrap">
                           {(p.tags || []).slice(0, 3).map(tag => (
