@@ -79,6 +79,7 @@ import {
   ShoppingCart,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { BulkCompetitorImport } from './bulk-competitor-import';
 
 // ============================================================
 // Constants
@@ -615,6 +616,11 @@ export function CompetitorTrackingPage() {
     <div className="space-y-4 pb-20">
       {/* Gradient header banner */}
       <GradientHeader onAddClick={() => openDialog(null)} />
+
+      {/* v1.6: Bulk import toolbar */}
+      <div className="flex items-center justify-end gap-2 -mt-1">
+        <BulkCompetitorImport />
+      </div>
 
       {/* Summary cards */}
       <SummaryCards stats={stats} currencyCode={currencyCode} />
