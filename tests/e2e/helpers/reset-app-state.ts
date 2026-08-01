@@ -52,6 +52,25 @@ export async function resetPricePilotState(
     // the IndexedDB clear may still succeed.
   });
 
+  // Phase 4 (WebKit reliability): wait for the app to reach a
+  // TERMINAL startup state (onboarding / ready / failed) before
+  // clearing IndexedDB. This ensures the in-flight initialization
+  // (which may be writing products back to the DB) has COMPLETED,
+  // so our clear cannot race with init's write-back. Without this
+  // wait, on slower engines (WebKit) the clear could run while init
+  // is still mid-transaction, leaving the DB in an inconsistent
+  // state that hangs the next reload.
+  //
+  // We wait up to 15s. If the app doesn't reach a terminal state
+  // (e.g. it's genuinely stuck), we proceed anyway — the clear +
+  // reload is the recovery path.
+  await page.locator(
+    '[data-testid="onboarding-form"], [data-testid="owner-home"], [data-testid="app-initialization-ready"], [data-testid="app-initialization-failed"]'
+  ).first().waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {
+    // App didn't reach a terminal state in 15s. Proceed with the
+    // clear — the reload is the recovery path for a stuck app.
+  });
+
   // Clear all storage and IndexedDB tables (not the database itself).
   // Also reset the PricePilot initialization guard so a reload
   // can start fresh without hitting the singleton guard.
