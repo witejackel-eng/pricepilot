@@ -234,37 +234,29 @@ export async function navigateTo(
     }
   }
 
-  // Detect mobile: if the desktop sidebar is hidden, we need to
-  // open the mobile drawer first.
-  const desktopSidebar = page.locator('aside.hidden.lg\\:block');
-  const isDesktopSidebarVisible = await desktopSidebar.isVisible({ timeout: 1_000 }).catch(() => false);
+  // Detect mobile: if the mobile menu trigger is visible, we're on
+  // a mobile viewport and need to open the drawer first.
+  // On desktop, the sidebar is always visible.
+  const mobileMenuTrigger = page.getByTestId('mobile-navigation-trigger');
+  const isMobile = await mobileMenuTrigger.isVisible({ timeout: 1_000 }).catch(() => false);
 
   // Scope the button lookup to avoid strict-mode violations when
   // both desktop sidebar and mobile drawer have the same test ID.
   let scopeContainer: import('@playwright/test').Locator;
 
-  if (!isDesktopSidebarVisible) {
+  if (isMobile) {
     // Mobile: open the navigation drawer using the menu trigger.
-    const mobileMenuTrigger = page.getByTestId('mobile-navigation-trigger');
-
-    if (await mobileMenuTrigger.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await mobileMenuTrigger.click();
-      // Wait for the drawer to open
-      const mobileDrawer = page.getByTestId('mobile-navigation-drawer');
-      await expect(mobileDrawer, 'Mobile navigation drawer must open').toBeVisible({ timeout: 5_000 });
-    } else {
-      // Fallback: try the hamburger menu button by role
-      const hamburgerButton = page.getByRole('button', { name: /menu/i });
-      if (await hamburgerButton.isVisible({ timeout: 1_000 }).catch(() => false)) {
-        await hamburgerButton.click();
-        await page.waitForTimeout(500);
-      }
-    }
+    await mobileMenuTrigger.click();
+    // Wait for the drawer to open
+    const mobileDrawer = page.getByTestId('mobile-navigation-drawer');
+    await expect(mobileDrawer, 'Mobile navigation drawer must open').toBeVisible({ timeout: 5_000 });
 
     // Scope to the mobile drawer
-    scopeContainer = page.getByTestId('mobile-navigation-drawer');
+    scopeContainer = mobileDrawer;
   } else {
-    // Desktop: scope to the sidebar aside
+    // Desktop: scope to the sidebar using the desktop-only aside
+    // element. We use a CSS selector that matches the sidebar.
+    const desktopSidebar = page.locator('aside').filter({ has: page.getByTestId('nav-owner-home') });
     scopeContainer = desktopSidebar;
   }
 
@@ -328,7 +320,7 @@ export async function navigateTo(
 
   // On mobile, the drawer should close after navigation.
   // Verify it closed (the drawer overlay should disappear).
-  if (!isDesktopSidebarVisible) {
+  if (isMobile) {
     const mobileOverlay = page.locator('[data-slot="sheet-overlay"][data-state="open"]');
     // Give it a moment to animate closed
     await page.waitForTimeout(300);
