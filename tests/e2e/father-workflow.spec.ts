@@ -112,11 +112,12 @@ async function closeProductDrawer(page: Page): Promise<void> {
   if (await drawer.isVisible({ timeout: 1_000 }).catch(() => false)) {
     // Try pressing Escape to close the drawer
     await page.keyboard.press('Escape').catch(() => {});
-    await page.waitForTimeout(500);
+    // Wait for the drawer to close (observable condition)
+    await expect(drawer, 'Product drawer should close after Escape').toBeHidden({ timeout: 2_000 }).catch(() => {});
     // If still open, try clicking outside
     if (await drawer.isVisible({ timeout: 500 }).catch(() => false)) {
       await page.keyboard.press('Escape').catch(() => {});
-      await page.waitForTimeout(500);
+      await expect(drawer, 'Product drawer should close after second Escape').toBeHidden({ timeout: 2_000 }).catch(() => {});
     }
   }
 }

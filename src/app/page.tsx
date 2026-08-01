@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { usePricePilotStore } from '@/store/pricepilot-store';
+import { usePricePilotStore, resetInitializationGuard } from '@/store/pricepilot-store';
 import { OnboardingFlow } from '@/components/pricepilot/onboarding-flow';
 import { AppShell } from '@/components/pricepilot/app-shell';
 import { InitializationScreen } from '@/components/pricepilot/initialization-screen';
@@ -17,6 +17,19 @@ export default function Home() {
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  // Listen for E2E reset events. When Playwright's resetPricePilotState()
+  // dispatches the 'pricepilot:reset-init' custom event, we reset the
+  // initialization guard so the next page load can start fresh.
+  useEffect(() => {
+    const handleResetInit = () => {
+      resetInitializationGuard();
+    };
+    window.addEventListener('pricepilot:reset-init', handleResetInit);
+    return () => {
+      window.removeEventListener('pricepilot:reset-init', handleResetInit);
+    };
+  }, []);
 
   // Phase 4: surface a toast when initialization succeeds (with or
   // without warnings) so the owner knows the workspace is ready.
@@ -49,8 +62,8 @@ export default function Home() {
   }
 
   if (!onboardingCompleted) {
-    return <OnboardingFlow />;
+    return <div data-testid="app-initialization-ready"><OnboardingFlow /></div>;
   }
 
-  return <AppShell />;
+  return <div data-testid="app-initialization-ready"><AppShell /></div>;
 }

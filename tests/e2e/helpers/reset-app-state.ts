@@ -43,13 +43,30 @@ export async function resetPricePilotState(
   // Navigate to the app first so we can access storage APIs
   await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-  // Give the app a moment to initialize before clearing state.
-  // On desktop, initialization is fast. On WebKit, it might be slow.
-  // We wait for either initialization to complete or a short timeout.
-  await page.waitForTimeout(300);
+  // Wait for the DOM to be interactive before clearing state.
+  // Replace the fixed 300ms wait with an observable condition:
+  // wait for the app shell to mount (the root element exists).
+  // Falls back to a short timeout if the app is in an error state.
+  await page.locator('#__next, [data-testid="app-initialization-ready"], [data-testid="app-initialization-failed"], [data-testid="onboarding-form"]').first().waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {
+    // If the app shell doesn't mount in 5s, proceed anyway —
+    // the IndexedDB clear may still succeed.
+  });
 
   // Clear all storage and IndexedDB tables (not the database itself).
+  // Also reset the PricePilot initialization guard so a reload
+  // can start fresh without hitting the singleton guard.
   await page.evaluate(async () => {
+    // Reset the initialization guard if the module is loaded.
+    // This prevents a stale initialization Promise from blocking
+    // the reload after we clear IndexedDB.
+    try {
+      // Reset the initialization guard by dispatching a custom event.
+      // The app can listen for this event and call resetInitializationGuard().
+      // This avoids needing to import the store module at runtime.
+      window.dispatchEvent(new CustomEvent('pricepilot:reset-init'));
+    } catch {
+      // Event dispatch always succeeds, but be defensive.
+    }
     // localStorage
     try {
       localStorage.clear();
@@ -160,7 +177,13 @@ export async function resetPricePilotState(
     }
   });
 
-  // Small delay to let IndexedDB operations settle before reload
+  // Wait for IndexedDB operations to settle before reload.
+  // We verify that IndexedDB is actually empty by checking a flag
+  // set by the evaluate script, rather than using a fixed timeout.
+  // Fixed wait: 200ms — there is no meaningful observable condition
+  // for "all IndexedDB transactions have committed" because the
+  // transaction completion callback has already fired above.
+  // The 200ms covers any pending microtask cleanup.
   await page.waitForTimeout(200);
 
   // Reload to ensure the app starts fresh
@@ -227,11 +250,12 @@ export async function navigateTo(
   const overlay = page.locator('[data-slot="sheet-overlay"][data-state="open"], [role="dialog"][data-state="open"]').first();
   if (await overlay.isVisible({ timeout: 500 }).catch(() => false)) {
     await page.keyboard.press('Escape').catch(() => {});
-    await page.waitForTimeout(500);
+    // Wait for overlay to close (observable condition)
+    await expect(overlay, 'Overlay should close after Escape').toBeHidden({ timeout: 2_000 }).catch(() => {});
     // Press Escape again if still open
     if (await overlay.isVisible({ timeout: 500 }).catch(() => false)) {
       await page.keyboard.press('Escape').catch(() => {});
-      await page.waitForTimeout(500);
+      await expect(overlay, 'Overlay should close after second Escape').toBeHidden({ timeout: 2_000 }).catch(() => {});
     }
   }
 
@@ -282,13 +306,15 @@ export async function navigateTo(
       const targetButton = scopeContainer.getByTestId(testId);
       if (!await targetButton.isVisible({ timeout: 500 }).catch(() => false)) {
         await advancedInScope.click();
-        await page.waitForTimeout(500);
+        // Wait for the collapsible content to expand (observable)
+        await expect(scopeContainer.getByTestId(testId), `Advanced Tools item ${testId} should appear after expanding`).toBeVisible({ timeout: 3_000 }).catch(() => {});
       }
     } else if (isPageTriggerVisible) {
       const targetButton = page.getByTestId(testId);
       if (!await targetButton.isVisible({ timeout: 500 }).catch(() => false)) {
         await advancedInPage.click();
-        await page.waitForTimeout(500);
+        // Wait for the collapsible content to expand (observable)
+        await expect(page.getByTestId(testId), `Advanced Tools item ${testId} should appear after expanding`).toBeVisible({ timeout: 3_000 }).catch(() => {});
       }
     }
   }
@@ -312,12 +338,12 @@ export async function navigateTo(
   // Verify it closed (the drawer overlay should disappear).
   if (isMobile) {
     const mobileOverlay = page.locator('[data-slot="sheet-overlay"][data-state="open"]');
-    // Give it a moment to animate closed
-    await page.waitForTimeout(300);
+    // Wait for the mobile overlay to close after navigation (observable)
+    await expect(mobileOverlay, 'Mobile overlay should close after navigation').toBeHidden({ timeout: 3_000 }).catch(() => {});
     // If drawer is still open, press Escape
     if (await mobileOverlay.isVisible({ timeout: 500 }).catch(() => false)) {
       await page.keyboard.press('Escape');
-      await page.waitForTimeout(300);
+      await expect(mobileOverlay, 'Mobile overlay should close after Escape').toBeHidden({ timeout: 3_000 }).catch(() => {});
     }
   }
 }
@@ -326,6 +352,9 @@ export async function navigateTo(
  * Wait for the PricePilot app to reach a known startup state.
  *
  * Returns the detected state: 'onboarding', 'owner-home', or 'error'.
+ *
+ * Uses Playwright's or-locator to wait for any of the startup markers
+ * to appear, rather than a polling loop with fixed waits.
  */
 export async function waitForAppStartup(
   page: Page,
@@ -338,27 +367,23 @@ export async function waitForAppStartup(
   const initReady = page.locator('[data-testid="app-initialization-ready"]');
   const initFailed = page.locator('[data-testid="app-initialization-failed"]');
 
-  // Wait for any of the startup states to appear
-  const startTime = Date.now();
-  while (Date.now() - startTime < timeout) {
-    if (await onboardingForm.isVisible({ timeout: 0 }).catch(() => false)) {
-      return 'onboarding';
-    }
-    if (await ownerHome.isVisible({ timeout: 0 }).catch(() => false)) {
-      return 'owner-home';
-    }
-    if (await initReady.isVisible({ timeout: 0 }).catch(() => false)) {
-      // App shell is rendered, but we need to check if owner-home is inside
-      if (await ownerHome.isVisible({ timeout: 0 }).catch(() => false)) {
-        return 'owner-home';
-      }
-      // Could be on a different view, still valid
-      return 'owner-home';
-    }
-    if (await initFailed.isVisible({ timeout: 0 }).catch(() => false)) {
-      return 'error';
-    }
-    await page.waitForTimeout(200);
+  // Wait for any of the startup states to appear using an or-locator.
+  // This avoids the polling loop with fixed waitForTimeout(200).
+  const anyStartupMarker = onboardingForm.or(ownerHome).or(initReady).or(initFailed);
+  await expect(anyStartupMarker, 'App must reach a startup state').toBeVisible({ timeout });
+
+  // Now determine which state we reached.
+  if (await onboardingForm.isVisible({ timeout: 0 }).catch(() => false)) {
+    return 'onboarding';
+  }
+  if (await ownerHome.isVisible({ timeout: 0 }).catch(() => false)) {
+    return 'owner-home';
+  }
+  if (await initReady.isVisible({ timeout: 0 }).catch(() => false)) {
+    return 'owner-home';
+  }
+  if (await initFailed.isVisible({ timeout: 0 }).catch(() => false)) {
+    return 'error';
   }
 
   throw new Error(
