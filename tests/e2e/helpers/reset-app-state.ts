@@ -124,106 +124,96 @@ export async function resetPricePilotState(
 
     // ── IndexedDB reset (WebKit-safe) ──────────────────────────
     //
-    // CRITICAL (Phase 4 WebKit fix): On WebKit, calling
+    // CRITICAL (Phase 4 WebKit fix): On WebKit/iPhone Safari,
     // `indexedDB.deleteDatabase()` while a Dexie connection is open
-    // fires `onblocked` and the database is NEVER deleted. The next
-    // page load then hangs indefinitely on Dexie's `open()`, leaving
-    // the app stuck on the "Opening your workspace…" loader forever.
+    // fires `onblocked` and the delete stays PENDING. Even with
+    // closeDb + retry-on-blocked, the pending delete blocks Dexie's
+    // `open()` on the next page load, hanging the app on the loading
+    // screen forever (the 25s safety net cannot fire because the
+    // client never rehydrates past the pending-delete conflict).
     //
-    // The previous strategy opened a SECOND raw `indexedDB.open()`
-    // connection from the test and cleared tables through it. That
-    // raced with the app's own Dexie connection and, on WebKit,
-    // corrupted it — producing the same permanent-loader hang.
+    // The robust WebKit-safe strategy: ask the APP to clear ALL its
+    // own tables via its OWN Dexie connection
+    // (window.__pricepilotClearAllData), in a single atomic
+    // transaction. This:
+    //   - Uses Dexie's existing connection (no 2nd connection race).
+    //   - Does NOT delete the database (no pending-delete conflict).
+    //   - Keeps the schema intact so the next page load's Dexie
+    //     open() succeeds immediately on every browser.
+    //   - Clears all data (clean slate for the next test).
     //
-    // The correct strategy: ask the APP to close its own Dexie
-    // connection first (via the `window.__pricepilotCloseDb` global
-    // that database.ts exposes), THEN delete the database. With no
-    // open connections, `deleteDatabase` succeeds immediately on
-    // every browser (Chromium, Firefox, WebKit, iPhone Safari).
+    // This is safe now that we wait for the app to reach a TERMINAL
+    // startup state before clearing (above) — the in-flight init has
+    // completed, so there is no write-back race.
     //
-    // We wait for each deletion to settle (success, error, OR blocked)
-    // so the reload never happens mid-deletion.
+    // Fallback: raw deleteDatabase (closeDb-first) only if the app
+    // global is unavailable (e.g. the app is in a broken state).
 
-    // 1. Close the app's Dexie connection. Best-effort — if the app
-    //    hasn't loaded yet (no global), we fall through to the raw
-    //    delete which will still work on Chromium/Firefox.
+    let cleared = false;
     try {
-      const closer = (window as unknown as {
-        __pricepilotCloseDb?: () => boolean;
-      }).__pricepilotCloseDb;
-      if (typeof closer === 'function') {
-        closer();
+      const clearAll = (window as unknown as {
+        __pricepilotClearAllData?: () => Promise<void>;
+      }).__pricepilotClearAllData;
+      if (typeof clearAll === 'function') {
+        await clearAll();
+        cleared = true;
       }
     } catch {
-      // ignore — closing is best-effort
+      // App-level clear failed — fall through to raw delete.
     }
 
-    // 2. Give the close time to settle. Dexie.close() is synchronous
-    //    but the underlying IDB connection release is async. WebKit
-    //    in particular can take longer than Chromium/Firefox to
-    //    actually release the connection, and if we call
-    //    deleteDatabase before release it fires `onblocked` and the
-    //    delete stays pending — which then blocks Dexie's reopen on
-    //    the next page load (the permanent-loader hang). 250ms is a
-    //    conservative wait that reliably lets the connection release.
-    await new Promise<void>((resolve) => setTimeout(resolve, 250));
-
-    // 3. Collect candidate database names.
-    const knownDbNames = ['pricepilot', 'pricepilot_v1', 'PricePilotDB'];
-    let dbNames: string[] = knownDbNames;
-    if (typeof indexedDB.databases === 'function') {
+    if (!cleared) {
+      // Fallback: close Dexie, then deleteDatabase with retry.
       try {
-        const dbs = await indexedDB.databases();
-        const extraNames = dbs
-          .map((db) => db.name)
-          .filter((name): name is string => Boolean(name))
-          .filter((name) => !knownDbNames.includes(name));
-        dbNames = [...knownDbNames, ...extraNames];
+        const closer = (window as unknown as {
+          __pricepilotCloseDb?: () => boolean;
+        }).__pricepilotCloseDb;
+        if (typeof closer === 'function') {
+          closer();
+        }
       } catch {
-        // WebKit does not implement indexedDB.databases() — fall back
-        // to the known names list above.
+        // ignore
       }
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+
+      const knownDbNames = ['pricepilot', 'pricepilot_v1', 'PricePilotDB'];
+      let dbNames: string[] = knownDbNames;
+      if (typeof indexedDB.databases === 'function') {
+        try {
+          const dbs = await indexedDB.databases();
+          const extraNames = dbs
+            .map((db) => db.name)
+            .filter((name): name is string => Boolean(name))
+            .filter((name) => !knownDbNames.includes(name));
+          dbNames = [...knownDbNames, ...extraNames];
+        } catch {
+          // WebKit: no indexedDB.databases() — use known names.
+        }
+      }
+
+      const deleteDb = (name: string): Promise<void> =>
+        new Promise<void>((resolve) => {
+          let attempts = 0;
+          const tryDelete = () => {
+            attempts++;
+            try {
+              const request = indexedDB.deleteDatabase(name);
+              request.onsuccess = () => resolve();
+              request.onerror = () => resolve();
+              request.onblocked = () => {
+                if (attempts < 5) setTimeout(tryDelete, 300);
+                else resolve();
+              };
+              setTimeout(resolve, 2000);
+            } catch {
+              resolve();
+            }
+          };
+          tryDelete();
+        });
+
+      await Promise.all(dbNames.map((name) => deleteDb(name)));
     }
-
-    // 4. Delete each database. With the Dexie connection closed, this
-    //    succeeds without `onblocked`. If `onblocked` DOES fire (a
-    //    stray connection survived), we RETRY after a delay instead
-    //    of giving up — because reloading while a delete is pending
-    //    is exactly what hangs WebKit's Dexie reopen on the next page
-    //    load. We retry up to 5 times; if it still blocks, we resolve
-    //    (the reload will tear the connection down) but this is the
-    //    last resort.
-    const deleteDb = (name: string): Promise<void> =>
-      new Promise<void>((resolve) => {
-        let attempts = 0;
-        const MAX_ATTEMPTS = 5;
-        const tryDelete = () => {
-          attempts++;
-          try {
-            const request = indexedDB.deleteDatabase(name);
-            request.onsuccess = () => resolve();
-            request.onerror = () => resolve();
-            request.onblocked = () => {
-              if (attempts < MAX_ATTEMPTS) {
-                // A connection is still open. Wait and retry — the
-                // connection may release shortly.
-                setTimeout(tryDelete, 300);
-              } else {
-                // Exhausted retries. Resolve so the test doesn't
-                // hang here; the reload will tear down connections.
-                resolve();
-              }
-            };
-            // Safety net: if none of the above fires, resolve after 2s.
-            setTimeout(resolve, 2000);
-          } catch {
-            resolve();
-          }
-        };
-        tryDelete();
-      });
-
-    await Promise.all(dbNames.map((name) => deleteDb(name)));
   });
 
   // Wait for IndexedDB operations to settle before reload.
