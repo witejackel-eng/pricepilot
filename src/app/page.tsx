@@ -39,10 +39,13 @@ export default function Home() {
   // instead of a flash of the onboarding wizard.
   if (
     initialization.status === 'idle' ||
-    initialization.status === 'loading' ||
-    initialization.status === 'failed'
+    initialization.status === 'loading'
   ) {
     return <div data-testid="app-initialization-loading"><InitializationScreen /></div>;
+  }
+
+  if (initialization.status === 'failed') {
+    return <div data-testid="app-initialization-failed"><InitializationScreen /></div>;
   }
 
   if (!onboardingCompleted) {

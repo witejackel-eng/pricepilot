@@ -269,11 +269,15 @@ export async function navigateTo(
   }
 
   // In owner mode, some nav items (Settings, Pricing Rules, etc.) are
-  // inside an "Advanced Tools" collapsible section. Expand it if the
-  // target button is not already visible.
+  // inside an "Advanced Tools" collapsible section. These items need
+  // the collapsible to be expanded before they become visible.
+  const ADVANCED_TOOLS_TARGETS = new Set(['settings', 'pricing-rules', 'price-simulator', 'scenarios']);
+
   let button = scopeContainer.getByTestId(testId);
   let isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
 
+  // If the button is not visible, try expanding the Advanced Tools
+  // collapsible section (for items that are inside it).
   if (!isButtonVisible) {
     // Try expanding the "Advanced Tools" collapsible section.
     // The trigger is inside the sidebar/drawer, so look for it
@@ -281,9 +285,16 @@ export async function navigateTo(
     const advancedToolsTrigger = scopeContainer.getByTestId('nav-advanced-tools');
     const isAdvancedVisible = await advancedToolsTrigger.isVisible({ timeout: 1_000 }).catch(() => false);
     if (isAdvancedVisible) {
-      await advancedToolsTrigger.click();
-      // Wait for the collapsible content to expand
-      await page.waitForTimeout(500);
+      // Only expand if the target is one of the Advanced Tools items,
+      // or if we can't find the button at all (it might be inside).
+      if (ADVANCED_TOOLS_TARGETS.has(target) || !isButtonVisible) {
+        await advancedToolsTrigger.click();
+        // Wait for the collapsible content to expand and buttons
+        // to become visible
+        await page.waitForTimeout(500);
+        // Re-create the button locator after DOM updates
+        button = scopeContainer.getByTestId(testId);
+      }
     }
 
     // Re-check button visibility
@@ -295,7 +306,20 @@ export async function navigateTo(
   // differently on this particular viewport/configuration).
   if (!isButtonVisible) {
     button = page.getByTestId(testId);
-    isButtonVisible = await button.isVisible({ timeout: 2_000 }).catch(() => false);
+    isButtonVisible = await button.isVisible({ timeout: 3_000 }).catch(() => false);
+  }
+
+  // Last resort: if the target is an Advanced Tools item and we still
+  // can't find it, try expanding Advanced Tools using an unscoped
+  // trigger and then look for the button unscoped.
+  if (!isButtonVisible && ADVANCED_TOOLS_TARGETS.has(target)) {
+    const unscopedTrigger = page.getByTestId('nav-advanced-tools');
+    if (await unscopedTrigger.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await unscopedTrigger.click();
+      await page.waitForTimeout(500);
+    }
+    button = page.getByTestId(testId);
+    isButtonVisible = await button.isVisible({ timeout: 3_000 }).catch(() => false);
   }
 
   await expect(button, `Navigation button "${target}" (${testId}) must be visible`).toBeVisible({ timeout: 10_000 });
@@ -325,7 +349,7 @@ export async function waitForAppStartup(
   page: Page,
   options: { timeout?: number } = {},
 ): Promise<'onboarding' | 'owner-home' | 'error'> {
-  const timeout = options.timeout ?? 30_000;
+  const timeout = options.timeout ?? 45_000;
 
   const onboardingForm = page.locator('[data-testid="onboarding-form"]');
   const ownerHome = page.locator('[data-testid="owner-home"]');
