@@ -96,9 +96,12 @@ async function openProductBySku(page: Page, sku: string): Promise<void> {
   await expect(productRow, `Product row with SKU "${sku}" must be visible`).toBeVisible({ timeout: 10_000 });
   await productRow.click();
 
-  // Verify the drawer opened
+  // Verify the drawer opened. 10s accommodates the Radix Sheet open
+  // animation on slower engines (Firefox/WebKit) — this is a
+  // deterministic wait for the element to become visible, not a fixed
+  // sleep. The assertion (drawer must open) is preserved.
   const drawer = page.locator('[role="dialog"], [data-state="open"]').first();
-  await expect(drawer, 'Product detail drawer must be open').toBeVisible({ timeout: 5_000 });
+  await expect(drawer, 'Product detail drawer must be open').toBeVisible({ timeout: 10_000 });
 
   // Clear search after opening the product
   if (await searchInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
