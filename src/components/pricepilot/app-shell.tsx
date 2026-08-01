@@ -54,6 +54,8 @@ import { GuidedTour, TourInvitation } from './guided-tour';
 import { CommandPalette } from './command-palette';
 import { CurrencyConverterWidget, CurrencyConverterTrigger } from './currency-converter-widget';
 import { MarginAlertsPanel } from './margin-alerts-panel';
+import { NotificationCenter } from './notification-center';
+import { CSVExportButton } from './csv-export-button';
 import { toast } from 'sonner';
 
 // Owner mode navigation items.
@@ -591,9 +593,8 @@ export function AppShell() {
                   <Button variant="outline" size="sm" onClick={() => setCurrentView('import')} className="hidden sm:flex transition-colors duration-200 rounded-xl">
                     <Upload className="h-4 w-4 mr-1" /> Import
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200 rounded-xl">
-                    <Download className="h-4 w-4 mr-1" /> Download
-                  </Button>
+                  <CSVExportButton label="Download" onExportExcel={() => setCurrentView('export')} className="hidden sm:flex" />
+                  <NotificationCenter />
                   <MarginAlertsPanel />
                   <Button variant="ghost" size="sm" onClick={() => setHelpPanelOpen(true)} className="transition-colors duration-200 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 rounded-xl">
                     <HelpCircle className="h-4 w-4" />
@@ -604,9 +605,8 @@ export function AppShell() {
                   <Button variant="outline" size="sm" onClick={() => setCurrentView('import')} className="hidden sm:flex transition-colors duration-200 rounded-xl">
                     <Upload className="h-4 w-4 mr-1" /> Import
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200 rounded-xl">
-                    <Download className="h-4 w-4 mr-1" /> Export
-                  </Button>
+                  <CSVExportButton label="Export" onExportExcel={() => setCurrentView('export')} className="hidden sm:flex" />
+                  <NotificationCenter />
                   <MarginAlertsPanel />
                 </>
               )}
@@ -676,7 +676,7 @@ export function AppShell() {
                 <span className="text-emerald-700 dark:text-emerald-300 font-medium">
                   {lastSaved ? `Last saved: ${new Date(lastSaved).toLocaleTimeString()}` : 'Not saved yet'}
                 </span>
-                <span className="text-emerald-700 dark:text-emerald-300 font-mono border border-emerald-300/50 dark:border-emerald-700/50 rounded px-1.5 py-0.5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40">v1.2.0</span>
+                <span className="text-emerald-700 dark:text-emerald-300 font-mono border border-emerald-300/50 dark:border-emerald-700/50 rounded px-1.5 py-0.5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40">v1.4.0</span>
               </div>
             </div>
           </footer>

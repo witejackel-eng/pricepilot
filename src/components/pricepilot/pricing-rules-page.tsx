@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Separator } from '@/components/ui/separator';
 import { PricingRule, RuleLevel, RoundingRule, SalesChannel, createDefaultPricingRule } from '@/lib/pricepilot/types';
@@ -230,6 +230,7 @@ export function PricingRulesPage() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editRule?.id && pricingRules.find(r => r.id === editRule.id) ? 'Edit Rule' : 'New Rule'}</DialogTitle>
+            <DialogDescription className="sr-only">Configure pricing rule details and conditions.</DialogDescription>
           </DialogHeader>
 
           {editRule && (

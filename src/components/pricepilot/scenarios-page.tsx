@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Separator } from '@/components/ui/separator';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
@@ -109,7 +109,7 @@ export function ScenariosPage() {
 
         <Dialog open={newDialogOpen} onOpenChange={setNewDialogOpen}>
           <DialogContent className="space-y-4">
-            <DialogHeader><DialogTitle>Save Current State as Scenario</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Save Current State as Scenario</DialogTitle><DialogDescription className="sr-only">Save your current pricing state as a named scenario for later comparison.</DialogDescription></DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-slate-600">Name</Label>
@@ -267,7 +267,7 @@ export function ScenariosPage() {
       {/* New Scenario Dialog */}
       <Dialog open={newDialogOpen} onOpenChange={setNewDialogOpen}>
         <DialogContent className="space-y-4">
-          <DialogHeader><DialogTitle>Save Current State as Scenario</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Save Current State as Scenario</DialogTitle><DialogDescription className="sr-only">Save your current pricing state as a named scenario for later comparison.</DialogDescription></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
               <Label className="text-sm font-medium text-slate-600">Name</Label>
