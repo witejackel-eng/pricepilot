@@ -189,15 +189,73 @@ export function closeDbForReset(): boolean {
   return closed;
 }
 
-// Expose the closer on window for the E2E reset helper. This is a
-// no-op on the server (typeof window === 'undefined'). We attach it
-// at module load time so it is available as soon as the client bundle
-// executes, even before initialization completes.
+/**
+ * Phase 4 (WebKit reliability): Clear ALL data in every IndexedDB
+ * table using the app's OWN Dexie connection — atomically, in a single
+ * read/write transaction.
+ *
+ * This is the WebKit-safe alternative to `deleteDatabase()`. On WebKit,
+ * `deleteDatabase()` while a connection is open fires `onblocked` and
+ * the delete stays pending; the next page load's Dexie `open()` then
+ * conflicts with the pending delete and hangs indefinitely, leaving
+ * the app stuck on the "Opening your workspace…" loader forever.
+ *
+ * Clearing tables via Dexie's own connection avoids BOTH problems that
+ * plagued previous E2E reset strategies:
+ *   1. The old "open a 2nd raw indexedDB.open() connection and clear"
+ *      approach raced with Dexie's connection and corrupted it on
+ *      WebKit.
+ *   2. The "closeDb + deleteDatabase" approach left a pending delete
+ *      that blocked Dexie's reopen on WebKit.
+ *
+ * Clearing tables keeps the database schema intact (version 1) so the
+ * next page load's Dexie `open()` succeeds immediately on every
+ * browser. The data is gone (clean slate for the next test), which is
+ * exactly what the E2E reset needs.
+ *
+ * Exposed on `window.__pricepilotClearAllData` for the Playwright
+ * reset helper.
+ */
+export async function clearAllDataForE2E(): Promise<void> {
+  // Ensure the DB exists and is open.
+  const db = getDb();
+  // Clear every table in a single atomic transaction. Include
+  // metadata so migration state is reset too.
+  await db.transaction(
+    'rw',
+    [db.products, db.businessSettings, db.pricingRules, db.scenarios,
+     db.importBatches, db.importIssues, db.undoActions, db.backups,
+     db.metadata],
+    async () => {
+      await Promise.all([
+        db.products.clear(),
+        db.businessSettings.clear(),
+        db.pricingRules.clear(),
+        db.scenarios.clear(),
+        db.importBatches.clear(),
+        db.importIssues.clear(),
+        db.undoActions.clear(),
+        db.backups.clear(),
+        db.metadata.clear(),
+      ]);
+    },
+  );
+}
+
+// Expose the E2E helpers on window. These are no-ops on the server
+// (typeof window === 'undefined'). We attach them at module load time
+// so they are available as soon as the client bundle executes, even
+// before initialization completes.
 if (typeof window !== 'undefined') {
-  // Avoid overwriting if already set (e.g. hot reload).
-  if (!(window as unknown as { __pricepilotCloseDb?: unknown }).__pricepilotCloseDb) {
-    (window as unknown as { __pricepilotCloseDb: () => boolean }).__pricepilotCloseDb =
-      closeDbForReset;
+  const w = window as unknown as {
+    __pricepilotCloseDb?: () => boolean;
+    __pricepilotClearAllData?: () => Promise<void>;
+  };
+  if (!w.__pricepilotCloseDb) {
+    w.__pricepilotCloseDb = closeDbForReset;
+  }
+  if (!w.__pricepilotClearAllData) {
+    w.__pricepilotClearAllData = clearAllDataForE2E;
   }
 }
 

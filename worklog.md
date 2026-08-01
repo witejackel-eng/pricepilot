@@ -73,3 +73,24 @@ Stage Summary:
 - Pixel 7 mobile layout blockers resolved (horizontal overflow + clipped control).
 - Desktop chromium unaffected by the change (min-w-0 only allows shrinking; desktop layout already fit).
 - iPhone 14 (webkit) startup hang is handled by the Task ID 2 reset-helper fix (pending CI verification — cannot run webkit locally due to missing system libs).
+
+---
+Task ID: 5
+Agent: Main (firefox CSP + webkit delete robustness)
+Task: Fix Firefox father-workflow CSP-eval failure + harden WebKit deleteDatabase.
+
+Work Log:
+- Downloaded bcdc12a CI artifacts. Results: Chromium desktop 6/6 PASS (nav fix confirmed in CI). Firefox: hydration 5/5 PASS, father-workflow FAIL on CSP eval console errors. WebKit: ALL 6 FAIL (still stuck on loading screen — 25s safety net did not fire).
+- Firefox ROOT CAUSE: the CSP error-watcher filter checked for "Content Security Policy" (spaces) but Firefox logs "Content-Security-Policy" (hyphen). The Next.js/Turbopack chunk + exceljs bundle emit eval() calls that the strict CSP correctly blocks; Firefox logs the violation but the app still works. The filter missed Firefox's hyphenated form → the father-workflow "no console errors" assertion failed.
+- Firefox FIX: updated attachErrorWatchers to match both "Content-Security-Policy" and "Content Security Policy" forms (cross-browser consistent). CSP itself stays strict (no unsafe-eval added).
+- WebKit: the bcdc12a deleteDatabase approach (50ms delay, treat onblocked as done) did NOT fix the startup hang. Root cause hypothesis: 50ms was insufficient for WebKit to release the Dexie IDB connection after closeDb; deleteDatabase fired onblocked; the helper resolved and reloaded while the delete was still pending; the pending delete then blocked Dexie's reopen on the next page load → permanent loader hang (25s safety net never fired because... hydration may have been blocked by the pending-delete conflict).
+- WebKit FIX: increased the closeDb→delete delay to 250ms, and made deleteDatabase RETRY on onblocked (up to 5 times, 300ms apart) instead of treating blocked as done. This ensures the delete actually completes before reload, so Dexie's reopen on the next page load is not blocked.
+- Also added clearAllDataForE2E() utility in database.ts (exposed on window.__pricepilotClearAllData) as a documented alternative, though the helper currently uses deleteDatabase (verified working for chromium).
+- Verified locally on Chromium: father-workflow + hydration 6/6 PASS (46.6s). Typecheck, lint green.
+
+Stage Summary:
+- Firefox father-workflow CSP blocker resolved (filter now cross-browser).
+- WebKit delete robustness improved (retry-on-blocked + longer delay); pending CI verification.
+- Desktop Chromium: 6/6 PASS (verified locally + in CI).
+- Mobile Pixel 7: layout fixed (Task ID 4).
+- Next: push, observe CI full matrix. If WebKit still fails, investigate hydration angle (safety net not firing implies client JS may not be executing on WebKit).

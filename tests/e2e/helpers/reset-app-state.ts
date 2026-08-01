@@ -139,11 +139,15 @@ export async function resetPricePilotState(
       // ignore — closing is best-effort
     }
 
-    // 2. Give the close a microtask to settle (Dexie.close() is sync
-    //    but the underlying IDB connection release is async). A short
-    //    delay is the only reliable cross-browser way to ensure the
-    //    connection is fully released before deleteDatabase runs.
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    // 2. Give the close time to settle. Dexie.close() is synchronous
+    //    but the underlying IDB connection release is async. WebKit
+    //    in particular can take longer than Chromium/Firefox to
+    //    actually release the connection, and if we call
+    //    deleteDatabase before release it fires `onblocked` and the
+    //    delete stays pending — which then blocks Dexie's reopen on
+    //    the next page load (the permanent-loader hang). 250ms is a
+    //    conservative wait that reliably lets the connection release.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
 
     // 3. Collect candidate database names.
     const knownDbNames = ['pricepilot', 'pricepilot_v1', 'PricePilotDB'];
@@ -163,24 +167,41 @@ export async function resetPricePilotState(
     }
 
     // 4. Delete each database. With the Dexie connection closed, this
-    //    succeeds without `onblocked` on WebKit. We resolve on success,
-    //    error, OR blocked (treat blocked as "best effort done" so the
-    //    test doesn't hang — a blocked delete on a closed connection
-    //    would only happen if a stray connection survived, which the
-    //    reload will tear down anyway).
+    //    succeeds without `onblocked`. If `onblocked` DOES fire (a
+    //    stray connection survived), we RETRY after a delay instead
+    //    of giving up — because reloading while a delete is pending
+    //    is exactly what hangs WebKit's Dexie reopen on the next page
+    //    load. We retry up to 5 times; if it still blocks, we resolve
+    //    (the reload will tear the connection down) but this is the
+    //    last resort.
     const deleteDb = (name: string): Promise<void> =>
       new Promise<void>((resolve) => {
-        try {
-          const request = indexedDB.deleteDatabase(name);
-          request.onsuccess = () => resolve();
-          request.onerror = () => resolve();
-          request.onblocked = () => resolve();
-          // Safety net: if none of the above fires (shouldn't happen),
-          // resolve after 2s so the test never hangs here.
-          setTimeout(resolve, 2000);
-        } catch {
-          resolve();
-        }
+        let attempts = 0;
+        const MAX_ATTEMPTS = 5;
+        const tryDelete = () => {
+          attempts++;
+          try {
+            const request = indexedDB.deleteDatabase(name);
+            request.onsuccess = () => resolve();
+            request.onerror = () => resolve();
+            request.onblocked = () => {
+              if (attempts < MAX_ATTEMPTS) {
+                // A connection is still open. Wait and retry — the
+                // connection may release shortly.
+                setTimeout(tryDelete, 300);
+              } else {
+                // Exhausted retries. Resolve so the test doesn't
+                // hang here; the reload will tear down connections.
+                resolve();
+              }
+            };
+            // Safety net: if none of the above fires, resolve after 2s.
+            setTimeout(resolve, 2000);
+          } catch {
+            resolve();
+          }
+        };
+        tryDelete();
       });
 
     await Promise.all(dbNames.map((name) => deleteDb(name)));
@@ -431,12 +452,20 @@ export function attachErrorWatchers(page: Page): string[] {
       if (text.includes('fake-indexeddb')) return;
       // Ignore Next.js runtime eval() CSP violations.
       // These are caused by Next.js framework code using eval() in
-      // the production bundle. Our CSP correctly blocks them — the
-      // violation is informational. The app works correctly without
-      // eval() because the blocked code path is a fallback/feature
-      // detection that gracefully degrades.
+      // the production bundle (emitted by Turbopack). Our CSP
+      // correctly blocks them — the violation is informational. The
+      // app works correctly without eval() because the blocked code
+      // path is a fallback/feature detection that gracefully degrades.
       // Source: /_next/static/chunks/*.js
-      if (text.includes("Content Security Policy") && text.includes("eval") && text.includes("/_next/static/chunks/")) return;
+      //
+      // NOTE: Firefox logs "Content-Security-Policy" (hyphen) while
+      // Chromium/WebKit use "Content Security Policy" (spaces). Match
+      // both forms so the filter is cross-browser consistent.
+      const isNextJsEvalCsp =
+        (text.includes('Content-Security-Policy') || text.includes('Content Security Policy')) &&
+        text.includes('eval') &&
+        text.includes('/_next/static/chunks/');
+      if (isNextJsEvalCsp) return;
       errors.push(`[console.error] ${text}`);
     }
   });
@@ -452,9 +481,9 @@ export function attachErrorWatchers(page: Page): string[] {
   // Monitor CSP violations — but filter out known benign ones
   page.on('console', (msg) => {
     const text = msg.text();
-    if (text.includes('Content Security Policy') || text.includes('CSP')) {
+    if (text.includes('Content-Security-Policy') || text.includes('Content Security Policy') || text.includes('CSP')) {
       // Filter out Next.js runtime eval() violations
-      if (text.includes("eval") && text.includes("/_next/static/chunks/")) return;
+      if (text.includes('eval') && text.includes('/_next/static/chunks/')) return;
       errors.push(`[csp] ${text}`);
     }
   });
