@@ -113,3 +113,23 @@ Stage Summary:
 - WebKit hydration blocker (exceljs new Function at module load) removed from the hydration path.
 - Combined with Task ID 5 (robust deleteDatabase retry), this addresses both hypothesised WebKit root causes.
 - Pending CI verification of the full matrix (chromium, firefox, webkit, pixel 7, iphone 14, ipad).
+
+---
+Task ID: 7
+Agent: Main (webpack switch — WebKit hydration fix attempt)
+Task: Switch production build from Turbopack to webpack to resolve WebKit hydration failure.
+
+Work Log:
+- eeef74d CI results: Chromium 6/6 PASS, Firefox 6/6 PASS (wait-for-startup fixed Firefox father-workflow). WebKit ALL 6 STILL FAIL (~32s, stuck on loading screen).
+- VLM analysis of WebKit failure screenshot confirmed: the app shows the SSR loading screen ("Opening your workspace...") with NO spinner animating and NO client interactivity — hydration is not completing on WebKit.
+- Verified the production bundle has NO eval()/new Function() (precise regex). CSP allows 'unsafe-inline'. No nonces on inline scripts. So CSP is NOT blocking hydration.
+- Hypothesis: the Turbopack runtime chunk (turbopack-*.js, loaded on every page) may have a WebKit-specific incompatibility that prevents the module system from initializing, blocking hydration. The webpack build does NOT include this chunk.
+- Verified locally: `next build --webpack` succeeds, produces a clean build with NO turbopack runtime chunk, and Chromium E2E 6/6 PASS against the webpack build (47.9s). Typecheck, lint, 1064 unit tests all green.
+- Change: package.json `build` script switched from `next build` (Turbopack) to `next build --webpack`. The `start` script (`next start`) works with either build. Dev server unchanged (Turbopack, not used in CI).
+
+Stage Summary:
+- Chromium desktop: 6/6 PASS (confirmed in CI).
+- Firefox desktop: 6/6 PASS (confirmed in CI — wait-for-startup + CSP filter resolved father-workflow).
+- Mobile Pixel 7: 13/13 PASS (confirmed in CI — min-w-0 fix).
+- Mobile iPad: 13/13 PASS (confirmed in CI).
+- WebKit (desktop + iPhone 14): the ONLY remaining blocker. webpack switch is the experiment to resolve it. Pending CI verification.
