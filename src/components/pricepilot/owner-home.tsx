@@ -16,12 +16,12 @@
  *   - Expected Margin
  */
 
-import { useMemo } from 'react';
+import { useMemo, useEffect, useState, useRef } from 'react';
 import { usePricePilotStore } from '@/store/pricepilot-store';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
+
 import {
   FileUp,
   AlertTriangle,
@@ -39,6 +39,11 @@ import {
   TrendingDown,
   Package,
   AlertCircle,
+  Sparkles,
+  CircleDot,
+  ClipboardCheck,
+  Stamp,
+  CircleCheckBig,
 } from 'lucide-react';
 import { formatPercentage, formatCurrency } from '@/lib/pricepilot/formatting';
 import { toast } from 'sonner';
@@ -48,6 +53,7 @@ import { PriceChangeTimeline } from './price-change-timeline';
 import { TopProductsLeaderboard } from './top-products-leaderboard';
 import { RecentlyViewedProducts } from './recently-viewed-products';
 import { PricingHealthGauge } from './pricing-health-gauge';
+import { PriceInsightsPanel } from './price-insights-panel';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -101,7 +107,7 @@ export function OwnerHome() {
     setInitialFilterTab,
   } = usePricePilotStore();
 
-  const businessName = businessSettings.businessName || 'there';
+  const businessName = businessSettings.businessName || 'Partner';
 
   // ===== Review group counts (father-level terminology) =====
   const counts = useMemo(() => {
@@ -241,7 +247,11 @@ export function OwnerHome() {
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-4" data-testid="owner-home">
       {/* Header with gradient banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 dark:from-emerald-700 dark:via-emerald-600 dark:to-teal-600 p-6 shadow-lg shadow-emerald-500/20">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 dark:from-emerald-700 dark:via-emerald-600 dark:to-teal-600 p-6 shadow-lg shadow-emerald-500/20 gradient-border-animated">
+        {/* Subtle dot pattern overlay */}
+        <div className="absolute inset-0 greeting-pattern-overlay" />
+        {/* Shimmer overlay */}
+        <div className="absolute inset-0 greeting-shimmer" />
         {/* Decorative circles */}
         <div className="absolute top-0 right-0 -mt-8 -mr-8 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
         <div className="absolute bottom-0 left-0 -mb-8 -ml-8 h-24 w-24 rounded-full bg-white/10 blur-xl" />
@@ -249,18 +259,22 @@ export function OwnerHome() {
           <div className="flex items-center gap-2 text-emerald-100 text-xs font-medium uppercase tracking-wider">
             <span className="h-2 w-2 rounded-full bg-emerald-200 animate-pulse" />
             {getGreeting()}
+            <Sparkles className="h-3.5 w-3.5 text-emerald-200 sparkle-icon" />
           </div>
-          <h1 className="text-2xl font-bold text-white">
+          <h1 className="text-2xl font-bold text-white" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
             {businessName}
           </h1>
-          <p className="text-sm text-emerald-50/90">
-            What would you like to do today?
+          <p className="text-sm text-emerald-50/90 font-medium">
+            What would you like to do today? ✨
           </p>
         </div>
       </div>
 
       {/* v1.3: Pricing Health Gauge — shows overall catalog wellness */}
       <PricingHealthGauge />
+
+      {/* v1.4: Price Insights Panel — smart pricing insights */}
+      {products.length > 0 && <PriceInsightsPanel />}
 
       {/* v1.3: Recently Viewed Products — quick access to recently opened products */}
       <RecentlyViewedProducts />
@@ -320,7 +334,9 @@ export function OwnerHome() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Pricing Summary Dashboard Widget */}
         {products.length > 0 && (
-          <Card className="border-slate-200 dark:border-slate-800">
+          <Card className="border-slate-200 dark:border-slate-800 overflow-hidden">
+            {/* Gradient bar at top */}
+            <div className="gradient-top-bar" />
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-emerald-600" />
@@ -340,12 +356,12 @@ export function OwnerHome() {
                   </div>
                   <div className="text-xl font-bold text-slate-800 dark:text-slate-100">{pricingSummary.total}</div>
                 </div>
-                <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-slate-50/50 dark:bg-slate-800/50">
+                <div className="rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 p-3 bg-gradient-to-br from-emerald-50/60 to-teal-50/30 dark:from-emerald-950/30 dark:to-teal-950/20">
                   <div className="flex items-center gap-2 mb-1">
                     <TrendingUp className="h-4 w-4 text-emerald-500" />
-                    <span className="text-xs text-slate-500 dark:text-slate-400">Avg. Margin</span>
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Avg. Margin</span>
                   </div>
-                  <div className={`text-xl font-bold ${pricingSummary.avgMargin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600'}`}>
+                  <div className={`text-xl font-bold ${pricingSummary.avgMargin >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600'}`} style={{ textShadow: pricingSummary.avgMargin >= 0 ? '0 0 20px rgba(16,185,129,0.15)' : 'none' }}>
                     {formatPercentage(pricingSummary.avgMargin)}
                   </div>
                 </div>
@@ -361,10 +377,12 @@ export function OwnerHome() {
                     </span>
                     <span className="font-semibold text-emerald-700 dark:text-emerald-400">{pricingSummary.healthy}</span>
                   </div>
-                  <Progress
-                    value={pricingSummary.total > 0 ? (pricingSummary.healthy / pricingSummary.total) * 100 : 0}
-                    className="h-2 bg-slate-200 dark:bg-slate-700 [&>div]:bg-emerald-500"
-                  />
+                  <div className="relative h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="absolute inset-y-0 left-0 bg-emerald-500 rounded-full animate-progress-fill"
+                      style={{ width: `${pricingSummary.total > 0 ? (pricingSummary.healthy / pricingSummary.total) * 100 : 0}%` }}
+                    />
+                  </div>
                 </div>
                 <div>
                   <div className="flex items-center justify-between text-xs mb-1">
@@ -374,10 +392,12 @@ export function OwnerHome() {
                     </span>
                     <span className="font-semibold text-amber-700 dark:text-amber-400">{pricingSummary.needsReview}</span>
                   </div>
-                  <Progress
-                    value={pricingSummary.total > 0 ? (pricingSummary.needsReview / pricingSummary.total) * 100 : 0}
-                    className="h-2 bg-slate-200 dark:bg-slate-700 [&>div]:bg-amber-500"
-                  />
+                  <div className="relative h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="absolute inset-y-0 left-0 bg-amber-500 rounded-full animate-progress-fill"
+                      style={{ width: `${pricingSummary.total > 0 ? (pricingSummary.needsReview / pricingSummary.total) * 100 : 0}%`, animationDelay: '0.2s' }}
+                    />
+                  </div>
                 </div>
                 <div>
                   <div className="flex items-center justify-between text-xs mb-1">
@@ -387,10 +407,12 @@ export function OwnerHome() {
                     </span>
                     <span className="font-semibold text-red-700 dark:text-red-400">{pricingSummary.belowBreakEven}</span>
                   </div>
-                  <Progress
-                    value={pricingSummary.total > 0 ? (pricingSummary.belowBreakEven / pricingSummary.total) * 100 : 0}
-                    className="h-2 bg-slate-200 dark:bg-slate-700 [&>div]:bg-red-500"
-                  />
+                  <div className="relative h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="absolute inset-y-0 left-0 bg-red-500 rounded-full animate-progress-fill"
+                      style={{ width: `${pricingSummary.total > 0 ? (pricingSummary.belowBreakEven / pricingSummary.total) * 100 : 0}%`, animationDelay: '0.4s' }}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -427,10 +449,23 @@ export function OwnerHome() {
           </CardHeader>
           <CardContent>
             {recentActivity.length === 0 ? (
-              <div className="text-center py-6">
-                <Clock className="h-8 w-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-                <p className="text-sm text-slate-400 dark:text-slate-500">No recent activity yet</p>
-                <p className="text-xs text-slate-400 dark:text-slate-600 mt-1">Actions you take will appear here</p>
+              <div className="relative rounded-xl border border-dashed border-emerald-200 dark:border-emerald-800/50 bg-gradient-to-br from-emerald-50/50 via-white to-teal-50/30 dark:from-emerald-950/20 dark:via-slate-900 dark:to-teal-950/20 p-6 text-center overflow-hidden">
+                {/* Animated gradient border at top */}
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 animate-[gradient-border-shift_3s_ease-in-out_infinite]" style={{ backgroundSize: '200% 100%' }} />
+                {/* Animated illustration */}
+                <div className="activity-empty-bounce mb-3">
+                  <div className="relative mx-auto h-16 w-16">
+                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/40 dark:to-teal-900/40 rotate-6 opacity-60" />
+                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-emerald-200 to-teal-200 dark:from-emerald-800/50 dark:to-teal-800/50 -rotate-3 opacity-80" />
+                    <div className="relative h-16 w-16 rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/40 dark:to-teal-900/40 flex items-center justify-center shadow-sm">
+                      <Clock className="h-8 w-8 text-emerald-400 dark:text-emerald-500" />
+                    </div>
+                  </div>
+                </div>
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400">No recent activity yet</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5 max-w-[240px] mx-auto">
+                  Your pricing actions will appear here. Start by reviewing suggested prices!
+                </p>
               </div>
             ) : (
               <div className="space-y-1">
@@ -580,20 +615,68 @@ interface ReviewGroupTileProps {
   onClick: () => void;
 }
 
+// Tone-specific icon mapping for the "Products at a Glance" tiles
+const TONE_ICONS: Record<string, React.ElementType> = {
+  amber: CircleDot,
+  emerald: ClipboardCheck,
+  teal: Stamp,
+  slate: CircleCheckBig,
+};
+
 function ReviewGroupTile({ label, count, tone, onClick }: ReviewGroupTileProps) {
+  // Count-up animation using requestAnimationFrame
+  const [displayCount, setDisplayCount] = useState(0);
+  const animatingRef = useRef(false);
+
+  useEffect(() => {
+    if (animatingRef.current) return;
+    animatingRef.current = true;
+
+    const duration = 600;
+    const startTime = performance.now();
+
+    const animate = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const current = Math.round(count * eased);
+      setDisplayCount(current);
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        setDisplayCount(count);
+      }
+    };
+
+    requestAnimationFrame(animate);
+  }, [count]);
+
+  const Icon = TONE_ICONS[tone] || Package;
+
   const toneClasses = {
-    amber: 'bg-amber-50 border-amber-100 text-amber-700 dark:bg-amber-950/40 dark:border-amber-900 dark:text-amber-300',
-    emerald: 'bg-emerald-50 border-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300',
-    teal: 'bg-teal-50 border-teal-100 text-teal-700 dark:bg-teal-950/40 dark:border-teal-900 dark:text-teal-300',
-    slate: 'bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300',
+    amber: 'bg-gradient-to-br from-amber-50 to-amber-100/50 border-amber-200/80 text-amber-700 dark:from-amber-950/40 dark:to-amber-900/20 dark:border-amber-900 dark:text-amber-300 hover:shadow-amber-200/50 dark:hover:shadow-amber-900/30',
+    emerald: 'bg-gradient-to-br from-emerald-50 to-emerald-100/50 border-emerald-200/80 text-emerald-700 dark:from-emerald-950/40 dark:to-emerald-900/20 dark:border-emerald-900 dark:text-emerald-300 hover:shadow-emerald-200/50 dark:hover:shadow-emerald-900/30',
+    teal: 'bg-gradient-to-br from-teal-50 to-teal-100/50 border-teal-200/80 text-teal-700 dark:from-teal-950/40 dark:to-teal-900/20 dark:border-teal-900 dark:text-teal-300 hover:shadow-teal-200/50 dark:hover:shadow-teal-900/30',
+    slate: 'bg-gradient-to-br from-slate-50 to-slate-100/50 border-slate-200/80 text-slate-700 dark:from-slate-900 dark:to-slate-800/50 dark:border-slate-800 dark:text-slate-300 hover:shadow-slate-200/50 dark:hover:shadow-slate-800/30',
+  }[tone];
+
+  const iconColorClasses = {
+    amber: 'text-amber-500 dark:text-amber-400',
+    emerald: 'text-emerald-500 dark:text-emerald-400',
+    teal: 'text-teal-500 dark:text-teal-400',
+    slate: 'text-slate-400 dark:text-slate-500',
   }[tone];
 
   return (
     <button
       onClick={onClick}
-      className={`text-left rounded-lg border p-3 transition-all hover:shadow-sm ${toneClasses}`}
+      className={`text-left rounded-lg border p-3 transition-all duration-200 status-card-hover hover:shadow-md ${toneClasses}`}
     >
-      <div className="text-2xl font-semibold leading-tight">{count}</div>
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-2xl font-semibold leading-tight animate-count-up">{displayCount}</div>
+        <Icon className={`h-4 w-4 ${iconColorClasses}`} />
+      </div>
       <div className="text-xs mt-1 opacity-90">{label}</div>
     </button>
   );

@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import { usePricePilotStore } from '@/store/pricepilot-store';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -215,6 +215,7 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
             <Plus className="h-5 w-5 text-emerald-600" />
             Add New Product
           </DialogTitle>
+          <DialogDescription className="sr-only">Add a new product to your pricing catalog.</DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">

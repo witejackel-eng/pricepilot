@@ -637,3 +637,149 @@ input[type="number"] {
 .dot-pulse-critical {
   animation: dot-pulse-critical 2s ease-in-out infinite;
 }
+
+/* ============================================================
+   v1.4 Styling Enhancements — Price Insights Panel
+   ============================================================ */
+
+/* Insight card staggered slide-in */
+@keyframes insight-card-slide {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-insight-card-slide {
+  animation: insight-card-slide 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Insight expand animation for detail view */
+@keyframes insight-expand {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    max-height: 16rem;
+    transform: translateY(0);
+  }
+}
+.animate-insight-expand {
+  animation: insight-expand 0.3s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* ============================================================
+   v1.4 Owner Home & Dashboard Styling Enhancements
+   ============================================================ */
+
+/* Greeting shimmer effect — subtle light sweep across the banner */
+@keyframes greeting-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.greeting-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 40%,
+    rgba(255, 255, 255, 0.15) 50%,
+    rgba(255, 255, 255, 0.08) 60%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: greeting-shimmer 4s ease-in-out infinite;
+}
+
+/* Count-up animation for numbers */
+@keyframes count-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-count-up {
+  animation: count-up 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Animated gradient border */
+@keyframes gradient-border-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.gradient-border-animated {
+  position: relative;
+}
+.gradient-border-animated::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    #10b981,
+    #14b8a6,
+    #06b6d4,
+    #14b8a6,
+    #10b981
+  );
+  background-size: 200% 100%;
+  animation: gradient-border-shift 3s ease-in-out infinite;
+  border-radius: 0 0 0.75rem 0.75rem;
+}
+
+/* Status card hover lift and glow */
+.status-card-hover {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.status-card-hover:hover {
+  transform: translateY(-3px);
+}
+
+/* Activity empty state bounce */
+@keyframes activity-empty-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.activity-empty-bounce {
+  animation: activity-empty-bounce 2.5s ease-in-out infinite;
+}
+
+/* Animated progress bar fill */
+@keyframes progress-fill {
+  from { width: 0%; }
+}
+.animate-progress-fill {
+  animation: progress-fill 1s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Subtle dot pattern overlay for greeting banner */
+.greeting-pattern-overlay {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+/* Sparkle animation for greeting icon */
+@keyframes sparkle-rotate {
+  0% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(15deg) scale(1.1); }
+  50% { transform: rotate(0deg) scale(1); }
+  75% { transform: rotate(-15deg) scale(1.1); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+.sparkle-icon {
+  animation: sparkle-rotate 3s ease-in-out infinite;
+}
+
+/* Gradient bar at top of card */
+.gradient-top-bar {
+  height: 4px;
+  background: linear-gradient(90deg, #10b981, #14b8a6, #06b6d4);
+  border-radius: 0.75rem 0.75rem 0 0;
+}

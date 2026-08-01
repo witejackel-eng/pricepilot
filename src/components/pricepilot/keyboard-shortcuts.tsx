@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Keyboard } from 'lucide-react';
 
@@ -128,6 +128,7 @@ export function KeyboardShortcuts({
             <Keyboard className="h-5 w-5 text-emerald-600" />
             Keyboard Shortcuts
           </DialogTitle>
+          <DialogDescription className="sr-only">View available keyboard shortcuts for PricePilot.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 mt-2">
           {categories.map(cat => (
