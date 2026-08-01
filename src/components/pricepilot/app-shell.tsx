@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Undo2,
   HelpCircle,
+  Search,
 } from 'lucide-react';
 import { SUPPORTED_CURRENCIES } from '@/lib/pricepilot/types';
 import { DashboardPage } from './dashboard-page';
@@ -43,18 +44,28 @@ import { ScenariosPage } from './scenarios-page';
 import { ExportPage } from './export-page';
 import { SettingsPage } from './settings-page';
 import { AddProductDialog } from './add-product-dialog';
-import { KeyboardShortcuts } from './keyboard-shortcuts';
+import { KeyboardShortcuts, FloatingHelpButton } from './keyboard-shortcuts';
 import { HelpPanel } from './help-panel';
-import { GuidedTour } from './guided-tour';
+import { GuidedTour, TourInvitation } from './guided-tour';
+import { CommandPalette } from './command-palette';
 import { toast } from 'sonner';
 
-// Owner mode navigation items
+// Owner mode navigation items.
+//
+// Phase 5 (navigation predictability): Settings is a primary view and
+// MUST have a stable, always-visible navigation target. Previously it
+// was nested inside the collapsible "Advanced Tools" section, which
+// made it unreachable for keyboard users, screen readers and E2E
+// navigation when the collapsible failed to expand reliably across
+// browsers. It is now a top-level item so every primary view is
+// reachable without expanding anything.
 const OWNER_NAV_ITEMS: { view: AppView; label: string; icon: React.ElementType }[] = [
   { view: 'owner-home', label: 'Home', icon: Home },
   { view: 'products', label: 'Products', icon: Package },
   { view: 'import', label: 'Import Price List', icon: FileUp },
   { view: 'review-prices', label: 'Review Prices', icon: ClipboardCheck },
   { view: 'export', label: 'Download Excel', icon: Download },
+  { view: 'settings', label: 'Settings', icon: Settings },
 ];
 
 // Advanced mode navigation items
@@ -69,12 +80,14 @@ const ADVANCED_NAV_ITEMS: { view: AppView; label: string; icon: React.ElementTyp
   { view: 'settings', label: 'Settings', icon: Settings },
 ];
 
-// Advanced tools section for owner mode
+// Advanced tools section for owner mode. These are genuinely "advanced"
+// power-user tools that benefit from being grouped behind a collapsible
+// to keep the primary navigation simple for the nontechnical owner.
+// Settings is intentionally NOT in this list — see OWNER_NAV_ITEMS.
 const ADVANCED_TOOLS_ITEMS: { view: AppView; label: string; icon: React.ElementType }[] = [
   { view: 'pricing-rules', label: 'Pricing Rules', icon: Scale },
   { view: 'price-simulator', label: 'Price Simulator', icon: Calculator },
   { view: 'scenarios', label: 'Saved Scenarios', icon: Bookmark },
-  { view: 'settings', label: 'Advanced Settings', icon: Settings },
 ];
 
 const VIEW_LABELS: Record<AppView, string> = {
@@ -139,6 +152,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
               key={item.view}
               variant="ghost"
               title={item.label}
+              data-testid={`nav-${item.view}`}
               className={`w-full justify-start gap-3 rounded-lg transition-all duration-200 ${
                 isActive
                   ? 'bg-emerald-600/40 text-white font-medium shadow-lg shadow-emerald-900/30 border-l-2 border-emerald-500'
@@ -167,7 +181,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
         {applicationMode === 'owner' && (
           <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
             <CollapsibleTrigger asChild>
-              <Button variant="ghost" className="w-full justify-start gap-2 text-emerald-300/60 hover:text-emerald-200 text-xs rounded-lg mt-2">
+              <Button variant="ghost" data-testid="nav-advanced-tools" className="w-full justify-start gap-2 text-emerald-300/60 hover:text-emerald-200 text-xs rounded-lg mt-2">
                 {advancedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                 Advanced Tools
               </Button>
@@ -181,6 +195,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
                     key={item.view}
                     variant="ghost"
                     title={item.label}
+                    data-testid={`nav-${item.view}`}
                     className={`w-full justify-start gap-3 rounded-lg transition-all duration-200 text-xs ${
                       isActive
                         ? 'bg-emerald-600/30 text-white font-medium'
@@ -272,6 +287,19 @@ export function AppShell() {
   }, [appSettings.theme]);
 
   const [addProductOpen, setAddProductOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  // Cmd+K / Ctrl+K to open command palette
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
 
   const renderView = () => {
     switch (currentView) {
@@ -330,9 +358,16 @@ export function AppShell() {
   const isOwnerMode = applicationMode === 'owner';
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen flex flex-col bg-background" data-testid="app-initialization-ready">
       {/* Add Product Dialog */}
       <AddProductDialog open={addProductOpen} onOpenChange={setAddProductOpen} />
+
+      {/* Command Palette (Cmd+K) */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        onAddProduct={() => setAddProductOpen(true)}
+      />
 
       {/* Keyboard Shortcuts */}
       <KeyboardShortcuts
@@ -340,44 +375,43 @@ export function AppShell() {
         onAddProduct={() => setAddProductOpen(true)}
         onSaveScenario={handleSaveScenario}
         onRecalculate={handleRecalculate}
+        onSearch={() => setCurrentView('products')}
       />
 
       {/* Help Panel */}
       <HelpPanel open={helpPanelOpen} onOpenChange={setHelpPanelOpen} />
 
-      {/* Guided Tour (auto-shows on first visit after onboarding) */}
+      {/* Non-blocking tour invitation */}
+      <TourInvitation />
+      {/* Guided Tour modal (only shown when explicitly started) */}
       <GuidedTour />
 
       {/* Desktop layout */}
-      <div className="flex flex-1">
+      {/* min-w-0: allow this row to shrink below its content's
+          min-width so wide page content (tables, grids) is contained
+          by main's overflow-auto instead of overflowing the viewport. */}
+      <div className="flex flex-1 min-w-0">
         {/* Desktop sidebar */}
         <aside className="hidden lg:block w-64 border-r bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700 h-screen sticky top-0 shadow-lg">
           <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} applicationMode={applicationMode} />
         </aside>
 
         {/* Floating Help button — bottom-right, always visible */}
-        <button
-          onClick={() => setHelpPanelOpen(true)}
-          aria-label="Open help panel"
-          title="Help (? to open)"
-          className="floating-help-button lg:hidden h-12 w-12 rounded-full bg-gradient-to-br from-emerald-600 to-emerald-500 text-white shadow-lg shadow-emerald-500/30 flex items-center justify-center hover:from-emerald-700 hover:to-emerald-600"
-        >
-          <HelpCircle className="h-5 w-5" />
-        </button>
+        <FloatingHelpButton onClick={() => setHelpPanelOpen(true)} />
 
         {/* Main area */}
-        <div className="flex-1 flex flex-col min-h-screen">
+        <div className="flex-1 min-w-0 flex flex-col min-h-screen">
           {/* Header */}
           <header className="sticky top-0 z-30 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 shadow-sm px-4 py-2 flex items-center justify-between gap-4 border-b border-slate-200/60 dark:border-slate-800/60">
             <div className="flex items-center gap-3">
               {/* Mobile menu */}
               <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" className="lg:hidden">
+                  <Button variant="ghost" size="icon" className="lg:hidden min-h-[44px] min-w-[44px]" data-testid="mobile-navigation-trigger">
                     <Menu className="h-5 w-5" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="left" className="w-72 p-0 bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700">
+                <SheetContent side="left" className="w-72 p-0 bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-700" data-testid="mobile-navigation-drawer">
                   <SheetTitle className="px-4 pt-4 pb-2 text-sm font-semibold text-emerald-200">Navigation</SheetTitle>
                   <SidebarContent currentView={currentView} setCurrentView={setCurrentView} businessSettings={businessSettings} resetApplication={resetApplication} lossMakingCount={lossMakingCount} inactiveRulesCount={inactiveRulesCount} onNavClick={() => setMobileOpen(false)} applicationMode={applicationMode} />
                 </SheetContent>
@@ -389,6 +423,19 @@ export function AppShell() {
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Command Palette trigger button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCommandPaletteOpen(true)}
+                className="hidden md:flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors duration-200"
+                title="Open Command Palette (Ctrl+K)"
+              >
+                <Search className="h-3.5 w-3.5" />
+                <span>Search...</span>
+                <kbd className="ml-1 px-1.5 py-0.5 text-[10px] font-mono bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded">⌘K</kbd>
+              </Button>
+
               {/* Undo button in header */}
               {undoHistory.length > 0 && (
                 <Button variant="outline" size="sm" onClick={handleUndo} className="hidden sm:flex transition-colors duration-200 text-xs">
@@ -403,7 +450,7 @@ export function AppShell() {
                   <Button variant="outline" size="sm" onClick={() => setCurrentView('export')} className="hidden sm:flex transition-colors duration-200">
                     <Download className="h-4 w-4 mr-1" /> Download
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setHelpPanelOpen(true)} className="transition-colors duration-200">
+                  <Button variant="ghost" size="sm" onClick={() => setHelpPanelOpen(true)} className="transition-colors duration-200 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0">
                     <HelpCircle className="h-4 w-4" />
                   </Button>
                 </>
@@ -418,7 +465,7 @@ export function AppShell() {
                 </>
               )}
               <Select value={businessSettings.currencyCode} onValueChange={v => updateBusinessSettings({ currencyCode: v })}>
-                <SelectTrigger className="w-[80px] h-8 text-xs shadow-sm rounded-lg">
+                <SelectTrigger className="w-[80px] h-8 text-xs shadow-sm rounded-lg min-h-[44px] sm:min-h-8">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -431,7 +478,10 @@ export function AppShell() {
           </header>
 
           {/* Content */}
-          <main className="flex-1 p-6 lg:p-8 overflow-auto bg-slate-50/30 dark:bg-slate-900/30 relative">
+          {/* min-w-0 + overflow-auto: wide page content (e.g. product
+              tables) scrolls inside main instead of pushing the layout
+              wider than the viewport (fixes mobile horizontal overflow). */}
+          <main className="flex-1 min-h-0 min-w-0 p-6 lg:p-8 overflow-auto bg-slate-50/30 dark:bg-slate-900/30 relative">
             <div key={currentView} className="animate-fade-in">
               {renderView()}
             </div>

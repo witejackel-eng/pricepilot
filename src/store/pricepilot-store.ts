@@ -1,6 +1,14 @@
 /**
  * PricePilot - Zustand Store
  * Central state management for the entire application.
+ *
+ * Phase 1 of production-readiness: IndexedDB is the SINGLE source of
+ * truth for primary data. localStorage is used only for UI preferences
+ * via `src/lib/pricepilot/app-settings.ts`.
+ *
+ * Mutations are async and write to IndexedDB. UI state updates only
+ * after the IndexedDB write succeeds. If the write fails, the prior
+ * state is preserved and an error is surfaced.
  */
 
 import { create } from 'zustand';
@@ -18,30 +26,8 @@ import {
   createDefaultBusinessSettings,
   createDefaultAppSettings,
   createDefaultImportState,
-  createDefaultPricingRule,
-  createDefaultProduct,
+  ImportCommitResult,
 } from '@/lib/pricepilot/types';
-import {
-  initializeStorage,
-  saveBusinessSettings,
-  saveProducts,
-  savePricingRules,
-  saveScenarios,
-  saveAppSettings,
-  saveOnboardingCompleted,
-  clearProducts as clearProductsStorage,
-  resetAll as resetAllStorage,
-  saveProduct,
-  removeProduct as removeProductStorage,
-  savePricingRule,
-  removePricingRule as removePricingRuleStorage,
-  saveScenario,
-  removeScenario as removeScenarioStorage,
-  exportAllData,
-  importAllData,
-  getLastSavedTimestamp,
-  loadAppSettings,
-} from '@/lib/pricepilot/storage';
 import { calculateAllRecommendations, mapRecommendationsToProduct } from '@/lib/pricepilot/recommendations';
 import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
 import { SAMPLE_PRODUCTS, SAMPLE_PRICING_RULES } from '@/lib/pricepilot/sample-data';
@@ -62,6 +48,8 @@ import {
   loadPricingRulesFromDb,
   loadScenariosFromDb,
   saveProductsToDb,
+  saveProductToDb,
+  removeProductFromDb,
   saveBusinessSettingsToDb,
   savePricingRulesToDb,
   saveScenariosToDb,
@@ -73,27 +61,134 @@ import {
   atomicImportProducts,
   atomicResetAll,
   atomicRestoreBackup,
+  atomicBulkUpdateProducts,
+  atomicBulkDeleteProducts,
+  atomicApplyApprovedPrices,
+  atomicUpdateSettingsAndProducts,
+  atomicUpdateRulesAndProducts,
+  atomicRestoreScenario,
+  clearProductsInDb,
+  exportAllDataFromDb,
+  getDb,
   getMetadata,
   setMetadata,
 } from '@/lib/pricepilot/database';
+import {
+  loadAppSettings,
+  saveAppSettings,
+  clearAppSettings,
+  migrateLegacyAppSettingsIfNeeded,
+} from '@/lib/pricepilot/app-settings';
 import {
   migrateLegacyDataIfNeeded,
   hasLegacyLocalStorageData,
   MigrationResult,
 } from '@/lib/pricepilot/migration';
+import {
+  OperationResult,
+  ERROR_CODES,
+  ok,
+  retryableError,
+  invalidInputError,
+} from '@/lib/pricepilot/operation-result';
+import {
+  buildBackup,
+  serializeBackup,
+  downloadBackupFile,
+  downloadRecoveryPayload,
+  PricePilotBackup,
+  parseValidateAndVerifyBackup,
+  buildRestorePreview,
+  asyncBuildRestorePreview,
+  RestorePreview,
+} from '@/lib/pricepilot/backup-service';
+import {
+  invalidateApproval,
+  invalidateIfStale,
+  invalidateApprovalsForSettingsChange,
+  invalidateApprovalsForRulesChange,
+  shouldInvalidateApproval,
+} from '@/lib/pricepilot/approval-invalidation';
 
 /**
  * Helper: Calculate product using the new recommendations engine.
  * Replaces the old calculateProduct() from calculations.ts.
  *
  * NOTE: This thin wrapper still calls the engine directly. For any path
- * that processes UNTRUSTED input (localStorage, imports, backups), use
+ * that processes UNTRUSTED input (imports, backups), use
  * `safelyRecalculateProduct` instead so a single malformed product
  * cannot crash the whole batch.
  */
 function recalcProduct(product: Product, settings: BusinessSettings, rules: PricingRule[]): Product {
   const result = safelyRecalculateProduct(product, settings, rules);
   return result.product;
+}
+
+/** Metadata key under which the last-successful-save timestamp is stored. */
+const METADATA_KEY_LAST_SAVED = 'lastSavedTimestamp';
+
+// ============================================================
+// Initialization Singleton Guard
+// ============================================================
+//
+// WebKit and iPhone 14 hang when concurrent initialize() calls run
+// (React Strict Mode fires useEffect twice in dev, and hot-reload
+// or E2E state reset can trigger re-initialization while a previous
+// run is still in flight). The guard ensures at most one
+// initialization Promise runs at a time. After completion (success
+// or failure), the promise is cleared so retry works.
+//
+// For E2E: `resetInitializationGuard()` MUST be called after
+// clearing IndexedDB so the next page load can start fresh.
+
+let initializationPromise: Promise<void> | null = null;
+
+// Generation counter for stale-attempt protection. Each new
+// initialization attempt increments this counter. If a previous
+// attempt is still running when a new one starts (timeout → retry),
+// the stale attempt checks the generation before updating state
+// and silently exits if it no longer matches.
+let initializationGeneration = 0;
+
+/**
+ * Reset the initialization guard. Called by E2E helpers after
+ * clearing browser state so the next page load can initialize
+ * from a clean slate.
+ */
+export function resetInitializationGuard(): void {
+  initializationPromise = null;
+  initializationGeneration++;
+}
+
+/**
+ * Get the current initialization generation number (for testing only).
+ * This allows tests to verify that generation-based invalidation works
+ * correctly without relying on private module state.
+ */
+export function getInitializationGeneration(): number {
+  return initializationGeneration;
+}
+
+/**
+ * Read the last-saved timestamp from IndexedDB metadata. Returns null
+ * if missing. Synchronous callers should use the cached `lastSaved`
+ * field on the store; this helper is only for initialization.
+ */
+async function loadLastSavedTimestampFromDb(): Promise<string | null> {
+  try {
+    return await getMetadata<string>(METADATA_KEY_LAST_SAVED);
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the last-saved timestamp to IndexedDB metadata. Best-effort. */
+async function saveLastSavedTimestampToDb(timestamp: string): Promise<void> {
+  try {
+    await setMetadata(METADATA_KEY_LAST_SAVED, timestamp);
+  } catch (err) {
+    console.warn('[PricePilot] Could not persist lastSaved timestamp.', err);
+  }
 }
 
 // Navigation views
@@ -137,7 +232,7 @@ interface PricePilotState {
   appSettings: AppSettings;
   onboardingCompleted: boolean;
 
-  // Initialization lifecycle (Phase 4)
+  // Initialization lifecycle
   initialization: AppInitializationSummary;
   retryInitialize: () => void;
   startEmptyWorkspace: () => void;
@@ -160,6 +255,7 @@ interface PricePilotState {
   undoHistory: UndoAction[];
   autoBackups: AutoBackup[];
   helpPanelOpen: boolean;
+  guidedTourOpen: boolean;
 
   // Actions
   initialize: () => void;
@@ -169,49 +265,56 @@ interface PricePilotState {
   setSelectedProducts: (ids: string[]) => void;
   setInitialFilterTab: (tab: string | null) => void;
   setHelpPanelOpen: (open: boolean) => void;
+  setGuidedTourOpen: (open: boolean) => void;
+  startGuidedTour: () => void;
 
   // Business settings
-  updateBusinessSettings: (settings: Partial<BusinessSettings>) => void;
-  completeOnboarding: (settings: Partial<BusinessSettings>) => void;
+  updateBusinessSettings: (settings: Partial<BusinessSettings>) => Promise<OperationResult>;
+  completeOnboarding: (settings: Partial<BusinessSettings>) => Promise<OperationResult>;
 
   // Products
-  addProduct: (product: Product) => void;
-  updateProduct: (id: string, updates: Partial<Product>) => void;
-  deleteProduct: (id: string) => void;
-  deleteSelectedProducts: () => void;
-  bulkUpdateProducts: (ids: string[], updates: Partial<Product>) => void;
-  approveSelectedProducts: () => void;
-  markSelectedForReview: () => void;
-  loadSampleData: () => void;
-  loadDemoSampleData: () => void;
-  removeDemoSampleData: () => void;
-  clearAllProducts: () => void;
-  recalculateProducts: () => void;
+  addProduct: (product: Product) => Promise<OperationResult>;
+  updateProduct: (id: string, updates: Partial<Product>) => Promise<OperationResult>;
+  deleteProduct: (id: string) => Promise<OperationResult>;
+  deleteSelectedProducts: () => Promise<OperationResult>;
+  bulkUpdateProducts: (ids: string[], updates: Partial<Product>) => Promise<OperationResult>;
+  approveSelectedProducts: () => Promise<OperationResult>;
+  markSelectedForReview: () => Promise<OperationResult>;
+  loadSampleData: () => Promise<OperationResult>;
+  loadDemoSampleData: () => Promise<OperationResult>;
+  removeDemoSampleData: () => Promise<OperationResult>;
+  clearAllProducts: () => Promise<OperationResult>;
+  recalculateProducts: () => Promise<OperationResult>;
 
-  // Phase 6 - Product workflow
-  duplicateProduct: (productId: string) => void;
-  approveProductPrice: (productId: string, recommendationMode: RecommendationMode) => void;
-  applyApprovedPrice: (productId: string) => void;
-  bulkSetField: (productIds: string[], field: string, value: unknown) => void;
-  bulkApprovePrices: (productIds: string[]) => void;
-  archiveProducts: (productIds: string[]) => void;
+  // Product workflow
+  duplicateProduct: (productId: string) => Promise<OperationResult>;
+  approveProductPrice: (productId: string, recommendationMode: RecommendationMode) => Promise<OperationResult>;
+  applyApprovedPrice: (productId: string) => Promise<OperationResult>;
+  bulkSetField: (productIds: string[], field: string, value: unknown) => Promise<OperationResult>;
+  bulkApprovePrices: (productIds: string[]) => Promise<OperationResult>;
+  archiveProducts: (productIds: string[]) => Promise<OperationResult>;
 
   // Import
   updateImportState: (updates: Partial<ImportState>) => void;
-  importProducts: (products: Product[]) => void;
+  importProducts: (products: Product[]) => Promise<OperationResult>;
+  importProductsWithBatch: (
+    productsToAdd: Product[],
+    productsToUpdate: Product[],
+    batchMetadata: { fileName: string; sheetName?: string; totalRows: number }
+  ) => Promise<OperationResult & { commitResult?: ImportCommitResult }>;
   resetImportState: () => void;
 
   // Pricing rules
-  addPricingRule: (rule: PricingRule) => void;
-  updatePricingRule: (id: string, updates: Partial<PricingRule>) => void;
-  deletePricingRule: (id: string) => void;
-  duplicatePricingRule: (id: string) => void;
+  addPricingRule: (rule: PricingRule) => Promise<OperationResult>;
+  updatePricingRule: (id: string, updates: Partial<PricingRule>) => Promise<OperationResult>;
+  deletePricingRule: (id: string) => Promise<OperationResult>;
+  duplicatePricingRule: (id: string) => Promise<OperationResult>;
 
   // Scenarios
-  addScenario: (scenario: Scenario) => void;
-  updateScenario: (id: string, updates: Partial<Scenario>) => void;
-  deleteScenario: (id: string) => void;
-  restoreScenario: (id: string) => void;
+  addScenario: (scenario: Scenario) => Promise<OperationResult>;
+  updateScenario: (id: string, updates: Partial<Scenario>) => Promise<OperationResult>;
+  deleteScenario: (id: string) => Promise<OperationResult>;
+  restoreScenario: (id: string) => Promise<OperationResult>;
 
   // Settings
   updateAppSettings: (settings: Partial<AppSettings>) => void;
@@ -227,7 +330,8 @@ interface PricePilotState {
   // Backup
   createAutoBackup: (trigger: AutoBackup['trigger'], description: string) => Promise<void>;
   downloadBackup: () => void;
-  restoreBackup: (dataString: string) => Promise<boolean>;
+  restoreBackup: (dataString: string) => Promise<OperationResult>;
+  previewBackupRestore: (dataString: string) => Promise<RestorePreview>;
   getBackupList: () => AutoBackup[];
 
   // Data management
@@ -238,25 +342,237 @@ interface PricePilotState {
 
 const MAX_UNDO_HISTORY = 20;
 const MAX_AUTO_BACKUPS = 10;
-const AUTO_BACKUP_KEY = 'pricepilot_auto_backups';
 
-function loadAutoBackups(): AutoBackup[] {
+/**
+ * Persist a SINGLE product to IndexedDB and update the lastSaved
+ * timestamp. Throws on failure so callers can decide whether to
+ * update Zustand state.
+ */
+async function persistProduct(product: Product): Promise<void> {
   try {
-    const raw = localStorage.getItem(AUTO_BACKUP_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as AutoBackup[];
-  } catch {
-    return [];
+    await saveProductToDb(product);
+    const ts = new Date().toISOString();
+    await saveLastSavedTimestampToDb(ts);
+  } catch (err) {
+    console.error('[PricePilot] Could not persist product to IndexedDB.', err);
+    throw err;
   }
 }
 
-function saveAutoBackups(backups: AutoBackup[]): void {
+/**
+ * Persist a list of products to IndexedDB using a FULL TABLE rewrite
+ * and update the lastSaved timestamp. Throws on failure so callers
+ * can decide whether to update Zustand state.
+ *
+ * RESERVED for operations that genuinely replace the full catalogue
+ * (initialisation, sample data, full recalculation, etc.). Single-product
+ * mutations should use `persistProduct` or `removeProductFromDb` instead.
+ */
+async function persistProducts(products: Product[]): Promise<void> {
   try {
-    localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify(backups.slice(0, MAX_AUTO_BACKUPS)));
-  } catch {
-    // If storage is full, remove oldest backups
-    const trimmed = backups.slice(0, MAX_AUTO_BACKUPS - 2);
-    localStorage.setItem(AUTO_BACKUP_KEY, JSON.stringify(trimmed));
+    await saveProductsToDb(products);
+    const ts = new Date().toISOString();
+    await saveLastSavedTimestampToDb(ts);
+  } catch (err) {
+    console.error('[PricePilot] Could not persist products to IndexedDB.', err);
+    throw err;
+  }
+}
+
+async function persistBusinessSettings(settings: BusinessSettings): Promise<void> {
+  try {
+    await saveBusinessSettingsToDb(settings);
+    const ts = new Date().toISOString();
+    await saveLastSavedTimestampToDb(ts);
+  } catch (err) {
+    console.error('[PricePilot] Could not persist business settings to IndexedDB.', err);
+    throw err;
+  }
+}
+
+async function persistPricingRules(rules: PricingRule[]): Promise<void> {
+  try {
+    await savePricingRulesToDb(rules);
+    const ts = new Date().toISOString();
+    await saveLastSavedTimestampToDb(ts);
+  } catch (err) {
+    console.error('[PricePilot] Could not persist pricing rules to IndexedDB.', err);
+    throw err;
+  }
+}
+
+async function persistScenarios(scenarios: Scenario[]): Promise<void> {
+  try {
+    await saveScenariosToDb(scenarios);
+    const ts = new Date().toISOString();
+    await saveLastSavedTimestampToDb(ts);
+  } catch (err) {
+    console.error('[PricePilot] Could not persist scenarios to IndexedDB.', err);
+    throw err;
+  }
+}
+
+// ============================================================
+// Initialization Implementation
+// ============================================================
+
+/**
+ * Perform the actual initialization sequence.
+ *
+ * This function MUST only be called through the singleton guard
+ * (`initialize()` on the store) so that at most one initialization
+ * runs at a time. WebKit and iPhone 14 hang when concurrent
+ * IndexedDB operations race.
+ *
+ * The function uses `usePricePilotStore.setState` directly (not the
+ * `set` callback) because it is defined outside the Zustand create()
+ * closure. This is equivalent and avoids capturing stale closures.
+ *
+ * @param generation - The initialization generation counter at the time
+ *   this attempt started. If the counter has advanced by the time this
+ *   attempt reaches a state-changing operation, it silently exits
+ *   instead of updating the store, preventing stale writes.
+ */
+async function performInitialization(generation: number): Promise<void> {
+  const { setState: set, getState: get } = usePricePilotStore;
+
+  // Helper: check if this attempt is still the current generation.
+  // Returns true if this attempt has been invalidated by a newer one.
+  const isStale = () => generation !== initializationGeneration;
+
+  // Mark as loading FIRST so the UI can render the "Opening your
+  // PricePilot workspace…" screen instead of briefly flashing
+  // onboarding.
+  set({ initialization: makeLoadingSummary() });
+
+  try {
+    // Migrate UI preferences from the legacy localStorage key if needed.
+    migrateLegacyAppSettingsIfNeeded();
+
+    // Run the localStorage → IndexedDB migration first. Idempotent
+    // and atomic — if it fails, the original localStorage data is
+    // untouched.
+    let migrationResult: MigrationResult | null = null;
+    try {
+      migrationResult = await migrateLegacyDataIfNeeded();
+      if (migrationResult.status === 'failed') {
+        console.warn('[PricePilot] localStorage migration failed.', migrationResult.message);
+      } else if (migrationResult.status === 'complete' && migrationResult.hadLegacyData) {
+        console.info('[PricePilot] localStorage migration completed.', migrationResult.message);
+      }
+    } catch (migrationErr) {
+      console.error('[PricePilot] Migration threw unexpectedly.', migrationErr);
+    }
+
+    // Stale check after async migration.
+    if (isStale()) {
+      console.info('[PricePilot] Initialization attempt is stale after migration, exiting.');
+      return;
+    }
+
+    // Load primary data from IndexedDB.
+    let products: Product[] = [];
+    let businessSettings: BusinessSettings | null = null;
+    let pricingRules: PricingRule[] = [];
+    let scenarios: Scenario[] = [];
+    let undoHistory: UndoAction[] = [];
+    let backups: AutoBackup[] = [];
+    let lastSaved: string | null = null;
+
+    try {
+      products = await loadAllProducts();
+      businessSettings = await loadBusinessSettingsFromDb();
+      pricingRules = await loadPricingRulesFromDb();
+      scenarios = await loadScenariosFromDb();
+      undoHistory = await loadUndoHistoryFromDb();
+      backups = await loadBackupsFromDb();
+      lastSaved = await loadLastSavedTimestampFromDb();
+    } catch (dbErr) {
+      console.error('[PricePilot] Could not load from IndexedDB.', dbErr);
+      // No localStorage fallback anymore — IndexedDB is the single
+      // source of truth. The user sees an initialization failure
+      // screen with retry / start-empty options.
+      throw dbErr;
+    }
+
+    // Stale check after async DB loads.
+    if (isStale()) {
+      console.info('[PricePilot] Initialization attempt is stale after DB load, exiting.');
+      return;
+    }
+
+    // Use defaults if business settings weren't found.
+    if (!businessSettings) {
+      businessSettings = createDefaultBusinessSettings();
+    }
+
+    // Run calculations on all loaded products using the SAFE batch helper
+    // so a single malformed stored product cannot blank the whole app.
+    const batchResult = safelyRecalculateProducts(
+      products, businessSettings, pricingRules
+    );
+    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    if (batchResult.issues.length > 0) {
+      console.warn(
+        `[PricePilot] ${batchResult.issues.length} product(s) had calculation issues during startup.`,
+        batchResult.issues
+      );
+    }
+
+    // Final stale check before committing state. This is the most
+    // critical one — it prevents a timed-out attempt from overwriting
+    // state that a newer retry has already set.
+    if (isStale()) {
+      console.info('[PricePilot] Initialization attempt is stale before state commit, exiting.');
+      return;
+    }
+
+    // UI preferences come from localStorage (theme/mode/sidebar are
+    // explicitly UI preferences, not primary data).
+    const appSettings = loadAppSettings();
+    const actualMode = appSettings.applicationMode || 'owner';
+    const defaultView: AppView = actualMode === 'owner' ? 'owner-home' : 'dashboard';
+
+    // Build the initialization summary.
+    const needsReviewCount = recalculated.filter(
+      p => p.lifecycleStatus === 'needs-review' || p.calculatedPricingStatus === 'missing-data'
+    ).length;
+    const successfulCount = recalculated.length - needsReviewCount;
+    const summary = makeReadySummary(successfulCount, needsReviewCount);
+
+    set({
+      businessSettings: businessSettings as BusinessSettings,
+      products: recalculated,
+      pricingRules,
+      scenarios,
+      appSettings,
+      onboardingCompleted: (businessSettings as BusinessSettings).onboardingCompleted ?? false,
+      lastSaved,
+      currentView: (businessSettings as BusinessSettings).onboardingCompleted ? defaultView : 'dashboard',
+      autoBackups: backups,
+      undoHistory,
+      initialization: summary,
+    });
+
+    // Persist recalculated products back to IndexedDB (best-effort).
+    // Only persist if this attempt is still current.
+    if (!isStale()) {
+      try {
+        await saveProductsToDb(recalculated);
+      } catch (saveErr) {
+        console.warn('[PricePilot] Could not persist recalculated products on startup.', saveErr);
+      }
+    }
+  } catch (err) {
+    // Total initialization failure. DO NOT delete any data —
+    // surface a failure summary so the UI can offer recovery options.
+    // But only if this attempt is still the current generation.
+    if (isStale()) {
+      console.info('[PricePilot] Stale initialization attempt failed, but a newer attempt is running. Not updating state.');
+      return;
+    }
+    console.error('[PricePilot] Initialization failed.', err);
+    set({ initialization: makeFailedSummary(err) });
   }
 }
 
@@ -279,130 +595,90 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   sidebarCollapsed: false,
   recentlyViewedIds: [],
   undoHistory: [],
-  autoBackups: loadAutoBackups(),
+  autoBackups: [],
   helpPanelOpen: false,
+  guidedTourOpen: false,
 
-  // Initialize from IndexedDB (with localStorage migration)
-  initialize: async () => {
-    // Mark as loading FIRST so the UI can render the "Opening your
-    // PricePilot workspace…" screen instead of briefly flashing
-    // onboarding.
-    set({ initialization: makeLoadingSummary() });
+  // Initialize from IndexedDB (single source of truth).
+  // Singleton guard: only one initialization Promise may run at a time.
+  // This prevents WebKit/iPhone hangs caused by concurrent IndexedDB
+  // operations when React Strict Mode or E2E state resets trigger
+  // re-initialization while a previous run is still in flight.
+  //
+  // Generation-based invalidation: Each attempt gets a unique
+  // generation number. If a timeout fires and the user retries,
+  // the new attempt increments the generation. The stale attempt
+  // checks the generation before every state-changing operation
+  // and silently exits if it no longer matches, preventing
+  // concurrent writes to IndexedDB and stale state overwrites.
+  initialize: () => {
+    if (initializationPromise) {
+      // An initialization is already in progress — return the
+      // existing promise so callers can await it, but do NOT start
+      // a second concurrent initialization.
+      return initializationPromise;
+    }
 
-    try {
-      // Phase 10: Run the localStorage → IndexedDB migration first.
-      // This is idempotent and atomic — if it fails, the original
-      // localStorage data is untouched.
-      let migrationResult: MigrationResult | null = null;
-      try {
-        migrationResult = await migrateLegacyDataIfNeeded();
-        if (migrationResult.status === 'failed') {
-          console.warn('[PricePilot] localStorage migration failed.', migrationResult.message);
-          // We still try to load from IndexedDB — it may have partial
-          // data from a previous successful migration, or it may be
-          // empty. Either way, the owner can use the app.
-        } else if (migrationResult.status === 'complete' && migrationResult.hadLegacyData) {
-          console.info('[PricePilot] localStorage migration completed.', migrationResult.message);
+    // Assign a new generation to this attempt.
+    const generation = ++initializationGeneration;
+
+    // Timeout guard: if initialization doesn't complete within 15
+    // seconds, mark it as failed so the UI shows a recovery screen
+    // instead of hanging forever. This is critical for WebKit where
+    // IndexedDB operations can stall indefinitely.
+    const INIT_TIMEOUT_MS = 15_000;
+
+    initializationPromise = Promise.race([
+      performInitialization(generation),
+      new Promise<void>((_resolve, reject) =>
+        setTimeout(() => reject(new Error(
+          `Initialization timed out after ${INIT_TIMEOUT_MS / 1000}s. ` +
+          `This may be caused by a blocked IndexedDB operation. ` +
+          `Try refreshing the page.`
+        )), INIT_TIMEOUT_MS)
+      ),
+    ])
+      .catch((err: unknown) => {
+        // If the timeout fires, mark initialization as failed.
+        // If performInitialization already set the state, this is
+        // a no-op. If it didn't (because it's stuck), we set it here.
+        // But only if this generation is still current — a newer
+        // retry may have already resolved.
+        if (generation !== initializationGeneration) {
+          return; // A newer attempt has started; don't overwrite its state.
         }
-      } catch (migrationErr) {
-        console.error('[PricePilot] Migration threw unexpectedly.', migrationErr);
-      }
-
-      // Phase 9: Load from IndexedDB.
-      let products: Product[] = [];
-      let businessSettings: BusinessSettings | null = null;
-      let pricingRules: PricingRule[] = [];
-      let scenarios: Scenario[] = [];
-      let undoHistory: UndoAction[] = [];
-      let backups: AutoBackup[] = [];
-
-      try {
-        products = await loadAllProducts();
-        businessSettings = await loadBusinessSettingsFromDb();
-        pricingRules = await loadPricingRulesFromDb();
-        scenarios = await loadScenariosFromDb();
-        undoHistory = await loadUndoHistoryFromDb();
-        backups = await loadBackupsFromDb();
-      } catch (dbErr) {
-        console.error('[PricePilot] Could not load from IndexedDB.', dbErr);
-        // Fall back to legacy localStorage if IndexedDB is unavailable.
-        // This keeps the app usable in environments without IndexedDB
-        // (e.g. some private browsing modes).
-        const legacy = initializeStorage();
-        products = legacy.products;
-        businessSettings = legacy.businessSettings;
-        pricingRules = legacy.pricingRules;
-        scenarios = legacy.scenarios;
-      }
-
-      // Use defaults if business settings weren't found.
-      if (!businessSettings) {
-        businessSettings = createDefaultBusinessSettings();
-      }
-
-      // Run calculations on all loaded products using the SAFE batch helper
-      // so a single malformed stored product cannot blank the whole app.
-      const batchResult = safelyRecalculateProducts(
-        products, businessSettings, pricingRules
-      );
-      const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-      if (batchResult.issues.length > 0) {
-        console.warn(
-          `[PricePilot] ${batchResult.issues.length} product(s) had calculation issues during startup.`,
-          batchResult.issues
-        );
-      }
-
-      const mode = (businessSettings as BusinessSettings).defaultRoundingRule ? 'owner' : 'owner'; // placeholder for app mode
-      // We need appSettings from localStorage (theme/mode/sidebar are still in localStorage).
-      const legacyAppSettings = loadAppSettings();
-      const actualMode = legacyAppSettings.applicationMode || 'owner';
-      const defaultView: AppView = actualMode === 'owner' ? 'owner-home' : 'dashboard';
-
-      // Build the initialization summary.
-      const needsReviewCount = recalculated.filter(
-        p => p.lifecycleStatus === 'needs-review' || p.calculatedPricingStatus === 'missing-data'
-      ).length;
-      const successfulCount = recalculated.length - needsReviewCount;
-      const summary = makeReadySummary(successfulCount, needsReviewCount);
-
-      set({
-        businessSettings: businessSettings as BusinessSettings,
-        products: recalculated,
-        pricingRules,
-        scenarios,
-        appSettings: legacyAppSettings,
-        onboardingCompleted: (businessSettings as BusinessSettings).onboardingCompleted ?? false,
-        lastSaved: getLastSavedTimestamp(),
-        currentView: (businessSettings as BusinessSettings).onboardingCompleted ? defaultView : 'dashboard',
-        autoBackups: backups,
-        undoHistory,
-        initialization: summary,
+        const state = usePricePilotStore.getState();
+        if (state.initialization.status === 'loading' || state.initialization.status === 'idle') {
+          console.error('[PricePilot] Initialization timeout.', err);
+          usePricePilotStore.setState({ initialization: makeFailedSummary(err) });
+        }
+      })
+      .finally(() => {
+        // Clear the guard so retryInitialize() can start a new one.
+        // Only clear if this promise is still the current one.
+        if (initializationPromise === undefined) {
+          // The promise reference was already replaced by retry.
+          // In practice this shouldn't happen, but being defensive.
+        }
+        initializationPromise = null;
       });
 
-      // Persist recalculated products back to IndexedDB (best-effort).
-      try {
-        await saveProductsToDb(recalculated);
-      } catch (saveErr) {
-        console.warn('[PricePilot] Could not persist recalculated products on startup.', saveErr);
-      }
-    } catch (err) {
-      // Total initialization failure. DO NOT delete the old data —
-      // surface a failure summary so the UI can offer recovery options.
-      console.error('[PricePilot] Initialization failed.', err);
-      set({ initialization: makeFailedSummary(err) });
-    }
+    return initializationPromise;
   },
 
   retryInitialize: () => {
     // The user clicked "Try Again" on the failure screen.
+    // Increment the generation to invalidate any stale attempt
+    // that might still be running, then start a new one.
+    initializationGeneration++;
+    initializationPromise = null;
     get().initialize();
   },
 
   startEmptyWorkspace: () => {
     // The user clicked "Start Empty Workspace". We DO NOT delete the
-    // old localStorage data — we just bypass it for this session so
-    // the owner can keep using the app while the old data remains
+    // IndexedDB data — we just bypass it for this session so the
+    // owner can keep using the app while the old data remains
     // available for download or a later retry.
     try {
       const defaults = createDefaultBusinessSettings();
@@ -424,20 +700,12 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   downloadExistingData: () => {
-    // Best-effort: try to export whatever is in localStorage so the
-    // owner has a recovery file. This must never throw into the UI.
-    try {
-      const data = exportAllData();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `pricepilot-recovery-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
+    // Best-effort: read canonical state from IndexedDB (and capture
+    // leftover legacy localStorage) and offer it as a recovery
+    // download. This must never throw into the UI.
+    downloadRecoveryPayload().catch((err) => {
       console.error('[PricePilot] Could not download existing data.', err);
-    }
+    });
   },
 
   // Navigation
@@ -447,87 +715,136 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   setSelectedProducts: (ids) => set({ selectedProducts: ids }),
   setInitialFilterTab: (tab) => set({ initialFilterTab: tab }),
   setHelpPanelOpen: (open) => set({ helpPanelOpen: open }),
+  setGuidedTourOpen: (open) => set({ guidedTourOpen: open }),
+  startGuidedTour: () => set({ guidedTourOpen: true }),
 
   // Business settings
-  updateBusinessSettings: (updates) => {
-    const newSettings = { ...get().businessSettings, ...updates, updatedAt: new Date().toISOString() };
-    saveBusinessSettings(newSettings);
-    set({ businessSettings: newSettings });
+  updateBusinessSettings: async (updates) => {
+    const oldSettings = get().businessSettings;
+    const newSettings = { ...oldSettings, ...updates, updatedAt: new Date().toISOString() };
     // Recalculate all products with new settings using the SAFE batch helper
     const { products, pricingRules } = get();
     const batchResult = safelyRecalculateProducts(products, newSettings, pricingRules);
-    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    saveProducts(recalculated);
-    set({ products: recalculated, lastSaved: getLastSavedTimestamp() });
+    let recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    // Phase 8: product-specific invalidation — only invalidate products
+    // whose effective pricing inputs actually changed.
+    recalculated = invalidateApprovalsForSettingsChange(recalculated, oldSettings, newSettings, pricingRules);
+    // ATOMIC: persist settings + recalculated products in ONE Dexie
+    // transaction so the catalogue can never end up with new settings
+    // but stale calculations (or vice versa).
+    try {
+      await atomicUpdateSettingsAndProducts(newSettings, recalculated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ businessSettings: newSettings, products: recalculated });
+      return ok(undefined, 'Settings saved.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not save settings.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  completeOnboarding: (settings) => {
+  completeOnboarding: async (settings) => {
     const newSettings = { ...get().businessSettings, ...settings, onboardingCompleted: true, updatedAt: new Date().toISOString() };
-    saveBusinessSettings(newSettings);
-    saveOnboardingCompleted(true);
-    // After onboarding, set default view based on mode
-    const mode = get().appSettings.applicationMode || 'owner';
-    const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
-    set({ businessSettings: newSettings, onboardingCompleted: true, currentView: defaultView });
+    try {
+      await persistBusinessSettings(newSettings);
+      const mode = get().appSettings.applicationMode || 'owner';
+      const defaultView: AppView = mode === 'owner' ? 'owner-home' : 'dashboard';
+      set({ businessSettings: newSettings, onboardingCompleted: true, currentView: defaultView });
+      return ok(undefined, 'Onboarding complete.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not complete onboarding.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
   // Products
-  addProduct: (product) => {
+  addProduct: async (product) => {
     const { businessSettings, pricingRules, products } = get();
     const calculated = recalcProduct(product, businessSettings, pricingRules);
-    const newProducts = [...products, calculated];
-    saveProducts(newProducts);
-    set({ products: newProducts, lastSaved: getLastSavedTimestamp() });
+    try {
+      await persistProduct(calculated);
+      const newProducts = [...products, calculated];
+      set({ products: newProducts });
+      return ok(undefined, 'Product added.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not add the product.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  updateProduct: (id, updates) => {
+  updateProduct: async (id, updates) => {
     const { products, businessSettings, pricingRules } = get();
     const productBefore = products.find(p => p.id === id);
-    if (productBefore) {
-      get().pushUndoAction({
-        type: 'product-edit',
-        productId: id,
-        previousState: { ...productBefore },
-        timestamp: new Date().toISOString(),
-        description: `Edited ${productBefore.name || 'product'}`,
-      });
+    if (!productBefore) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Product not found.');
     }
+    get().pushUndoAction({
+      type: 'product-edit',
+      productId: id,
+      previousState: { ...productBefore },
+      timestamp: new Date().toISOString(),
+      description: `Edited ${productBefore.name || 'product'}`,
+    });
     const updated = products.map(p => {
       if (p.id === id) {
         const merged = { ...p, ...updates, updatedAt: new Date().toISOString() };
-        return recalcProduct(merged, businessSettings, pricingRules);
+        const recalculated = recalcProduct(merged, businessSettings, pricingRules);
+        // Phase 10: invalidate prior approval if a financial field changed.
+        return invalidateIfStale(p, recalculated);
       }
       return p;
     });
-    saveProducts(updated);
-    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+    const updatedProduct = updated.find(p => p.id === id)!;
+    try {
+      await persistProduct(updatedProduct);
+      set({ products: updated });
+      return ok(undefined, 'Product saved.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not save the product.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  deleteProduct: (id) => {
+  deleteProduct: async (id) => {
     const { products } = get();
     const productBefore = products.find(p => p.id === id);
-    if (productBefore) {
-      get().pushUndoAction({
-        type: 'product-delete',
-        productId: id,
-        previousState: { ...productBefore },
-        timestamp: new Date().toISOString(),
-        description: `Deleted ${productBefore.name || 'product'}`,
-      });
+    if (!productBefore) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Product not found.');
     }
+    get().pushUndoAction({
+      type: 'product-delete',
+      productId: id,
+      previousState: { ...productBefore },
+      timestamp: new Date().toISOString(),
+      description: `Deleted ${productBefore.name || 'product'}`,
+    });
     const newProducts = products.filter(p => p.id !== id);
-    saveProducts(newProducts);
-    set({ products: newProducts, lastSaved: getLastSavedTimestamp() });
+    try {
+      await removeProductFromDb(id);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ products: newProducts, selectedProducts: [] });
+      return ok(undefined, 'Product deleted.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not delete the product.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  deleteSelectedProducts: () => {
+  deleteSelectedProducts: async () => {
     const { selectedProducts, products } = get();
     const newProducts = products.filter(p => !selectedProducts.includes(p.id));
-    saveProducts(newProducts);
-    set({ products: newProducts, selectedProducts: [], lastSaved: getLastSavedTimestamp() });
+    try {
+      await atomicBulkDeleteProducts(selectedProducts);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ products: newProducts, selectedProducts: [] });
+      return ok(undefined, `${selectedProducts.length} product(s) deleted.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not delete the selected products.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  bulkUpdateProducts: (ids, updates) => {
+  bulkUpdateProducts: async (ids, updates) => {
     const { products, businessSettings, pricingRules } = get();
     const updated = products.map(p => {
       if (ids.includes(p.id)) {
@@ -536,24 +853,35 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    saveProducts(updated);
-    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+    // Only persist the changed products.
+    const changedProducts = updated.filter(p => ids.includes(p.id));
+    try {
+      await atomicBulkUpdateProducts(changedProducts);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ products: updated });
+      return ok(undefined, `${ids.length} product(s) updated.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not update the products.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  approveSelectedProducts: () => {
+  approveSelectedProducts: async () => {
     const { selectedProducts } = get();
-    get().bulkUpdateProducts(selectedProducts, { isApproved: true, calculatedPricingStatus: 'approved' as PricingStatus });
+    return get().bulkUpdateProducts(selectedProducts, { isApproved: true, calculatedPricingStatus: 'approved' as PricingStatus });
   },
 
-  markSelectedForReview: () => {
+  markSelectedForReview: async () => {
     const { selectedProducts } = get();
-    get().bulkUpdateProducts(selectedProducts, { calculatedPricingStatus: 'needs-review' as PricingStatus, lifecycleStatus: 'needs-review' as LifecycleStatus });
+    return get().bulkUpdateProducts(selectedProducts, { calculatedPricingStatus: 'needs-review' as PricingStatus, lifecycleStatus: 'needs-review' as LifecycleStatus });
   },
 
-  duplicateProduct: (productId) => {
+  duplicateProduct: async (productId) => {
     const { products, businessSettings, pricingRules } = get();
     const original = products.find(p => p.id === productId);
-    if (!original) return;
+    if (!original) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Product not found.');
+    }
     const newProduct: Product = {
       ...original,
       id: `prod-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -568,17 +896,24 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       updatedAt: new Date().toISOString(),
     };
     const calculated = recalcProduct(newProduct, businessSettings, pricingRules);
-    const newProducts = [...products, calculated];
-    saveProducts(newProducts);
-    set({ products: newProducts, lastSaved: getLastSavedTimestamp() });
+    try {
+      await persistProduct(calculated);
+      const newProducts = [...products, calculated];
+      set({ products: newProducts });
+      return ok(undefined, 'Product duplicated.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not duplicate the product.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  approveProductPrice: (productId, recommendationMode) => {
+  approveProductPrice: async (productId, recommendationMode) => {
     const { products, businessSettings, pricingRules } = get();
     const product = products.find(p => p.id === productId);
-    if (!product) return;
+    if (!product) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Product not found.');
+    }
     const approvedPrice = product.recommendedPrices[recommendationMode] || product.recommendedPrices.balanced;
-    // Push undo action
     get().pushUndoAction({
       type: 'price-approve',
       productId,
@@ -601,15 +936,26 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    saveProducts(updated);
-    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+    const updatedProduct = updated.find(p => p.id === productId)!;
+    try {
+      await persistProduct(updatedProduct);
+      set({ products: updated });
+      return ok(undefined, 'Price approved.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not approve the price.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  applyApprovedPrice: (productId) => {
+  applyApprovedPrice: async (productId) => {
     const { products, businessSettings, pricingRules } = get();
     const product = products.find(p => p.id === productId);
-    if (!product || product.priceApprovalStatus !== 'approved' || product.finalApprovedPrice <= 0) return;
-    // Push undo action
+    if (!product) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Product not found.');
+    }
+    if (product.priceApprovalStatus !== 'approved' || product.finalApprovedPrice <= 0) {
+      return invalidInputError(ERROR_CODES.VALIDATION_FAILED, 'Approve a price before applying it.');
+    }
     get().pushUndoAction({
       type: 'price-apply',
       productId,
@@ -628,11 +974,18 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    saveProducts(updated);
-    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+    const updatedProduct = updated.find(p => p.id === productId)!;
+    try {
+      await persistProduct(updatedProduct);
+      set({ products: updated });
+      return ok(undefined, 'Price applied.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not apply the price.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  bulkSetField: (productIds, field, value) => {
+  bulkSetField: async (productIds, field, value) => {
     const { products, businessSettings, pricingRules } = get();
     const updated = products.map(p => {
       if (productIds.includes(p.id)) {
@@ -641,11 +994,20 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    saveProducts(updated);
-    set({ products: updated, lastSaved: getLastSavedTimestamp() });
+    // Only persist the changed products.
+    const changedProducts = updated.filter(p => productIds.includes(p.id));
+    try {
+      await atomicBulkUpdateProducts(changedProducts);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ products: updated });
+      return ok(undefined, `${productIds.length} product(s) updated.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not update the products.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  bulkApprovePrices: (productIds) => {
+  bulkApprovePrices: async (productIds) => {
     const { products, businessSettings, pricingRules } = get();
     get().pushUndoAction({
       type: 'bulk-approve',
@@ -669,64 +1031,106 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       }
       return p;
     });
-    saveProducts(updated);
-    set({ products: updated, lastSaved: getLastSavedTimestamp() });
-  },
-
-  archiveProducts: (productIds) => {
-    get().bulkSetField(productIds, 'lifecycleStatus', 'archived' as LifecycleStatus);
-  },
-
-  loadSampleData: () => {
-    const { businessSettings, pricingRules } = get();
-    const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
-    // Use the SAFE batch helper so even sample data can't crash the app
-    // if it ever drifts out of sync with the schema.
-    const batchResult = safelyRecalculateProducts(SAMPLE_PRODUCTS, businessSettings, existingRules);
-    const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    saveProducts(calculated);
-    if (pricingRules.length === 0) {
-      savePricingRules(SAMPLE_PRICING_RULES);
-      set({ pricingRules: SAMPLE_PRICING_RULES });
+    // Only persist the changed products.
+    const changedProducts = updated.filter(p => productIds.includes(p.id));
+    try {
+      await atomicBulkUpdateProducts(changedProducts);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ products: updated });
+      return ok(undefined, `${productIds.length} price(s) approved.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not approve the prices.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
     }
-    set({ products: calculated, lastSaved: getLastSavedTimestamp() });
   },
 
-  loadDemoSampleData: () => {
-    get().createAutoBackup('manual', 'Before loading demo sample data');
+  archiveProducts: async (productIds) => {
+    return get().bulkSetField(productIds, 'lifecycleStatus', 'archived' as LifecycleStatus);
+  },
+
+  loadSampleData: async () => {
     const { businessSettings, pricingRules } = get();
     const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
     const batchResult = safelyRecalculateProducts(SAMPLE_PRODUCTS, businessSettings, existingRules);
     const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    saveProducts(calculated);
-    if (pricingRules.length === 0) {
-      savePricingRules(SAMPLE_PRICING_RULES);
-      set({ pricingRules: SAMPLE_PRICING_RULES });
+    const rulesToSave = pricingRules.length === 0 ? SAMPLE_PRICING_RULES : pricingRules;
+    try {
+      await Promise.all([
+        persistProducts(calculated),
+        pricingRules.length === 0 ? persistPricingRules(SAMPLE_PRICING_RULES) : Promise.resolve(),
+      ]);
+      set({ products: calculated, pricingRules: rulesToSave });
+      return ok(undefined, 'Sample data loaded.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not load sample data.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
     }
-    get().updateAppSettings({ sampleDataLoaded: true });
-    set({ products: calculated, lastSaved: getLastSavedTimestamp() });
   },
 
-  removeDemoSampleData: () => {
-    clearProductsStorage();
-    get().updateAppSettings({ sampleDataLoaded: false });
-    set({ products: [], lastSaved: getLastSavedTimestamp() });
+  loadDemoSampleData: async () => {
+    try {
+      await get().createAutoBackup('manual', 'Before loading demo sample data');
+    } catch (err) {
+      return retryableError(ERROR_CODES.BACKUP_FAILED, 'Could not create a safety backup. Sample data was not loaded.');
+    }
+    const { businessSettings, pricingRules } = get();
+    const existingRules = pricingRules.length > 0 ? pricingRules : SAMPLE_PRICING_RULES;
+    const batchResult = safelyRecalculateProducts(SAMPLE_PRODUCTS, businessSettings, existingRules);
+    const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    const rulesToSave = pricingRules.length === 0 ? SAMPLE_PRICING_RULES : pricingRules;
+    try {
+      await Promise.all([
+        persistProducts(calculated),
+        pricingRules.length === 0 ? persistPricingRules(SAMPLE_PRICING_RULES) : Promise.resolve(),
+      ]);
+      get().updateAppSettings({ sampleDataLoaded: true });
+      set({ products: calculated, pricingRules: rulesToSave });
+      return ok(undefined, 'Demo data loaded.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not load demo data.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  clearAllProducts: () => {
-    clearProductsStorage();
-    set({ products: [], lastSaved: getLastSavedTimestamp() });
+  removeDemoSampleData: async () => {
+    try {
+      await clearProductsInDb();
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      get().updateAppSettings({ sampleDataLoaded: false });
+      set({ products: [] });
+      return ok(undefined, 'Demo data removed.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not remove demo data.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  recalculateProducts: () => {
+  clearAllProducts: async () => {
+    try {
+      await clearProductsInDb();
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ products: [] });
+      return ok(undefined, 'All products cleared.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not clear products.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
+  },
+
+  recalculateProducts: async () => {
     set({ isCalculating: true });
     const { businessSettings, pricingRules, products } = get();
-    // Use the SAFE batch helper so a single malformed product cannot
-    // abort the entire recalculation.
     const batchResult = safelyRecalculateProducts(products, businessSettings, pricingRules);
     const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    saveProducts(recalculated);
-    set({ products: recalculated, isCalculating: false, lastSaved: getLastSavedTimestamp() });
+    try {
+      await persistProducts(recalculated);
+      set({ products: recalculated, isCalculating: false });
+      return ok(undefined, 'Recalculated.');
+    } catch (err) {
+      set({ isCalculating: false });
+      const message = err instanceof Error ? err.message : 'Could not recalculate products.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
   // Import
@@ -734,15 +1138,16 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     set({ importState: { ...get().importState, ...updates } });
   },
 
-  importProducts: (newProducts) => {
-    // Create auto-backup before import
-    get().createAutoBackup('import', `Before importing ${newProducts.length} products`);
+  importProducts: async (newProducts) => {
+    // Create auto-backup before import. If backup fails, abort.
+    try {
+      await get().createAutoBackup('import', `Before importing ${newProducts.length} products`);
+    } catch (err) {
+      return retryableError(ERROR_CODES.BACKUP_FAILED, 'Could not create a safety backup. The import was not applied.');
+    }
     const { businessSettings, pricingRules, products } = get();
-    // Use the SAFE batch helper so a single malformed import row cannot
-    // abort the entire import.
     const batchResult = safelyRecalculateProducts(newProducts, businessSettings, pricingRules);
     const calculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
-    // Push undo action
     get().pushUndoAction({
       type: 'import',
       productIds: calculated.map(p => p.id),
@@ -751,42 +1156,167 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       description: `Imported ${calculated.length} products`,
     });
     const allProducts = [...products, ...calculated];
-    saveProducts(allProducts);
-    set({ products: allProducts, lastSaved: getLastSavedTimestamp(), currentView: 'products' });
-    get().resetImportState();
+    try {
+      // Use atomicImportProducts to write only the new products without
+      // clearing the existing table.
+      await atomicImportProducts(calculated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ products: allProducts, currentView: 'products' });
+      get().resetImportState();
+      return ok(undefined, `Imported ${calculated.length} product(s).`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not import the products.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
   resetImportState: () => {
     set({ importState: createDefaultImportState() });
   },
 
-  // Pricing rules
-  addPricingRule: (rule) => {
-    const rules = savePricingRule(rule);
-    set({ pricingRules: rules, lastSaved: getLastSavedTimestamp() });
-    get().recalculateProducts();
+  importProductsWithBatch: async (productsToAdd, productsToUpdate, batchMetadata) => {
+    const { products, pricingRules, businessSettings } = get();
+
+    // Step 1: Create a safety backup. If backup creation fails, abort.
+    try {
+      await get().createAutoBackup('import', `Before importing ${productsToAdd.length + productsToUpdate.length} products`);
+    } catch (err) {
+      console.error('[PricePilot] Backup creation failed. Import aborted.', err);
+      return retryableError(
+        ERROR_CODES.BACKUP_FAILED,
+        'The import was not applied. PricePilot could not create a safety backup. Your catalogue is unchanged.'
+      );
+    }
+
+    // Step 2: Verify all row actions — recalculate every proposed product safely.
+    const addResult = safelyRecalculateProducts(productsToAdd, businessSettings, pricingRules);
+    const updateResult = safelyRecalculateProducts(productsToUpdate, businessSettings, pricingRules);
+    const safeToAdd = [...addResult.successfulProducts, ...addResult.failedProducts];
+    const safeToUpdate = [...updateResult.successfulProducts, ...updateResult.failedProducts];
+
+    // Step 3: Build the exact final product set.
+    // Products to update replace existing products by id.
+    const updatedMap = new Map(safeToUpdate.map(p => [p.id, p]));
+    const existingProducts = products.map(p => updatedMap.get(p.id) ?? p);
+    const allProducts = [...existingProducts, ...safeToAdd];
+
+    // Step 4: Build batch metadata.
+    const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const batchRecord = {
+      id: batchId,
+      fileName: batchMetadata.fileName,
+      sheetName: batchMetadata.sheetName,
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      totalRows: batchMetadata.totalRows,
+      validCount: safeToAdd.length,
+      needsReviewCount: safeToAdd.filter(p => p.lifecycleStatus === 'needs-review' || p.calculatedPricingStatus === 'missing-data').length,
+      duplicateCount: safeToUpdate.length,
+      rejectedCount: 0,
+    };
+
+    // Step 5: Commit all products and metadata in one Dexie transaction.
+    try {
+      await atomicImportProducts(allProducts, batchRecord);
+    } catch (err) {
+      console.error('[PricePilot] Transactional import failed. Catalogue unchanged.', err);
+      return retryableError(
+        ERROR_CODES.DATABASE_ERROR,
+        'The import was not applied. Your existing catalogue is unchanged.'
+      );
+    }
+
+    // Step 6: Update Zustand only after success.
+    const commitResult: ImportCommitResult = {
+      added: safeToAdd.filter(p => !updatedMap.has(p.id)).length,
+      updated: safeToUpdate.length,
+      filledMissing: 0, // tracked at reconciliation level
+      skipped: 0,
+      rejected: 0,
+      needsReview: safeToAdd.filter(p => p.lifecycleStatus === 'needs-review' || p.calculatedPricingStatus === 'missing-data').length,
+    };
+
+    // Push undo action
+    get().pushUndoAction({
+      type: 'import',
+      productIds: [...safeToAdd, ...safeToUpdate].map(p => p.id),
+      previousState: [...products],
+      timestamp: new Date().toISOString(),
+      description: `Imported ${safeToAdd.length} product(s), updated ${safeToUpdate.length} product(s)`,
+    });
+
+    set({ products: allProducts });
+    get().resetImportState();
+    return { ...ok(undefined, `Imported ${safeToAdd.length} product(s), updated ${safeToUpdate.length} product(s).`), commitResult };
   },
 
-  updatePricingRule: (id, updates) => {
-    const { pricingRules } = get();
+  // Pricing rules
+  addPricingRule: async (rule) => {
+    const { businessSettings, products, pricingRules } = get();
+    const newRules = [...pricingRules, rule];
+    // Recalculate products under the new rule set.
+    const batchResult = safelyRecalculateProducts(products, businessSettings, newRules);
+    let recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    // Phase 8: product-specific invalidation — only invalidate products
+    // whose effective pricing inputs actually changed.
+    recalculated = invalidateApprovalsForRulesChange(recalculated, pricingRules, newRules, businessSettings);
+    try {
+      await atomicUpdateRulesAndProducts(newRules, recalculated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ pricingRules: newRules, products: recalculated });
+      return ok(undefined, 'Pricing rule added.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not add the pricing rule.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
+  },
+
+  updatePricingRule: async (id, updates) => {
+    const { pricingRules, businessSettings, products } = get();
     const updated = pricingRules.map(r =>
       r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r
     );
-    savePricingRules(updated);
-    set({ pricingRules: updated, lastSaved: getLastSavedTimestamp() });
-    get().recalculateProducts();
+    const batchResult = safelyRecalculateProducts(products, businessSettings, updated);
+    let recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    // Phase 8: product-specific invalidation — only invalidate products
+    // whose effective pricing inputs actually changed.
+    recalculated = invalidateApprovalsForRulesChange(recalculated, pricingRules, updated, businessSettings);
+    try {
+      await atomicUpdateRulesAndProducts(updated, recalculated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ pricingRules: updated, products: recalculated });
+      return ok(undefined, 'Pricing rule saved.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not save the pricing rule.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  deletePricingRule: (id) => {
-    const rules = removePricingRuleStorage(id);
-    set({ pricingRules: rules, lastSaved: getLastSavedTimestamp() });
-    get().recalculateProducts();
+  deletePricingRule: async (id) => {
+    const { pricingRules, businessSettings, products } = get();
+    const updated = pricingRules.filter(r => r.id !== id);
+    const batchResult = safelyRecalculateProducts(products, businessSettings, updated);
+    let recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    // Phase 8: product-specific invalidation — only invalidate products
+    // whose effective pricing inputs actually changed.
+    recalculated = invalidateApprovalsForRulesChange(recalculated, pricingRules, updated, businessSettings);
+    try {
+      await atomicUpdateRulesAndProducts(updated, recalculated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ pricingRules: updated, products: recalculated });
+      return ok(undefined, 'Pricing rule deleted.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not delete the pricing rule.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  duplicatePricingRule: (id) => {
+  duplicatePricingRule: async (id) => {
     const { pricingRules } = get();
     const original = pricingRules.find(r => r.id === id);
-    if (!original) return;
+    if (!original) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Pricing rule not found.');
+    }
     const newRule: PricingRule = {
       ...original,
       id: `rule-${Date.now()}`,
@@ -794,50 +1324,100 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    const rules = savePricingRule(newRule);
-    set({ pricingRules: rules, lastSaved: getLastSavedTimestamp() });
+    const updated = [...pricingRules, newRule];
+    try {
+      await persistPricingRules(updated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ pricingRules: updated });
+      return ok(undefined, 'Pricing rule duplicated.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not duplicate the pricing rule.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
   // Scenarios
-  addScenario: (scenario) => {
-    const scenarios = saveScenario(scenario);
-    set({ scenarios, lastSaved: getLastSavedTimestamp() });
+  addScenario: async (scenario) => {
+    const scenarios = [...get().scenarios, scenario];
+    try {
+      await persistScenarios(scenarios);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ scenarios });
+      return ok(undefined, 'Scenario saved.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not save the scenario.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  updateScenario: (id, updates) => {
+  updateScenario: async (id, updates) => {
     const { scenarios } = get();
     const updated = scenarios.map(s =>
       s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s
     );
-    saveScenarios(updated);
-    set({ scenarios: updated, lastSaved: getLastSavedTimestamp() });
+    try {
+      await persistScenarios(updated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ scenarios: updated });
+      return ok(undefined, 'Scenario saved.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not save the scenario.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  deleteScenario: (id) => {
-    const scenarios = removeScenarioStorage(id);
-    set({ scenarios, lastSaved: getLastSavedTimestamp() });
-  },
-
-  restoreScenario: (id) => {
+  deleteScenario: async (id) => {
     const { scenarios } = get();
-    const scenario = scenarios.find(s => s.id === id);
-    if (!scenario) return;
-    saveProducts(scenario.snapshotProducts);
-    savePricingRules(scenario.snapshotPricingRules);
-    saveBusinessSettings(scenario.snapshotBusinessSettings);
-    set({
-      products: scenario.snapshotProducts,
-      pricingRules: scenario.snapshotPricingRules,
-      businessSettings: scenario.snapshotBusinessSettings,
-      lastSaved: getLastSavedTimestamp(),
-    });
+    const updated = scenarios.filter(s => s.id !== id);
+    try {
+      await persistScenarios(updated);
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({ scenarios: updated });
+      return ok(undefined, 'Scenario deleted.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not delete the scenario.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
   },
 
-  // Settings
+  restoreScenario: async (id) => {
+    const { scenarios, businessSettings, pricingRules } = get();
+    const scenario = scenarios.find(s => s.id === id);
+    if (!scenario) {
+      return invalidInputError(ERROR_CODES.NOT_FOUND, 'Scenario not found.');
+    }
+    // Recalculate snapshot products under the snapshot's own settings/rules
+    // so the restored state is internally consistent.
+    const batchResult = safelyRecalculateProducts(
+      scenario.snapshotProducts,
+      scenario.snapshotBusinessSettings,
+      scenario.snapshotPricingRules,
+    );
+    const recalculated = [...batchResult.successfulProducts, ...batchResult.failedProducts];
+    try {
+      await atomicRestoreScenario(
+        recalculated,
+        scenario.snapshotPricingRules,
+        scenario.snapshotBusinessSettings,
+      );
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      set({
+        products: recalculated,
+        pricingRules: scenario.snapshotPricingRules,
+        businessSettings: scenario.snapshotBusinessSettings,
+      });
+      return ok(undefined, 'Scenario restored.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not restore the scenario.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
+    }
+  },
+
+  // Settings (UI preferences only — these stay in localStorage)
   updateAppSettings: (updates) => {
     const newSettings = { ...get().appSettings, ...updates, updatedAt: new Date().toISOString() };
     saveAppSettings(newSettings);
-    set({ appSettings: newSettings, lastSaved: getLastSavedTimestamp() });
+    set({ appSettings: newSettings });
   },
 
   setApplicationMode: (mode) => {
@@ -849,7 +1429,6 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   // Recently viewed
   addRecentlyViewed: (productId) => {
     const { recentlyViewedIds } = get();
-    // Remove if already in list, then add at front (most recent)
     const updated = [productId, ...recentlyViewedIds.filter(id => id !== productId)].slice(0, 5);
     set({ recentlyViewedIds: updated });
   },
@@ -859,7 +1438,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     const { undoHistory } = get();
     const newHistory = [action, ...undoHistory].slice(0, MAX_UNDO_HISTORY);
     set({ undoHistory: newHistory });
-    // Phase 11: persist undo history to IndexedDB (best-effort).
+    // Persist undo history to IndexedDB (best-effort).
     saveUndoHistoryToDb(newHistory).catch((err) => {
       console.warn('[PricePilot] Could not persist undo history to IndexedDB.', err);
     });
@@ -874,7 +1453,6 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
     let newProducts: Product[] = products;
 
     if (lastAction.type === 'price-approve' || lastAction.type === 'price-apply' || lastAction.type === 'product-edit') {
-      // Restore the product from previousState
       const previousProduct = lastAction.previousState as Product;
       newProducts = products.map(p => {
         if (p.id === lastAction.productId) {
@@ -882,47 +1460,93 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         }
         return p;
       });
+      // Targeted: persist only the reverted product.
+      const revertedProduct = newProducts.find(p => p.id === lastAction.productId);
+      if (revertedProduct) {
+        Promise.all([
+          saveProductToDb(revertedProduct),
+          saveUndoHistoryToDb(remainingHistory),
+          saveLastSavedTimestampToDb(new Date().toISOString()),
+        ])
+          .then(() => {
+            set({ products: newProducts, undoHistory: remainingHistory });
+          })
+          .catch((err) => {
+            console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
+          });
+      }
+      return;
     } else if (lastAction.type === 'product-delete') {
-      // Re-add the deleted product
       const previousProduct = lastAction.previousState as Product;
       const recalculated = recalcProduct(previousProduct, businessSettings, pricingRules);
       newProducts = [...products, recalculated];
+      // Targeted: persist only the restored product.
+      Promise.all([
+        saveProductToDb(recalculated),
+        saveUndoHistoryToDb(remainingHistory),
+        saveLastSavedTimestampToDb(new Date().toISOString()),
+      ])
+        .then(() => {
+          set({ products: newProducts, undoHistory: remainingHistory });
+        })
+        .catch((err) => {
+          console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
+        });
+      return;
     } else if (lastAction.type === 'bulk-approve') {
-      // Restore all products from previousState
       const previousProducts = lastAction.previousState as Product[];
+      const previousIds = new Set(previousProducts.map(p => p.id));
       newProducts = products.map(p => {
         const prev = previousProducts.find(pp => pp.id === p.id);
         if (prev) return recalcProduct(prev, businessSettings, pricingRules);
         return p;
       });
+      // Targeted: persist only the reverted products.
+      const revertedProducts = newProducts.filter(p => previousIds.has(p.id));
+      Promise.all([
+        atomicBulkUpdateProducts(revertedProducts),
+        saveUndoHistoryToDb(remainingHistory),
+        saveLastSavedTimestampToDb(new Date().toISOString()),
+      ])
+        .then(() => {
+          set({ products: newProducts, undoHistory: remainingHistory });
+        })
+        .catch((err) => {
+          console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
+        });
+      return;
     } else if (lastAction.type === 'import') {
-      // Remove imported products (restore to pre-import state)
       const previousProducts = lastAction.previousState as Product[];
       newProducts = previousProducts.map(p => recalcProduct(p, businessSettings, pricingRules));
+      // Import undo replaces the full catalogue — use saveProductsToDb.
+      Promise.all([
+        saveProductsToDb(newProducts),
+        saveUndoHistoryToDb(remainingHistory),
+        saveLastSavedTimestampToDb(new Date().toISOString()),
+      ])
+        .then(() => {
+          set({ products: newProducts, undoHistory: remainingHistory });
+        })
+        .catch((err) => {
+          console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
+        });
+      return;
     }
-
-    // Phase 11: persist to BOTH localStorage (legacy compatibility) and
-    // IndexedDB (the new source of truth). Best-effort — failures are
-    // logged but do not block the undo.
-    saveProducts(newProducts);
-    saveProductsToDb(newProducts).catch((err) => {
-      console.warn('[PricePilot] Could not persist undo result to IndexedDB.', err);
-    });
-    saveUndoHistoryToDb(remainingHistory).catch((err) => {
-      console.warn('[PricePilot] Could not persist undo history to IndexedDB.', err);
-    });
-    set({ products: newProducts, undoHistory: remainingHistory, lastSaved: getLastSavedTimestamp() });
   },
 
   // Backup
   createAutoBackup: async (trigger, description) => {
-    // Phase 11: backups now live in IndexedDB. Backup creation must
-    // NOT crash the operation it was called from. If backup creation
-    // fails, we surface a warning to the user and DO NOT continue
-    // with any destructive action that depended on the backup.
+    // Backups now live in IndexedDB. Backup creation must NOT crash the
+    // operation it was called from. If backup creation fails, we
+    // surface a warning to the user and DO NOT continue with any
+    // destructive action that depended on the backup.
     try {
-      const dataString = get().exportData();
-      const backup: AutoBackup = {
+      // Phase 5: build the backup from canonical IndexedDB state via
+      // the backup-service. The legacy exportAllData() is no longer
+      // used.
+      const { backup } = await buildBackup();
+      const dataString = serializeBackup(backup);
+      const autoBackup: AutoBackup = {
         id: `backup-${Date.now()}`,
         timestamp: new Date().toISOString(),
         trigger,
@@ -931,18 +1555,12 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       };
       const { autoBackups } = get();
       // Keep the latest 10.
-      const newBackups = [backup, ...autoBackups].slice(0, MAX_AUTO_BACKUPS);
+      const newBackups = [autoBackup, ...autoBackups].slice(0, MAX_AUTO_BACKUPS);
       // Persist to IndexedDB.
       await saveBackupsToDb(newBackups);
-      // Also persist to localStorage for legacy compatibility / quick reads.
-      saveAutoBackups(newBackups);
       set({ autoBackups: newBackups });
     } catch (err) {
       console.error('[PricePilot] Could not create safety backup.', err);
-      // Surface the failure to the user.
-      // The caller is responsible for deciding whether to proceed.
-      // For destructive actions (import, bulk apply, restore, reset,
-      // migration), the caller MUST abort.
       throw new Error(
         'PricePilot could not create a safety backup. The requested change has not been applied.'
       );
@@ -950,48 +1568,77 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   downloadBackup: () => {
-    const data = get().exportData();
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `pricepilot-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // Phase 5: download the canonical backup file. Best-effort —
+    // never throws into the UI.
+    downloadBackupFile().catch((err) => {
+      console.error('[PricePilot] Could not download backup.', err);
+    });
   },
 
   restoreBackup: async (dataString) => {
-    // Phase 11: restore is now atomic via IndexedDB transactions.
+    // Phase 6: validate the backup (including checksum verification)
+    // BEFORE creating a safety backup or touching IndexedDB.
+    // Invalid backups never reach the DB.
+    const validation = await parseValidateAndVerifyBackup(dataString);
+    if (!validation.valid) {
+      return invalidInputError(
+        ERROR_CODES.VALIDATION_FAILED,
+        validation.message,
+      );
+    }
+
+    // Create a safety backup first. If backup creation fails, abort.
     try {
-      const data = JSON.parse(dataString);
-      // Create a safety backup first.
-      try {
-        await get().createAutoBackup('manual', 'Before restoring backup');
-      } catch (backupErr) {
-        // Backup failed — abort the restore.
-        console.error('[PricePilot] Restore aborted because backup creation failed.', backupErr);
-        return false;
+      await get().createAutoBackup('manual', 'Before restoring backup');
+    } catch (backupErr) {
+      console.error('[PricePilot] Restore aborted because backup creation failed.', backupErr);
+      return retryableError(
+        ERROR_CODES.BACKUP_FAILED,
+        'Could not create a safety backup. The restore was not applied.',
+      );
+    }
+
+    // Atomic restore via IndexedDB.
+    try {
+      await atomicRestoreBackup({
+        products: validation.backup.products,
+        businessSettings: validation.backup.businessSettings,
+        pricingRules: validation.backup.pricingRules,
+        scenarios: validation.backup.scenarios,
+      });
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      // Reload state from IndexedDB so the UI reflects exactly what
+      // was committed (not what we built in memory).
+      await get().initialize();
+      // Verify exact counts after restore.
+      const db = getDb();
+      const [productCount, ruleCount, scenarioCount] = await Promise.all([
+        db.products.count(),
+        db.pricingRules.count(),
+        db.scenarios.count(),
+      ]);
+      const expectedProducts = validation.backup.products.length;
+      const expectedRules = validation.backup.pricingRules.length;
+      const expectedScenarios = validation.backup.scenarios.length;
+      if (productCount !== expectedProducts || ruleCount !== expectedRules || scenarioCount !== expectedScenarios) {
+        console.error(
+          `[PricePilot] Restore verification mismatch: products ${productCount}/${expectedProducts}, rules ${ruleCount}/${expectedRules}, scenarios ${scenarioCount}/${expectedScenarios}.`
+        );
+        return retryableError(
+          ERROR_CODES.DATABASE_ERROR,
+          'Restore verification failed — counts do not match the backup. Please reload the application.',
+        );
       }
-      // Atomic restore via IndexedDB.
-      if (data.products && data.businessSettings && data.pricingRules !== undefined) {
-        await atomicRestoreBackup({
-          products: data.products,
-          businessSettings: data.businessSettings,
-          pricingRules: data.pricingRules ?? [],
-          scenarios: data.scenarios ?? [],
-        });
-      }
-      // Also write to localStorage for legacy compatibility.
-      const success = importAllData(data);
-      if (success) {
-        await get().initialize();
-        return true;
-      }
-      return false;
+      return ok(undefined, `Restored ${expectedProducts} product(s), ${expectedRules} rule(s), ${expectedScenarios} scenario(s).`);
     } catch (err) {
       console.error('[PricePilot] Restore failed.', err);
-      return false;
+      const message = err instanceof Error ? err.message : 'Could not restore the backup.';
+      return retryableError(ERROR_CODES.DATABASE_ERROR, message);
     }
+  },
+
+  previewBackupRestore: async (dataString) => {
+    return asyncBuildRestorePreview(dataString);
   },
 
   getBackupList: () => {
@@ -1000,16 +1647,47 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   // Data management
   exportData: () => {
-    const data = exportAllData();
-    return JSON.stringify(data, null, 2);
+    // Synchronous read from in-memory state. The canonical async path
+    // is `downloadBackup()` which uses `buildBackup()` from
+    // `backup-service.ts` — that one reads from IndexedDB inside a
+    // transaction, normalizes products, validates finite numbers, and
+    // computes a content hash. This sync helper is kept for callers
+    // that need an immediate in-memory snapshot (e.g. error-boundary
+    // recovery download).
+    const { businessSettings, products, pricingRules, scenarios } = get();
+    const payload: PricePilotBackup = {
+      format: 'pricepilot-backup',
+      backupVersion: 1,
+      schemaVersion: 1,
+      appVersion: '0.2.1',
+      createdAt: new Date().toISOString(),
+      businessSettings,
+      products,
+      pricingRules,
+      scenarios,
+    };
+    return JSON.stringify(payload, null, 2);
   },
 
   importData: (dataString) => {
     try {
       const data = JSON.parse(dataString);
-      const success = importAllData(data);
-      if (success) {
-        get().initialize();
+      // Atomic restore via IndexedDB. Fire-and-forget here; the UI
+      // shows a toast and reloads state on success.
+      if (data.products && data.businessSettings) {
+        atomicRestoreBackup({
+          products: data.products,
+          businessSettings: data.businessSettings,
+          pricingRules: data.pricingRules ?? [],
+          scenarios: data.scenarios ?? [],
+        })
+          .then(() => {
+            saveLastSavedTimestampToDb(new Date().toISOString());
+            get().initialize();
+          })
+          .catch((err) => {
+            console.error('[PricePilot] importData failed.', err);
+          });
         return true;
       }
       return false;
@@ -1019,21 +1697,22 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
   },
 
   resetApplication: async () => {
-    // Phase 11: create a safety backup BEFORE the reset. If backup
-    // creation fails, the reset is aborted.
+    // Create a safety backup BEFORE the reset. If backup creation
+    // fails, the reset is aborted.
     try {
       await get().createAutoBackup('reset', 'Before application reset');
     } catch (err) {
       console.error('[PricePilot] Reset aborted because backup creation failed.', err);
-      // Surface to the UI.
       throw err;
     }
     // Atomic reset via IndexedDB.
     try {
       await atomicResetAll();
+      await saveLastSavedTimestampToDb(new Date().toISOString());
+      clearAppSettings();
     } catch (err) {
-      console.error('[PricePilot] IndexedDB reset failed; falling back to localStorage reset.', err);
-      resetAllStorage();
+      console.error('[PricePilot] IndexedDB reset failed.', err);
+      throw err;
     }
     set({
       businessSettings: createDefaultBusinessSettings(),
@@ -1047,6 +1726,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       selectedProducts: [],
       importState: createDefaultImportState(),
       undoHistory: [],
+      autoBackups: [],
     });
   },
 }));

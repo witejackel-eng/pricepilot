@@ -38,6 +38,7 @@ import {
   BusinessSettings,
   PricingRule,
   Scenario,
+  createDefaultBusinessSettings,
 } from './types';
 import { UndoAction, AutoBackup } from '@/store/pricepilot-store';
 import { ImportRowResult } from './import-service';
@@ -156,6 +157,108 @@ export function resetDbForTesting(): void {
   }
 }
 
+/**
+ * Phase 4 (WebKit reliability): Close the singleton Dexie connection
+ * and drop the cached instance so the next `getDb()` reopens fresh.
+ *
+ * This is exposed on `window.__pricepilotCloseDb` so the Playwright
+ * E2E state-reset helper can close the app's OWN Dexie connection
+ * BEFORE deleting the IndexedDB database. On WebKit, calling
+ * `indexedDB.deleteDatabase()` while a Dexie connection is still
+ * open fires `onblocked` and the database is never actually deleted —
+ * the next page load then hangs indefinitely on Dexie's `open()`.
+ *
+ * Closing the connection via the app's own singleton (rather than
+ * opening a SECOND raw `indexedDB.open()` connection from the test)
+ * avoids the cross-connection table-clearing race that previously
+ * left WebKit's Dexie connection in a broken state.
+ *
+ * Returns true if a connection was closed, false if none was open.
+ */
+export function closeDbForReset(): boolean {
+  let closed = false;
+  if (dbInstance) {
+    try {
+      dbInstance.close();
+      closed = true;
+    } catch {
+      // ignore — already closed
+    }
+    dbInstance = null;
+  }
+  return closed;
+}
+
+/**
+ * Phase 4 (WebKit reliability): Clear ALL data in every IndexedDB
+ * table using the app's OWN Dexie connection — atomically, in a single
+ * read/write transaction.
+ *
+ * This is the WebKit-safe alternative to `deleteDatabase()`. On WebKit,
+ * `deleteDatabase()` while a connection is open fires `onblocked` and
+ * the delete stays pending; the next page load's Dexie `open()` then
+ * conflicts with the pending delete and hangs indefinitely, leaving
+ * the app stuck on the "Opening your workspace…" loader forever.
+ *
+ * Clearing tables via Dexie's own connection avoids BOTH problems that
+ * plagued previous E2E reset strategies:
+ *   1. The old "open a 2nd raw indexedDB.open() connection and clear"
+ *      approach raced with Dexie's connection and corrupted it on
+ *      WebKit.
+ *   2. The "closeDb + deleteDatabase" approach left a pending delete
+ *      that blocked Dexie's reopen on WebKit.
+ *
+ * Clearing tables keeps the database schema intact (version 1) so the
+ * next page load's Dexie `open()` succeeds immediately on every
+ * browser. The data is gone (clean slate for the next test), which is
+ * exactly what the E2E reset needs.
+ *
+ * Exposed on `window.__pricepilotClearAllData` for the Playwright
+ * reset helper.
+ */
+export async function clearAllDataForE2E(): Promise<void> {
+  // Ensure the DB exists and is open.
+  const db = getDb();
+  // Clear every table in a single atomic transaction. Include
+  // metadata so migration state is reset too.
+  await db.transaction(
+    'rw',
+    [db.products, db.businessSettings, db.pricingRules, db.scenarios,
+     db.importBatches, db.importIssues, db.undoActions, db.backups,
+     db.metadata],
+    async () => {
+      await Promise.all([
+        db.products.clear(),
+        db.businessSettings.clear(),
+        db.pricingRules.clear(),
+        db.scenarios.clear(),
+        db.importBatches.clear(),
+        db.importIssues.clear(),
+        db.undoActions.clear(),
+        db.backups.clear(),
+        db.metadata.clear(),
+      ]);
+    },
+  );
+}
+
+// Expose the E2E helpers on window. These are no-ops on the server
+// (typeof window === 'undefined'). We attach them at module load time
+// so they are available as soon as the client bundle executes, even
+// before initialization completes.
+if (typeof window !== 'undefined') {
+  const w = window as unknown as {
+    __pricepilotCloseDb?: () => boolean;
+    __pricepilotClearAllData?: () => Promise<void>;
+  };
+  if (!w.__pricepilotCloseDb) {
+    w.__pricepilotCloseDb = closeDbForReset;
+  }
+  if (!w.__pricepilotClearAllData) {
+    w.__pricepilotClearAllData = clearAllDataForE2E;
+  }
+}
+
 // ============================================================
 // Constants
 // ============================================================
@@ -200,6 +303,20 @@ export async function atomicBulkUpdateProducts(
   return db.transaction('rw', db.products, async () => {
     await db.products.bulkPut(products);
     return products.length;
+  });
+}
+
+/**
+ * Atomically delete a list of products by ID. Either all deletions
+ * apply or none do.
+ */
+export async function atomicBulkDeleteProducts(
+  productIds: string[]
+): Promise<number> {
+  const db = getDb();
+  return db.transaction('rw', db.products, async () => {
+    await db.products.bulkDelete(productIds);
+    return productIds.length;
   });
 }
 
@@ -398,3 +515,109 @@ export async function setMetadata(key: string, value: unknown): Promise<void> {
     updatedAt: new Date().toISOString(),
   });
 }
+
+/**
+ * Atomically clear the entire products table. Used by `clearAllProducts`
+ * and `removeDemoSampleData`.
+ */
+export async function clearProductsInDb(): Promise<void> {
+  const db = getDb();
+  await db.transaction('rw', db.products, async () => {
+    await db.products.clear();
+  });
+}
+
+/**
+ * Phase 3 (production-readiness): atomically update business settings
+ * AND the recalculated products that depend on those settings in one
+ * Dexie transaction. Either both commit or neither does.
+ *
+ * Use this whenever business settings change — the affected products
+ * must be recalculated, and the recalculation + settings persistence
+ * must be a single atomic unit so a crash mid-write cannot leave the
+ * catalogue in an inconsistent state.
+ */
+export async function atomicUpdateSettingsAndProducts(
+  settings: BusinessSettings,
+  products: Product[],
+): Promise<void> {
+  const db = getDb();
+  await db.transaction('rw', db.businessSettings, db.products, async () => {
+    await db.businessSettings.put({ ...settings, id: BUSINESS_SETTINGS_ID });
+    await db.products.clear();
+    await db.products.bulkPut(products);
+  });
+}
+
+/**
+ * Phase 3: atomically update pricing rules AND the recalculated
+ * products in one Dexie transaction.
+ */
+export async function atomicUpdateRulesAndProducts(
+  rules: PricingRule[],
+  products: Product[],
+): Promise<void> {
+  const db = getDb();
+  await db.transaction('rw', db.pricingRules, db.products, async () => {
+    await db.pricingRules.clear();
+    await db.pricingRules.bulkPut(rules);
+    await db.products.clear();
+    await db.products.bulkPut(products);
+  });
+}
+
+/**
+ * Phase 3: atomically restore a scenario — products, pricing rules,
+ * and business settings are all replaced in one transaction.
+ */
+export async function atomicRestoreScenario(
+  products: Product[],
+  rules: PricingRule[],
+  settings: BusinessSettings,
+): Promise<void> {
+  const db = getDb();
+  await db.transaction('rw', db.products, db.pricingRules, db.businessSettings, async () => {
+    await db.products.clear();
+    await db.products.bulkPut(products);
+    await db.pricingRules.clear();
+    await db.pricingRules.bulkPut(rules);
+    await db.businessSettings.put({ ...settings, id: BUSINESS_SETTINGS_ID });
+  });
+}
+
+/**
+ * Canonical export — reads the entire primary state from IndexedDB in
+ * one read transaction so the resulting snapshot is internally
+ * consistent. Used by backup/export paths.
+ */
+export async function exportAllDataFromDb(): Promise<{
+  businessSettings: BusinessSettings;
+  products: Product[];
+  pricingRules: PricingRule[];
+  scenarios: Scenario[];
+}> {
+  const db = getDb();
+  return db.transaction('r', db.products, db.businessSettings, db.pricingRules, db.scenarios, async () => {
+    const [products, settingsRecord, pricingRules, scenarios] = await Promise.all([
+      db.products.toArray(),
+      db.businessSettings.get(BUSINESS_SETTINGS_ID),
+      db.pricingRules.toArray(),
+      db.scenarios.toArray(),
+    ]);
+    const businessSettings = settingsRecord
+      ? (() => {
+          const { id: _id, ...rest } = settingsRecord;
+          return rest as BusinessSettings;
+        })()
+      : null;
+    return {
+      businessSettings: businessSettings ?? createDefaultBusinessSettings(),
+      products,
+      pricingRules,
+      scenarios,
+    };
+  });
+}
+
+// Local import to avoid circular dependency at module load.
+// (Moved to top of file alongside other type imports.)

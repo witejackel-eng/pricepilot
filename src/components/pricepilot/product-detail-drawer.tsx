@@ -91,13 +91,17 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
     setEditHistory(prev => prev.slice(0, -1));
   }, [editHistory]);
 
-  const handleSaveEdit = useCallback(() => {
+  const handleSaveEdit = useCallback(async () => {
     if (!product) return;
     const updates: Partial<Product> = { ...editForm, competitorPrices: editCompetitors } as Partial<Product>;
-    updateProduct(product.id, updates);
-    toast.success('Product updated', { description: `${product.name} has been updated` });
-    setIsEditing(false);
-    setEditHistory([]);
+    const result = await updateProduct(product.id, updates);
+    if (result.success) {
+      toast.success('Product updated', { description: `${product.name} has been updated` });
+      setIsEditing(false);
+      setEditHistory([]);
+    } else {
+      toast.error('Could not save product', { description: result.message });
+    }
   }, [product, editForm, editCompetitors, updateProduct]);
 
   // Edit preview (must be before early return per React hooks rules)
@@ -288,15 +292,15 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
             <div className="grid grid-cols-2 gap-3">
               <Card className="bg-gradient-to-b from-slate-50 to-white shadow-sm rounded-xl border border-slate-100">
                 <CardContent className="p-3">
-                  <div className="text-xs text-muted-foreground">Existing Price</div>
-                  <div className="text-2xl font-bold">{formatCurrency(product.currentSellingPrice, cc)}</div>
+                  <div className="text-xs text-muted-foreground" data-testid="existing-price-label">Existing Price</div>
+                  <div className="text-2xl font-bold" data-testid="existing-price-value">{formatCurrency(product.currentSellingPrice, cc)}</div>
                   <div className="text-sm font-medium text-muted-foreground">Margin: {formatPercentage(product.calculatedMarginPercent)}</div>
                 </CardContent>
               </Card>
               <Card className="bg-gradient-to-b from-emerald-50 to-white shadow-sm rounded-xl border border-emerald-200">
                 <CardContent className="p-3">
-                  <div className="text-xs text-muted-foreground">Recommended Price</div>
-                  <div className="text-2xl font-bold text-emerald-700">{formatCurrency(product.recommendedPrices.balanced, cc)}</div>
+                  <div className="text-xs text-muted-foreground" data-testid="recommended-price-label">Recommended Price</div>
+                  <div className="text-2xl font-bold text-emerald-700" data-testid="recommended-price-value">{formatCurrency(product.recommendedPrices.balanced, cc)}</div>
                   <div className={`text-sm font-medium ${diffFromExisting(product.recommendedPrices.balanced) > 0 ? 'text-emerald-600' : diffFromExisting(product.recommendedPrices.balanced) < 0 ? 'text-red-600' : 'text-slate-500'}`}>
                     {diffFromExisting(product.recommendedPrices.balanced) > 0 ? <ArrowUpRight className="h-4 w-4 inline" /> : diffFromExisting(product.recommendedPrices.balanced) < 0 ? <ArrowDownRight className="h-4 w-4 inline" /> : null}
                     {diffFromExisting(product.recommendedPrices.balanced) > 0 ? '+' : ''}{formatCurrency(diffFromExisting(product.recommendedPrices.balanced), cc)}
@@ -365,7 +369,14 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                   {product.currentSellingPrice !== product.finalApprovedPrice && (
                     <Button
                       size="sm"
-                      onClick={() => { applyApprovedPrice(product.id); toast.success('Price applied', { description: `Approved price has been set as the current selling price for ${product.name}` }); }}
+                      onClick={async () => {
+                        const result = await applyApprovedPrice(product.id);
+                        if (result.success) {
+                          toast.success('Price applied', { description: `Approved price has been set as the current selling price for ${product.name}` });
+                        } else {
+                          toast.error('Could not apply price', { description: result.message });
+                        }
+                      }}
                       className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm"
                     >
                       <FileCheck className="h-4 w-4 mr-1" /> Apply Approved Price as Current Selling Price
@@ -731,8 +742,16 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                 {product.priceApprovalStatus !== 'approved' && (
                   <Button
                     size="sm"
-                    onClick={() => { approveProductPrice(product.id, selectedMode === 'custom' ? 'balanced' : selectedMode); toast.success('Price approved', { description: `${product.name} price has been approved` }); }}
+                    onClick={async () => {
+                      const result = await approveProductPrice(product.id, selectedMode === 'custom' ? 'balanced' : selectedMode);
+                      if (result.success) {
+                        toast.success('Price approved', { description: `${product.name} price has been approved` });
+                      } else {
+                        toast.error('Could not approve price', { description: result.message });
+                      }
+                    }}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm"
+                    data-testid="approve-price-button"
                   >
                     <ShieldCheck className="h-4 w-4 mr-1" /> Approve Price
                   </Button>
@@ -742,8 +761,16 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                 {product.priceApprovalStatus === 'approved' && product.finalApprovedPrice > 0 && product.currentSellingPrice !== product.finalApprovedPrice && (
                   <Button
                     size="sm"
-                    onClick={() => { applyApprovedPrice(product.id); toast.success('Price applied', { description: `Approved price has been set as the current selling price for ${product.name}` }); }}
+                    onClick={async () => {
+                      const result = await applyApprovedPrice(product.id);
+                      if (result.success) {
+                        toast.success('Price applied', { description: `Approved price has been set as the current selling price for ${product.name}` });
+                      } else {
+                        toast.error('Could not apply price', { description: result.message });
+                      }
+                    }}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-md font-semibold"
+                    data-testid="apply-price-button"
                   >
                     <FileCheck className="h-4 w-4 mr-1" /> Apply as Selling Price
                   </Button>
@@ -804,7 +831,15 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                   </AlertDialogDescription>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => { deleteProduct(product.id); toast.success('Product deleted', { description: `${product.name} has been removed` }); onClose(); }} className="bg-red-600 hover:bg-red-700">
+                    <AlertDialogAction onClick={async () => {
+                      const result = await deleteProduct(product.id);
+                      if (result.success) {
+                        toast.success('Product deleted', { description: `${product.name} has been removed` });
+                        onClose();
+                      } else {
+                        toast.error('Could not delete product', { description: result.message });
+                      }
+                    }} className="bg-red-600 hover:bg-red-700">
                       Delete
                     </AlertDialogAction>
                   </AlertDialogFooter>
@@ -910,6 +945,7 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                   <Label className="text-sm font-medium text-slate-600">Purchase Cost</Label>
                   <Input
                     type="number"
+                    data-testid="edit-purchase-cost"
                     value={editForm.purchaseCost || ''}
                     onChange={e => updateEditField('purchaseCost', parseFloat(e.target.value) || 0)}
                     className="bg-white shadow-sm border-slate-200 rounded-lg"
@@ -1278,7 +1314,7 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
 
             {/* Save / Cancel edit */}
             <div className="flex gap-2">
-              <Button onClick={handleSaveEdit} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-md font-semibold">
+              <Button data-testid="save-product-button" onClick={handleSaveEdit} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-md font-semibold">
                 <CheckCircle className="h-4 w-4 mr-1" /> Save Changes
               </Button>
               <Button variant="outline" onClick={() => { setEditForm({ ...product }); setEditCompetitors([...(product.competitorPrices || [])]); setEditHistory([]); }} className="rounded-lg border-slate-200 shadow-sm hover:bg-slate-50">

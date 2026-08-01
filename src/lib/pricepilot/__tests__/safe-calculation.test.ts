@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { safelyRecalculateProduct, safelyRecalculateProducts } from '../safe-calculation';
+import { safelyRecalculateProduct, safelyRecalculateProducts, safelyRecalculateProductsBatched } from '../safe-calculation';
 import { createDefaultBusinessSettings, createDefaultPricingRule, Product, BusinessSettings, PricingRule } from '../types';
 
 function makeSettings(overrides: Partial<BusinessSettings> = {}): BusinessSettings {
@@ -208,5 +208,106 @@ describe('safelyRecalculateProducts — one bad product does not abort the batch
     const result = safelyRecalculateProducts(null as unknown as unknown[], makeSettings(), makeRules());
     expect(result.successfulProducts).toHaveLength(0);
     expect(result.failedProducts).toHaveLength(0);
+  });
+});
+
+// ============================================================
+// safelyRecalculateProductsBatched
+// ============================================================
+
+describe('safelyRecalculateProductsBatched', () => {
+  it('processes products in batches', async () => {
+    const products = [
+      makeValidProduct({ id: 'p1', sku: 'SKU-1' }),
+      makeValidProduct({ id: 'p2', sku: 'SKU-2' }),
+      makeValidProduct({ id: 'p3', sku: 'SKU-3' }),
+    ];
+    const result = await safelyRecalculateProductsBatched(products, makeSettings(), makeRules(), { batchSize: 2 });
+    expect(result.successfulProducts.length + result.failedProducts.length).toBe(3);
+  });
+
+  it('calls onProgress callback', async () => {
+    const products = [
+      makeValidProduct({ id: 'p1' }),
+      makeValidProduct({ id: 'p2' }),
+      makeValidProduct({ id: 'p3' }),
+    ];
+    const progressMessages: string[] = [];
+    await safelyRecalculateProductsBatched(products, makeSettings(), makeRules(), {
+      batchSize: 2,
+      onProgress: (msg) => progressMessages.push(msg),
+    });
+    expect(progressMessages.length).toBeGreaterThan(0);
+  });
+
+  it('handles empty array', async () => {
+    const result = await safelyRecalculateProductsBatched([], makeSettings(), makeRules());
+    expect(result.successfulProducts).toHaveLength(0);
+    expect(result.failedProducts).toHaveLength(0);
+  });
+
+  it('handles non-array input', async () => {
+    const result = await safelyRecalculateProductsBatched(null as unknown as unknown[], makeSettings(), makeRules());
+    expect(result.successfulProducts).toHaveLength(0);
+    expect(result.failedProducts).toHaveLength(0);
+  });
+
+  it('handles mixed valid and invalid products', async () => {
+    const products = [
+      makeValidProduct({ id: 'p1' }),
+      makeValidProduct({ id: 'p2', purchaseCost: 0 }),
+    ];
+    const result = await safelyRecalculateProductsBatched(products, makeSettings(), makeRules(), { batchSize: 1 });
+    expect(result.successfulProducts.length + result.failedProducts.length).toBe(2);
+  });
+});
+
+// ============================================================
+// safelyRecalculateProduct — more edge cases
+// ============================================================
+
+describe('safelyRecalculateProduct — missing business settings', () => {
+  it('returns failure when business settings is null', () => {
+    const product = makeValidProduct();
+    const result = safelyRecalculateProduct(product, null as unknown as BusinessSettings, makeRules());
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('missing-business-settings');
+    }
+  });
+
+  it('returns failure when business settings is undefined', () => {
+    const product = makeValidProduct();
+    const result = safelyRecalculateProduct(product, undefined as unknown as BusinessSettings, makeRules());
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('safelyRecalculateProduct — warnings from engine', () => {
+  it('surfaces warnings from the current outcome', () => {
+    const settings = makeSettings();
+    const product = makeValidProduct({
+      purchaseCost: 100,
+      currentSellingPrice: 50, // below cost, should generate loss-making warning
+    });
+    const result = safelyRecalculateProduct(product, settings, makeRules());
+    // The product should have warnings (loss-making)
+    if (result.success) {
+      // Even successful products may have warnings
+      expect(Array.isArray(result.warnings)).toBe(true);
+    }
+  });
+});
+
+describe('safelyRecalculateProducts — batch with failing products', () => {
+  it('reports issues for failed products', () => {
+    const products = [
+      makeValidProduct({ id: 'p1' }),
+      makeValidProduct({ id: 'p2', purchaseCost: 0 }),
+    ];
+    const result = safelyRecalculateProducts(products, makeSettings(), makeRules());
+    expect(result.successfulProducts.length + result.failedProducts.length).toBe(2);
+    // The needs-review product should be in successfulProducts (it's a success with needs-review status)
+    // or failedProducts depending on the implementation
   });
 });

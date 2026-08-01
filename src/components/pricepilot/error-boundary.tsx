@@ -19,6 +19,7 @@
 import { Component, ReactNode, ErrorInfo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Home, RotateCcw, Download, AlertTriangle } from 'lucide-react';
+import { reportError } from '@/lib/pricepilot/error-reporter';
 
 interface Props {
   children: ReactNode;
@@ -63,6 +64,17 @@ export class PricePilotErrorBoundary extends Component<Props, State> {
       contextImportRow: this.props.contextImportRow,
     });
     this.setState({ errorInfo });
+
+    // Report via the error observability module.
+    try {
+      reportError(error, {
+        category: 'ui',
+        operation: this.props.boundaryName ?? 'error-boundary',
+        productId: this.props.contextProductId,
+      });
+    } catch {
+      // Error reporting must never cause errors.
+    }
   }
 
   handleReturnHome = (): void => {
@@ -133,6 +145,26 @@ export class PricePilotErrorBoundary extends Component<Props, State> {
                   </pre>
                 )}
               </details>
+            )}
+            {/* Copyable diagnostic code for support */}
+            {error && (
+              <div className="mt-2">
+                <button
+                  className="text-[10px] text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 underline cursor-pointer"
+                  onClick={() => {
+                    const diagnostic = JSON.stringify({
+                      operation: this.props.boundaryName ?? 'unknown',
+                      errorName: error.name,
+                      errorMessage: error.message,
+                      componentStack: this.state.errorInfo?.componentStack?.slice(0, 500) ?? '',
+                      timestamp: new Date().toISOString(),
+                    }, null, 2);
+                    navigator.clipboard.writeText(diagnostic).catch(() => {});
+                  }}
+                >
+                  Copy diagnostic code
+                </button>
+              </div>
             )}
           </div>
           <div className="flex flex-col gap-2">

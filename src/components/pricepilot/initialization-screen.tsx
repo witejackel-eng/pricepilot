@@ -23,17 +23,58 @@ export function InitializationScreen() {
   if (initialization.status === 'loading' || initialization.status === 'idle') {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-emerald-50 dark:from-emerald-950 dark:via-slate-950 dark:to-emerald-950 px-6">
-        <div className="max-w-md w-full text-center space-y-6">
-          <div className="mx-auto h-12 w-12 rounded-xl bg-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-600/20">
-            <Loader2 className="h-6 w-6 text-white animate-spin" />
+        <div className="max-w-md w-full text-center space-y-8">
+          {/* Brand mark */}
+          <div className="flex flex-col items-center gap-4">
+            <div className="relative">
+              <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-700 flex items-center justify-center text-white font-bold text-2xl shadow-xl shadow-emerald-500/30">
+                P
+              </div>
+              {/* Pulse ring around the brand mark */}
+              <div className="absolute inset-0 h-16 w-16 rounded-2xl bg-emerald-400/20 animate-ping" />
+              {/* Secondary pulse */}
+              <div className="absolute -inset-2 h-20 w-20 rounded-2xl bg-emerald-400/10 animate-pulse" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50 tracking-tight">PricePilot</h1>
+              <p className="text-sm text-slate-400 dark:text-slate-500 mt-0.5">Product Pricing & Profit Optimiser</p>
+            </div>
           </div>
-          <div className="space-y-2">
-            <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
-              Opening your PricePilot workspace…
-            </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Loading your products and pricing rules.
-            </p>
+
+          {/* Loading indicator */}
+          <div className="flex flex-col items-center gap-4">
+            <div className="relative">
+              {/* Outer ring */}
+              <div className="h-10 w-10 rounded-full border-4 border-emerald-100 dark:border-emerald-900/50" />
+              {/* Spinning ring */}
+              <div className="absolute inset-0 h-10 w-10 rounded-full border-4 border-transparent border-t-emerald-500 animate-spin" />
+              {/* Inner pulse */}
+              <div className="absolute inset-2 h-6 w-6 rounded-full bg-emerald-200/50 animate-pulse" />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
+                Opening your workspace…
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Loading your products and pricing rules.
+              </p>
+            </div>
+          </div>
+
+          {/* Animated progress bar */}
+          <div className="max-w-xs mx-auto">
+            <div className="h-1.5 w-full rounded-full bg-emerald-100 dark:bg-emerald-900/30 overflow-hidden">
+              <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 animate-[loading_1.5s_ease-in-out_infinite]" style={{
+                animation: 'loading 1.5s ease-in-out infinite',
+              }} />
+            </div>
+            <style>{`
+              @keyframes loading {
+                0% { transform: translateX(-100%); }
+                50% { transform: translateX(100%); }
+                100% { transform: translateX(200%); }
+              }
+            `}</style>
           </div>
         </div>
       </div>
@@ -44,33 +85,41 @@ export function InitializationScreen() {
   if (initialization.status === 'failed') {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-red-50 via-white to-red-50 dark:from-red-950 dark:via-slate-950 dark:to-red-950 px-6">
-        <div className="max-w-md w-full text-center space-y-6">
-          <div className="mx-auto h-12 w-12 rounded-xl bg-red-600 flex items-center justify-center shadow-lg shadow-red-600/20">
-            <AlertTriangle className="h-6 w-6 text-white" />
+        <div className="max-w-md w-full text-center space-y-8">
+          {/* Brand mark with error state */}
+          <div className="flex flex-col items-center gap-4">
+            <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-red-400 to-red-700 flex items-center justify-center text-white shadow-xl shadow-red-500/20">
+              <AlertTriangle className="h-8 w-8" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50 tracking-tight">PricePilot</h1>
+            </div>
           </div>
-          <div className="space-y-2">
-            <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
-              PricePilot could not open your saved workspace.
-            </h1>
+
+          <div className="space-y-3">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
+              Could not open your saved workspace
+            </h2>
             <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-line">
               Your browser data has not been deleted.
             </p>
             {initialization.error && (
-              <p className="text-xs text-slate-400 dark:text-slate-500 font-mono bg-slate-100 dark:bg-slate-800 rounded p-2 mt-3">
+              <div className="text-xs text-slate-400 dark:text-slate-500 font-mono bg-slate-100 dark:bg-slate-800 rounded-xl p-3 mt-3 text-left overflow-auto max-h-32">
                 {initialization.error}
-              </p>
+              </div>
             )}
           </div>
-          <div className="flex flex-col gap-2">
-            <Button onClick={retryInitialize} className="bg-emerald-600 hover:bg-emerald-700">
+
+          <div className="flex flex-col gap-2.5">
+            <Button onClick={retryInitialize} className="bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md shadow-emerald-500/20 transition-all duration-200 hover:shadow-lg">
               <RotateCcw className="h-4 w-4 mr-2" />
               Try Again
             </Button>
-            <Button onClick={downloadExistingData} variant="outline">
+            <Button onClick={downloadExistingData} variant="outline" className="rounded-xl transition-all duration-200 hover:shadow-sm">
               <Download className="h-4 w-4 mr-2" />
               Download Existing Data
             </Button>
-            <Button onClick={startEmptyWorkspace} variant="ghost">
+            <Button onClick={startEmptyWorkspace} variant="ghost" className="rounded-xl transition-colors duration-200">
               <FolderOpen className="h-4 w-4 mr-2" />
               Start Empty Workspace
             </Button>

@@ -70,11 +70,22 @@ export type SalesChannel =
 
 /** Import flow step */
 export type ImportStep =
-  | 'upload'       // File upload step
-  | 'preview'      // Data preview step
-  | 'mapping'      // Column mapping step
-  | 'cleaning'     // Data cleaning step
-  | 'confirmation'; // Final confirmation step
+  | 'upload'               // File upload step
+  | 'preview'              // Data preview step
+  | 'mapping'              // Column mapping step
+  | 'row-review'           // Row-by-row review (processImportRows)
+  | 'duplicate-resolution' // Duplicate SKU reconciliation
+  | 'confirmation';        // Final confirmation step
+
+/** Result of a transactional import commit. */
+export interface ImportCommitResult {
+  added: number;
+  updated: number;
+  filledMissing: number;
+  skipped: number;
+  rejected: number;
+  needsReview: number;
+}
 
 /** Warning severity levels */
 export type WarningSeverity = 'info' | 'warning' | 'error' | 'critical';
@@ -348,6 +359,15 @@ export interface BusinessSettings {
   // --- Rounding ---
   defaultRoundingRule: RoundingRule;
   customRoundingValue?: number;
+
+  // --- Phase 12: Onboarding Flags ---
+  /** True when the user picked "Not sure" for GST during onboarding.
+   * Recommendation confidence is forced to 'low' until the user
+   * provides a confirmed rate in Settings. */
+  taxSettingsUnconfirmed?: boolean;
+  /** True when the user picked "Confirm later" for marketplace fees
+   * during onboarding. Same low-confidence behaviour. */
+  feeSettingsUnconfirmed?: boolean;
   
   // --- Profitability Thresholds ---
   lowMarginThresholdPercent: number;   // Below this = low-margin
@@ -581,6 +601,7 @@ export interface AppSettings {
   
   // --- Onboarding ---
   tourCompleted: boolean;         // Whether guided tour has been completed
+  tourDismissed: boolean;       // Whether user dismissed the tour invitation
   sampleDataLoaded: boolean;      // Whether sample/demo data is currently loaded
   
   updatedAt: string;
@@ -909,6 +930,7 @@ export function createDefaultAppSettings(): AppSettings {
     defaultExportPreset: 'full',
     includeCalculatedInExport: true,
     tourCompleted: false,
+    tourDismissed: false,
     sampleDataLoaded: false,
     updatedAt: new Date().toISOString(),
   };
