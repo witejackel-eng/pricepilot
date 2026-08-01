@@ -70,6 +70,14 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "src/lib/pricepilot/__tests__/import-persistence.test.ts",
     // Coverage artifacts are not linted.
     "coverage/**",
+    // QA helper scripts (v1.2) — static file server + browser QA runners,
+    // not part of the application source.
+    "pp-server.js",
+    "qa-runner.sh",
+    "qa-full.sh",
+    "qa-nav.sh",
+    "qa-nav2.sh",
+    "qa-pages.sh",
   ]
 }];
 

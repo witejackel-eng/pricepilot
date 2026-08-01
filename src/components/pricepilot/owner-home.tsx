@@ -45,6 +45,7 @@ import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from 'recharts';
 import { ProfitPotentialPanel } from './profit-potential-panel';
 import { PriceChangeTimeline } from './price-change-timeline';
+import { TopProductsLeaderboard } from './top-products-leaderboard';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -302,6 +303,10 @@ export function OwnerHome() {
           there are products to analyse (the component returns null
           otherwise). */}
       <ProfitPotentialPanel />
+
+      {/* v1.2: Top Products Leaderboard — visual ranking of best/worst
+          performers with a margin distribution mini-chart. */}
+      <TopProductsLeaderboard />
 
       {/* Pricing Summary Dashboard Widget + Recent Activity Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

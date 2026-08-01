@@ -34,9 +34,10 @@ import { calculateOutcomeAtPrice, calculateBreakEvenPriceFromOutcome } from '@/l
 import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Calculator,
-  Edit3, CheckCircle, Undo2, Copy, ChevronDown, ChevronUp, Plus, X, ShieldCheck, FileCheck, Sparkles, Package, ArrowRight, Layers
+  Edit3, CheckCircle, Undo2, Copy, ChevronDown, ChevronUp, Plus, X, ShieldCheck, FileCheck, Sparkles, Package, ArrowRight, Layers, History
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { PriceHistoryChart } from './price-history-chart';
 
 export function ProductDetailDrawer({ productId, onClose }: { productId: string | null; onClose: () => void }) {
   const { products, businessSettings, pricingRules, updateProduct, approveProductPrice, applyApprovedPrice, duplicateProduct, deleteProduct, addRecentlyViewed, appSettings } = usePricePilotStore();
@@ -287,6 +288,9 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
             </TabsTrigger>
             <TabsTrigger value="edit" className="rounded-lg data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
               <Edit3 className="h-4 w-4 mr-1" /> Edit
+            </TabsTrigger>
+            <TabsTrigger value="history" className="rounded-lg data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
+              <History className="h-4 w-4 mr-1" /> History
             </TabsTrigger>
           </TabsList>
 
@@ -1385,6 +1389,15 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                 <Undo2 className="h-4 w-4 mr-1" /> Reset Form
               </Button>
             </div>
+          </TabsContent>
+
+          {/* ===== HISTORY TAB (v1.2) ===== */}
+          <TabsContent value="history" className="space-y-4">
+            <Card className="shadow-sm rounded-xl border border-slate-100 dark:border-slate-800">
+              <CardContent className="p-4">
+                <PriceHistoryChart product={product} currencyCode={cc} />
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </SheetContent>
