@@ -146,6 +146,26 @@ export class PricePilotErrorBoundary extends Component<Props, State> {
                 )}
               </details>
             )}
+            {/* Copyable diagnostic code for support */}
+            {error && (
+              <div className="mt-2">
+                <button
+                  className="text-[10px] text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 underline cursor-pointer"
+                  onClick={() => {
+                    const diagnostic = JSON.stringify({
+                      operation: this.props.boundaryName ?? 'unknown',
+                      errorName: error.name,
+                      errorMessage: error.message,
+                      componentStack: this.state.errorInfo?.componentStack?.slice(0, 500) ?? '',
+                      timestamp: new Date().toISOString(),
+                    }, null, 2);
+                    navigator.clipboard.writeText(diagnostic).catch(() => {});
+                  }}
+                >
+                  Copy diagnostic code
+                </button>
+              </div>
+            )}
           </div>
           <div className="flex flex-col gap-2">
             <Button onClick={this.handleReturnHome} className="bg-emerald-600 hover:bg-emerald-700">
