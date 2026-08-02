@@ -725,8 +725,8 @@ export function ProductsPage() {
               </div>
             )}
           </div>
-          <div className="overflow-x-auto">
-            <Table>
+          <div className="overflow-x-auto relative">
+            <Table className="min-w-[1100px]">
               <TableHeader>
                 <TableRow className="bg-gradient-to-r from-slate-50 to-emerald-50/10 hover:bg-slate-50 border-b border-slate-200">
                   <TableHead className="w-[40px] sticky top-0 bg-slate-50">
@@ -760,12 +760,13 @@ export function ProductsPage() {
                   </TableHead>
                   <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('markup')}>Markup {sortIcon('markup', sortBy, sortDir)}</TableHead>
                   <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Status</TableHead>
+                  <TableHead className="sticky right-0 top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500 shadow-[inset_-4px_0_8px_-4px_rgba(0,0,0,0.05)]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {pageData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={showMoreColumns ? 20 : 13} className="text-center py-12">
+                    <TableCell colSpan={showMoreColumns ? 21 : 14} className="text-center py-12">
                       <div className="flex flex-col items-center">
                         <div className="bg-slate-100 rounded-full p-4 mb-3">
                           <Search className="h-8 w-8 text-slate-400" />
@@ -805,18 +806,18 @@ export function ProductsPage() {
                         }`}
                         onClick={() => setSelectedProduct(p.id)}
                       >
-                        <TableCell className="py-3">
+                        <TableCell className="py-2.5">
                           <Checkbox checked={selectedProducts.includes(p.id)} onCheckedChange={() => toggleSelect(p.id)} onClick={e => e.stopPropagation()} />
                         </TableCell>
-                        <TableCell data-testid="product-name-cell" className="font-semibold text-slate-800 max-w-[280px] truncate py-3" title={p.name}>
+                        <TableCell data-testid="product-name-cell" className="font-semibold text-slate-800 max-w-[280px] truncate py-2.5 text-xs" title={p.name}>
                           <div className="flex items-center gap-2">
                             {needsAttention && <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />}
                             {p.name}
                           </div>
                         </TableCell>
-                        <TableCell className="text-xs text-slate-500 py-3">{p.sku}</TableCell>
-                        <TableCell className="text-xs text-slate-600 py-3">{p.category || '—'}</TableCell>
-                        <TableCell className="max-w-[120px] py-3">
+                        <TableCell className="text-xs text-slate-500 py-2.5">{p.sku}</TableCell>
+                        <TableCell className="text-xs text-slate-600 py-2.5">{p.category || '—'}</TableCell>
+                        <TableCell className="max-w-[120px] py-2.5">
                           <div className="flex gap-1 flex-wrap">
                             {(p.tags || []).slice(0, 3).map(tag => (
                               <Badge key={tag} variant="secondary" className="rounded-md text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0">
@@ -832,18 +833,18 @@ export function ProductsPage() {
                         </TableCell>
                         {showMoreColumns && (
                           <>
-                            <TableCell className="text-xs text-slate-700 py-3">{p.brand || '—'}</TableCell>
-                            <TableCell className="text-xs text-slate-700 py-3">{channelLabel(p.salesChannel)}</TableCell>
-                            <TableCell className="text-right text-slate-700 tabular-nums py-3">{p.quantity.toLocaleString()}</TableCell>
-                            <TableCell className="text-right text-slate-700 tabular-nums py-3">{p.monthlyUnitsSold.toLocaleString()}</TableCell>
-                            <TableCell className="text-right text-slate-700 tabular-nums py-3">{formatCurrency(p.calculatedBreakEvenPrice, businessSettings.currencyCode)}</TableCell>
-                            <TableCell className="text-right text-slate-700 tabular-nums py-3">{formatCurrency(p.calculatedTotalLandedCost, businessSettings.currencyCode)}</TableCell>
-                            <TableCell className="text-xs text-slate-500 whitespace-nowrap py-3">{new Date(p.updatedAt).toLocaleDateString()}</TableCell>
+                            <TableCell className="text-xs text-slate-700 py-2.5">{p.brand || '—'}</TableCell>
+                            <TableCell className="text-xs text-slate-700 py-2.5">{channelLabel(p.salesChannel)}</TableCell>
+                            <TableCell className="text-right text-slate-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{p.quantity.toLocaleString()}</TableCell>
+                            <TableCell className="text-right text-slate-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{p.monthlyUnitsSold.toLocaleString()}</TableCell>
+                            <TableCell className="text-right text-slate-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatCurrency(p.calculatedBreakEvenPrice, businessSettings.currencyCode)}</TableCell>
+                            <TableCell className="text-right text-slate-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatCurrency(p.calculatedTotalLandedCost, businessSettings.currencyCode)}</TableCell>
+                            <TableCell className="text-xs text-slate-500 whitespace-nowrap py-2.5">{new Date(p.updatedAt).toLocaleDateString()}</TableCell>
                           </>
                         )}
-                        <TableCell className="text-right text-slate-600 py-3">{formatCurrency(p.purchaseCost, businessSettings.currencyCode)}</TableCell>
+                        <TableCell className="text-right text-slate-600 py-2.5 text-xs whitespace-nowrap">{formatCurrency(p.purchaseCost, businessSettings.currencyCode)}</TableCell>
                         <TableCell
-                          className="text-right py-3"
+                          className="text-right py-2.5 whitespace-nowrap"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <QuickPriceEdit
@@ -853,12 +854,12 @@ export function ProductsPage() {
                             onEditEnd={() => setEditingPriceId(null)}
                           />
                         </TableCell>
-                        <TableCell className="text-right font-bold text-emerald-700 py-3">{formatCurrency(p.recommendedPrices.balanced, businessSettings.currencyCode)}</TableCell>
-                        <TableCell className={`text-right font-semibold py-3 ${p.calculatedProfitPerUnit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                        <TableCell className="text-right font-bold text-emerald-700 py-2.5 text-xs whitespace-nowrap">{formatCurrency(p.recommendedPrices.balanced, businessSettings.currencyCode)}</TableCell>
+                        <TableCell className={`text-right font-semibold py-2.5 text-xs whitespace-nowrap ${p.calculatedProfitPerUnit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                           {formatCurrency(p.calculatedProfitPerUnit, businessSettings.currencyCode)}
                         </TableCell>
-                        <TableCell className="text-right text-slate-600 tabular-nums py-3">{formatPercentage(p.calculatedMarginPercent)}</TableCell>
-                        <TableCell className="py-3" onClick={(e) => e.stopPropagation()}>
+                        <TableCell className="text-right text-slate-600 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatPercentage(p.calculatedMarginPercent)}</TableCell>
+                        <TableCell className="py-2.5" onClick={(e) => e.stopPropagation()}>
                           <ProductTrendCell
                             productId={p.id}
                             currentPrice={p.currentSellingPrice}
@@ -866,9 +867,14 @@ export function ProductsPage() {
                             allHistory={priceHistory}
                           />
                         </TableCell>
-                        <TableCell className="text-right text-slate-600 tabular-nums py-3">{formatPercentage(p.calculatedMarkupPercent)}</TableCell>
-                        <TableCell className="py-3">
+                        <TableCell className="text-right text-slate-600 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatPercentage(p.calculatedMarkupPercent)}</TableCell>
+                        <TableCell className="py-2.5">
                           <StatusBadge status={p.calculatedPricingStatus} pulse={needsAttention} />
+                        </TableCell>
+                        <TableCell className={`sticky right-0 py-2.5 shadow-[inset_-4px_0_8px_-4px_rgba(0,0,0,0.05)] ${isEven ? 'bg-white' : 'bg-slate-50/40'}`} onClick={(e) => e.stopPropagation()}>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelectedProduct(p.id)}>
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                     );
@@ -876,6 +882,8 @@ export function ProductsPage() {
                 )}
               </TableBody>
             </Table>
+            {/* Scroll indicator */}
+            <div className="h-1 bg-gradient-to-r from-transparent via-slate-300 to-transparent opacity-0 group-hover/scroll:opacity-100 transition-opacity" />
           </div>
 
           {/* Pagination */}

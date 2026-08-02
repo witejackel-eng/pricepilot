@@ -693,7 +693,7 @@ export function ReviewPricesPage() {
   return (
     <div className="max-w-5xl mx-auto pb-24">
       {/* Gradient header card */}
-      <div className="relative rounded-2xl overflow-hidden mb-6 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 shadow-lg shadow-emerald-200/50 dark:shadow-emerald-900/30">
+      <div className="relative rounded-2xl overflow-hidden mb-6 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 shadow-lg shadow-emerald-200/50 dark:shadow-emerald-900/30 gradient-header-border">
         {/* Decorative blur circles */}
         <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-400/30 rounded-full blur-2xl" />
         <div className="absolute bottom-0 left-1/4 w-24 h-24 bg-teal-300/20 rounded-full blur-xl" />
@@ -710,7 +710,7 @@ export function ReviewPricesPage() {
                   <span className="flex items-center gap-1.5">
                     <span className="relative flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-300 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400 needs-attention-pulse" />
                     </span>
                     {actionRequired.length} product{actionRequired.length !== 1 ? 's' : ''} need{actionRequired.length === 1 ? 's' : ''} your attention
                   </span>
@@ -783,7 +783,7 @@ export function ReviewPricesPage() {
               onClick={() => setActiveTab(tab.key)}
               className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-medium transition-all duration-200 border ${
                 isActive
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-500 text-white border-emerald-500 shadow-md shadow-emerald-200/50 dark:shadow-emerald-900/30 scale-[1.02]'
+                  ? 'tab-active-gradient text-white border-emerald-500 shadow-md shadow-emerald-200/50 dark:shadow-emerald-900/30 scale-[1.02]'
                   : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:border-emerald-200 dark:hover:border-emerald-700 hover:text-emerald-700 dark:hover:text-emerald-300'
               }`}
             >
@@ -850,7 +850,8 @@ export function ReviewPricesPage() {
               <AllCaughtUpState tabLabel={tab.label} />
             ) : (
               <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent">
-                {tab.items.map(product => (
+                {tab.items.map((product, idx) => (
+                  <div key={product.id} className={idx % 2 === 1 ? 'bg-emerald-50/30 dark:bg-emerald-950/10 rounded-xl' : ''}>
                   <ProductCard
                     key={product.id}
                     product={product}
@@ -863,6 +864,7 @@ export function ReviewPricesPage() {
                     onApply={handleApplySingle}
                     onReview={() => handleReview(product.id)}
                   />
+                  </div>
                 ))}
               </div>
             )}

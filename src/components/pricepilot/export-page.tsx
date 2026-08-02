@@ -15,6 +15,7 @@ import { ExportPreset } from '@/lib/pricepilot/types';
 import { createSpreadsheet, downloadSpreadsheet, sanitizeSpreadsheetRows } from '@/lib/pricepilot/spreadsheet-adapter';
 import { Download, FileSpreadsheet, FileText, AlertTriangle, CheckCircle2, Sparkles, TableProperties, ArrowRight, CheckCircle } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { ExportScheduler } from '@/components/pricepilot/export-scheduler';
 
 const PRESETS: { value: ExportPreset; label: string; desc: string; columns: string[] }[] = [
   {
@@ -414,7 +415,7 @@ export function ExportPage() {
               onClick={handleOwnerExport}
               disabled={products.length === 0 || exportProgress !== null}
               data-testid="export-button"
-              className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-md shadow-emerald-500/20 rounded-lg font-semibold text-lg px-6 py-3 w-full"
+              className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-md shadow-emerald-500/20 rounded-lg font-semibold text-lg px-6 py-3 w-full download-bounce"
             >
               <Download className="h-5 w-5 mr-2" /> Download Updated Price List
             </Button>
@@ -431,6 +432,9 @@ export function ExportPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Scheduled Exports */}
+        <ExportScheduler />
       </div>
     );
   }
@@ -525,7 +529,7 @@ export function ExportPage() {
                   preset === p.value
                     ? 'shadow-lg ring-2 ring-emerald-500 ring-offset-2 scale-[1.02]'
                     : 'shadow-sm border border-slate-100 hover:border-emerald-200 hover:shadow-md hover:scale-[1.01]'
-                }`}
+                } ${p.value === 'full' ? 'border-2 border-emerald-200/60' : ''}`}
                 onClick={() => handlePresetChange(p.value)}
               >
                 {/* Gradient border effect for selected */}
@@ -539,7 +543,12 @@ export function ExportPage() {
                   </div>
                 )}
                 <div className="relative z-10">
-                  <span className="font-medium text-slate-800">{p.label}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-slate-800">{p.label}</span>
+                    {p.value === 'full' && (
+                      <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-emerald-200 h-5 px-1.5">Recommended</Badge>
+                    )}
+                  </div>
                   <span className="block text-xs text-muted-foreground mt-0.5">{p.desc}</span>
                   <Badge variant="secondary" className={`mt-2 text-xs ${preset === p.value ? 'bg-emerald-100 text-emerald-700' : ''}`}>{p.columns.length} columns</Badge>
                 </div>
@@ -691,7 +700,7 @@ export function ExportPage() {
         <Button
           onClick={handleExport}
           disabled={exportProducts.length === 0 || selectedColumns.length === 0 || exportProgress !== null}
-          className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/25 rounded-xl font-semibold text-lg px-8 py-4 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98]"
+          className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/25 rounded-xl font-semibold text-lg px-8 py-4 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/30 hover:scale-[1.02] active:scale-[0.98] download-bounce"
         >
           <Download className="h-5 w-5 mr-2" />
           Download {format === 'xlsx' ? 'Excel' : 'CSV'}
@@ -699,6 +708,9 @@ export function ExportPage() {
           <span className="ml-2 text-sm font-normal opacity-80">({exportProducts.length} products)</span>
         </Button>
       </div>
+
+      {/* Scheduled Exports */}
+      <ExportScheduler />
     </div>
   );
 }

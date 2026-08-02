@@ -54,6 +54,8 @@ import { TopProductsLeaderboard } from './top-products-leaderboard';
 import { RecentlyViewedProducts } from './recently-viewed-products';
 import { PricingHealthGauge } from './pricing-health-gauge';
 import { PriceInsightsPanel } from './price-insights-panel';
+import { RevenueForecastPanel } from './revenue-forecast-panel';
+import { CategoryAnalysisPanel } from './category-analysis-panel';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -325,6 +327,12 @@ export function OwnerHome() {
           there are products to analyse (the component returns null
           otherwise). */}
       <ProfitPotentialPanel />
+
+      {/* Revenue Forecast Dashboard — monthly revenue, profit, and projections */}
+      <RevenueForecastPanel />
+
+      {/* Category Analysis Breakdown — performance breakdown by category */}
+      <CategoryAnalysisPanel />
 
       {/* v1.2: Top Products Leaderboard — visual ranking of best/worst
           performers with a margin distribution mini-chart. */}

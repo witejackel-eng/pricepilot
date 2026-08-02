@@ -709,7 +709,7 @@ export function DashboardPage() {
   return (
     <div className="space-y-8 bg-gradient-to-b from-slate-50/50 to-white min-h-screen p-1">
       {/* Header with gradient banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 p-6 shadow-lg shadow-emerald-500/20">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 p-6 shadow-lg shadow-emerald-500/20 gradient-header-border">
         {/* Decorative circles */}
         <div className="absolute top-0 right-0 -mt-8 -mr-8 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
         <div className="absolute bottom-0 left-0 -mb-8 -ml-8 h-24 w-24 rounded-full bg-white/10 blur-xl" />
@@ -746,7 +746,7 @@ export function DashboardPage() {
 
       {/* Quick Actions Toolbar */}
       {products.length > 0 && (
-        <div className="flex gap-3 flex-wrap">
+        <div className="flex gap-3 flex-wrap bg-gradient-to-r from-emerald-50/50 via-white to-teal-50/50 dark:from-emerald-950/20 dark:via-slate-900/0 dark:to-teal-950/20 rounded-xl p-3 -mx-1 border border-emerald-100/30 dark:border-emerald-900/20">
           <Button
             onClick={() => setCurrentView('import')}
             className="rounded-xl shadow-md hover:shadow-lg bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white transition-all duration-200"
@@ -806,7 +806,7 @@ export function DashboardPage() {
       {/* KPI Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <SummaryCard title="Total Products" value={totalProducts} icon={Package} color="slate" format="number" />
-        <SummaryCard title="Products Analysed" value={productsAnalysed} icon={BarChart3} color="emerald" format="number" />
+        <SummaryCard title="Products Analysed" value={productsAnalysed} icon={BarChart3} color="emerald" format="number" sparkle />
         <SummaryCard title="Avg Existing Margin" value={avgExistingMargin} icon={TrendingUp} color={avgExistingMargin >= 0 ? 'emerald' : 'red'} format="percent" />
         <SummaryCard title="Avg Recommended Margin" value={avgRecommendedMargin} icon={Target} color="emerald" format="percent" />
         <SummaryCard title={`Current Est. Profit (${profitLabel})`} value={currentEstimatedProfitPerUnit} icon={DollarSign} color={currentEstimatedProfitPerUnit >= 0 ? 'emerald' : 'red'} format="currency" currencyCode={businessSettings.currencyCode} />
@@ -854,7 +854,7 @@ export function DashboardPage() {
           <>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Card A: Margin Distribution Histogram */}
-              <Card className="shadow-md border border-emerald-100/30 overflow-hidden hover:shadow-xl transition-all duration-300 bg-white/70 backdrop-blur-md rounded-2xl">
+              <Card className="shadow-md border border-emerald-100/30 overflow-hidden hover:shadow-xl transition-all duration-300 bg-white/70 backdrop-blur-md rounded-2xl chart-glass">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                     <BarChart3 className="h-4 w-4 text-emerald-500" />
@@ -878,7 +878,7 @@ export function DashboardPage() {
               </Card>
 
               {/* Card B: Pricing Status Breakdown (Donut) */}
-              <Card className="shadow-md border border-emerald-100/30 overflow-hidden hover:shadow-xl transition-all duration-300 bg-white/70 backdrop-blur-md rounded-2xl">
+              <Card className="shadow-md border border-emerald-100/30 overflow-hidden hover:shadow-xl transition-all duration-300 bg-white/70 backdrop-blur-md rounded-2xl chart-glass">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                     <PieChart className="h-4 w-4 text-emerald-500" />
@@ -930,7 +930,7 @@ export function DashboardPage() {
             </div>
 
             {/* Card C: Quick Insights */}
-            <Card className="shadow-md border border-amber-100/30 overflow-hidden bg-white/70 backdrop-blur-md rounded-2xl mt-4">
+            <Card className="shadow-md border border-amber-100/30 overflow-hidden bg-white/70 backdrop-blur-md rounded-2xl mt-4 chart-glass">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                   <Lightbulb className="h-4 w-4 text-amber-500" />
@@ -1626,7 +1626,7 @@ export function DashboardPage() {
   );
 }
 
-function SummaryCard({ title, value, icon, color, format, currencyCode }: { title: string; value: number; icon: React.ElementType; color: string; format: 'number' | 'percent' | 'currency' | 'healthScore'; currencyCode?: string }) {
+function SummaryCard({ title, value, icon, color, format, currencyCode, sparkle }: { title: string; value: number; icon: React.ElementType; color: string; format: 'number' | 'percent' | 'currency' | 'healthScore'; currencyCode?: string; sparkle?: boolean }) {
   const Icon = icon;
   const animatedValue = useAnimatedNumber(value, 1000);
 
@@ -1700,7 +1700,7 @@ function SummaryCard({ title, value, icon, color, format, currencyCode }: { titl
   const theme = themeConfig[color] || themeConfig.slate;
 
   return (
-    <Card className={`shadow-md ${theme.shadowColor} border-0 overflow-hidden transition-all duration-300 hover:shadow-xl hover:scale-[1.03] hover:-translate-y-1 border-l-4 ${theme.borderAccent} ${theme.bg} rounded-2xl`}>
+    <Card className={`shadow-md ${theme.shadowColor} border-0 overflow-hidden transition-all duration-300 hover:shadow-xl hover:scale-[1.03] hover:-translate-y-1 border-l-4 ${theme.borderAccent} ${theme.bg} rounded-2xl kpi-card-hover`}>
       {/* Accent strip */}
       <div className={`h-1 ${theme.accent}`} />
       <CardContent className="p-4 pt-3">
@@ -1710,7 +1710,7 @@ function SummaryCard({ title, value, icon, color, format, currencyCode }: { titl
           </div>
           <span className="text-sm font-medium text-slate-500 leading-tight">{title}</span>
         </div>
-        <p className={`text-2xl font-bold ${theme.valueColor} tabular-nums`}>{displayValue}</p>
+        <p className={`text-2xl font-bold ${theme.valueColor} tabular-nums ${sparkle ? 'sparkle-count' : ''}`}>{displayValue}</p>
       </CardContent>
     </Card>
   );

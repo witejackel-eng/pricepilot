@@ -78,6 +78,11 @@ import {
   bulkAddPriceHistory,
   clearPriceHistoryInDb,
   PriceHistoryRecord,
+  loadNotesFromDb,
+  addNoteToDb,
+  deleteNoteFromDb,
+  clearNotesInDb,
+  ProductNoteRecord,
 } from '@/lib/pricepilot/database';
 import {
   loadAppSettings,
@@ -233,6 +238,14 @@ export interface AutoBackup {
   description: string;
 }
 
+// Product note/annotation
+export interface ProductNote {
+  id: string;
+  productId: string;
+  text: string;
+  createdAt: string;
+}
+
 interface PricePilotState {
   // Core data
   businessSettings: BusinessSettings;
@@ -269,6 +282,9 @@ interface PricePilotState {
 
   // v1.5: Price history audit log
   priceHistory: PriceHistoryRecord[];
+
+  // v3: Product notes/annotations
+  productNotes: ProductNote[];
 
   // Actions
   initialize: () => void;
@@ -356,6 +372,10 @@ interface PricePilotState {
   recordPriceChange: (entry: Omit<PriceHistoryRecord, 'id' | 'timestamp'>) => Promise<void>;
   refreshPriceHistory: () => Promise<void>;
   clearPriceHistory: () => Promise<void>;
+
+  // v3: Product notes
+  addProductNote: (productId: string, text: string) => Promise<void>;
+  deleteProductNote: (noteId: string) => Promise<void>;
 }
 
 const MAX_UNDO_HISTORY = 20;
@@ -497,6 +517,7 @@ async function performInitialization(generation: number): Promise<void> {
     let backups: AutoBackup[] = [];
     let lastSaved: string | null = null;
     let priceHistory: PriceHistoryRecord[] = [];
+    let productNotes: ProductNote[] = [];
 
     try {
       products = await loadAllProducts();
@@ -508,6 +529,8 @@ async function performInitialization(generation: number): Promise<void> {
       lastSaved = await loadLastSavedTimestampFromDb();
       // v1.5: Load price history audit log.
       priceHistory = await loadPriceHistoryFromDb();
+      // v3: Load product notes.
+      productNotes = await loadNotesFromDb();
     } catch (dbErr) {
       console.error('[PricePilot] Could not load from IndexedDB.', dbErr);
       // No localStorage fallback anymore — IndexedDB is the single
@@ -573,6 +596,7 @@ async function performInitialization(generation: number): Promise<void> {
       autoBackups: backups,
       undoHistory,
       priceHistory,
+      productNotes,
       initialization: summary,
     });
 
@@ -623,6 +647,9 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
 
   // v1.5: Price history audit log
   priceHistory: [],
+
+  // v3: Product notes/annotations
+  productNotes: [],
 
   // Initialize from IndexedDB (single source of truth).
   // Singleton guard: only one initialization Promise may run at a time.
@@ -1816,6 +1843,7 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       undoHistory: [],
       autoBackups: [],
       priceHistory: [],
+      productNotes: [],
     });
   },
 
@@ -1851,6 +1879,35 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
       set({ priceHistory: [] });
     } catch (err) {
       console.error('[PricePilot] Could not clear price history.', err);
+    }
+  },
+
+  // v3: Product notes methods
+  addProductNote: async (productId, text) => {
+    const note: ProductNoteRecord = {
+      id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      productId,
+      text,
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      await addNoteToDb(note);
+      // Update local state — prepend to keep most-recent-first order.
+      const current = get().productNotes;
+      set({ productNotes: [note, ...current] });
+    } catch (err) {
+      console.error('[PricePilot] Could not add product note.', err);
+    }
+  },
+
+  deleteProductNote: async (noteId) => {
+    try {
+      await deleteNoteFromDb(noteId);
+      // Remove from local state.
+      const current = get().productNotes;
+      set({ productNotes: current.filter(n => n.id !== noteId) });
+    } catch (err) {
+      console.error('[PricePilot] Could not delete product note.', err);
     }
   },
 }));

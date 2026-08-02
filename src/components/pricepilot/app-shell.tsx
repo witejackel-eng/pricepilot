@@ -190,7 +190,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
     <div className="flex flex-col h-full">
       {/* Logo area with subtle animation */}
       <div className="p-4 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-emerald-700/30 relative overflow-hidden group">
+        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-emerald-700/30 relative overflow-hidden group shimmer-logo">
           <span className="relative z-10">P</span>
           {/* Subtle shine animation */}
           <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/20 to-transparent" />
@@ -236,7 +236,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
               data-testid={`nav-${item.view}`}
               className={`w-full justify-start gap-3 rounded-lg transition-all duration-300 relative overflow-hidden ${
                 isActive
-                  ? 'bg-gradient-to-r from-emerald-500/30 to-teal-500/20 text-white font-medium shadow-lg shadow-emerald-900/30 border-l-[3px] border-emerald-400 before:absolute before:inset-0 before:bg-gradient-to-r before:from-emerald-500/10 before:to-transparent before:pointer-events-none'
+                  ? 'bg-gradient-to-r from-emerald-500/30 to-teal-500/20 text-white font-medium shadow-lg shadow-emerald-900/30 border-l-[3px] border-emerald-400 before:absolute before:inset-0 before:bg-gradient-to-r before:from-emerald-500/10 before:to-transparent before:pointer-events-none nav-active-gradient-border'
                   : 'text-emerald-100/80 hover:bg-emerald-700/40 hover:text-white hover:translate-x-0.5'
               }`}
               onClick={() => { setCurrentView(item.view); if (onNavClick) onNavClick(); }}
@@ -366,7 +366,7 @@ function MobileBottomNav({ currentView, setCurrentView, applicationMode, lossMak
               onClick={() => setCurrentView(item.view)}
               className={`flex flex-col items-center justify-center gap-0.5 py-1.5 px-3 rounded-lg transition-all duration-200 min-w-[56px] relative ${
                 isActive
-                  ? 'text-emerald-600 dark:text-emerald-400'
+                  ? 'text-emerald-600 dark:text-emerald-400 mobile-active-indicator'
                   : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
               }`}
             >
@@ -698,10 +698,11 @@ export function AppShell() {
                 <span className="font-medium">All data stored locally in your browser. Nothing is sent to any server.</span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-emerald-700 dark:text-emerald-300 font-medium">
+                <span className="last-saved-indicator">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 save-indicator-pulse" />
                   {lastSaved ? `Last saved: ${new Date(lastSaved).toLocaleTimeString()}` : 'Not saved yet'}
                 </span>
-                <span className="text-emerald-700 dark:text-emerald-300 font-mono border border-emerald-300/50 dark:border-emerald-700/50 rounded px-1.5 py-0.5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40">v1.6.0</span>
+                <span className="text-emerald-700 dark:text-emerald-300 font-mono border border-emerald-300/50 dark:border-emerald-700/50 rounded px-1.5 py-0.5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40">v1.7.0</span>
               </div>
             </div>
           </footer>
