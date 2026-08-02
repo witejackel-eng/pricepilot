@@ -225,7 +225,7 @@ export function SettingsPage() {
   return (
     <div className="space-y-6 max-w-3xl mx-auto animate-fade-in">
       {/* ───────── Page Header ───────── */}
-      <div className="bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 rounded-2xl p-6 text-white shadow-lg shadow-emerald-500/20 relative overflow-hidden">
+      <div className="bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 rounded-2xl p-6 text-white shadow-lg shadow-emerald-500/20 relative overflow-hidden gradient-header-border">
         <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-28 h-28 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
         <div className="relative z-10">
@@ -234,13 +234,14 @@ export function SettingsPage() {
               <Settings className="h-5 w-5 text-white" />
             </div>
             <h1 className="text-2xl font-bold">Settings</h1>
+            <span className="h-2 w-2 rounded-full bg-emerald-200 save-indicator-pulse" title="Auto-saved" />
           </div>
           <p className="text-emerald-100 text-sm">Configure your business, pricing defaults, and application preferences</p>
         </div>
       </div>
 
       {/* ───────── Interface Mode ───────── */}
-      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200">
+      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200 settings-section-hover">
         <CardHeader className="pb-3">
           <SectionHeader
             icon={<SectionIcon><Palette className="h-4 w-4" /></SectionIcon>}
@@ -286,7 +287,7 @@ export function SettingsPage() {
       </Card>
 
       {/* ───────── Business Settings ───────── */}
-      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200">
+      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-emerald-50/10 hover:shadow-lg transition-shadow duration-200 settings-section-hover">
         <CardHeader className="pb-3">
           <SectionHeader
             icon={<SectionIcon tone="teal"><Building2 className="h-4 w-4" /></SectionIcon>}
@@ -377,7 +378,7 @@ export function SettingsPage() {
       </Card>
 
       {/* ───────── Pricing Defaults ───────── */}
-      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-amber-50/10 hover:shadow-lg transition-shadow duration-200">
+      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-amber-50/10 hover:shadow-lg transition-shadow duration-200 settings-section-hover">
         <CardHeader className="pb-3">
           <SectionHeader
             icon={<SectionIcon tone="amber"><Coins className="h-4 w-4" /></SectionIcon>}
@@ -481,7 +482,7 @@ export function SettingsPage() {
       </Card>
 
       {/* ───────── Display Settings ───────── */}
-      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-purple-50/10 hover:shadow-lg transition-shadow duration-200">
+      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-purple-50/10 hover:shadow-lg transition-shadow duration-200 settings-section-hover">
         <CardHeader className="pb-3">
           <SectionHeader
             icon={<SectionIcon tone="purple"><Monitor className="h-4 w-4" /></SectionIcon>}
@@ -573,7 +574,7 @@ export function SettingsPage() {
       </Card>
 
       {/* ───────── Data Management ───────── */}
-      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-teal-50/10 hover:shadow-lg transition-shadow duration-200">
+      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-teal-50/10 hover:shadow-lg transition-shadow duration-200 settings-section-hover">
         <CardHeader className="pb-3">
           <SectionHeader
             icon={<SectionIcon tone="teal"><Database className="h-4 w-4" /></SectionIcon>}
@@ -742,7 +743,7 @@ export function SettingsPage() {
       <LegacyDataCleanupCard />
 
       {/* ───────── Danger Zone ───────── */}
-      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-red-50/5 hover:shadow-lg transition-shadow duration-200 border-t-4 border-red-400 dark:border-t-red-600 ring-1 ring-red-100 dark:ring-red-900/30">
+      <Card className="shadow-md border-0 rounded-2xl bg-gradient-to-b from-white to-red-50/5 hover:shadow-lg transition-shadow duration-200 border-t-4 border-red-400 dark:border-t-red-600 ring-1 ring-red-100 dark:ring-red-900/30 danger-zone-accent-bar">
         <CardHeader className="pb-3">
           <SectionHeader
             icon={<SectionIcon tone="red"><AlertTriangle className="h-4 w-4" /></SectionIcon>}

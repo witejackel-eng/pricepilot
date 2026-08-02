@@ -34,10 +34,11 @@ import { calculateOutcomeAtPrice, calculateBreakEvenPriceFromOutcome } from '@/l
 import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
 import {
   AlertTriangle, ArrowUpRight, ArrowDownRight, Calculator,
-  Edit3, CheckCircle, Undo2, Copy, ChevronDown, ChevronUp, Plus, X, ShieldCheck, FileCheck, Sparkles, Package, ArrowRight, Layers, History
+  Edit3, CheckCircle, Undo2, Copy, ChevronDown, ChevronUp, Plus, X, ShieldCheck, FileCheck, Sparkles, Package, ArrowRight, Layers, History, StickyNote
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PriceHistoryChart } from './price-history-chart';
+import { ProductNotesPanel } from './product-notes-panel';
 
 export function ProductDetailDrawer({ productId, onClose }: { productId: string | null; onClose: () => void }) {
   const { products, businessSettings, pricingRules, updateProduct, approveProductPrice, applyApprovedPrice, duplicateProduct, deleteProduct, addRecentlyViewed, appSettings } = usePricePilotStore();
@@ -291,6 +292,9 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
             </TabsTrigger>
             <TabsTrigger value="history" className="rounded-lg data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
               <History className="h-4 w-4 mr-1" /> History
+            </TabsTrigger>
+            <TabsTrigger value="notes" className="rounded-lg data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
+              <StickyNote className="h-4 w-4 mr-1" /> Notes
             </TabsTrigger>
           </TabsList>
 
@@ -1398,6 +1402,11 @@ export function ProductDetailDrawer({ productId, onClose }: { productId: string 
                 <PriceHistoryChart product={product} currencyCode={cc} />
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* ===== NOTES TAB (v3) ===== */}
+          <TabsContent value="notes" className="space-y-4">
+            <ProductNotesPanel productId={product.id} />
           </TabsContent>
         </Tabs>
       </SheetContent>

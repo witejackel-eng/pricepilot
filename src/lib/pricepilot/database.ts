@@ -102,6 +102,17 @@ export interface PriceHistoryRecord {
   };
 }
 
+/**
+ * v3: Product note/annotation record.
+ * Allows users to attach free-text notes to individual products.
+ */
+export interface ProductNoteRecord {
+  id: string;                   // Unique ID
+  productId: string;            // Product ID the note belongs to
+  text: string;                 // Note text content (max 500 chars)
+  createdAt: string;            // ISO date string
+}
+
 // ============================================================
 // Database Class
 // ============================================================
@@ -117,6 +128,7 @@ export class PricePilotDatabase extends Dexie {
   backups!: Table<AutoBackup, string>;
   metadata!: Table<MetadataRecord, string>;
   priceHistory!: Table<PriceHistoryRecord, string>;
+  productNotes!: Table<ProductNoteRecord, string>;
 
   constructor() {
     super('pricepilot');
@@ -136,6 +148,11 @@ export class PricePilotDatabase extends Dexie {
     // Indexed on productId, action, and timestamp for fast filtering.
     this.version(2).stores({
       priceHistory: 'id, productId, action, timestamp, productSku',
+    });
+    // v3: Add productNotes table for product annotations.
+    // Indexed on productId and createdAt for fast filtering and sorting.
+    this.version(3).stores({
+      productNotes: 'id, productId, createdAt',
     });
   }
 }
@@ -254,7 +271,7 @@ export async function clearAllDataForE2E(): Promise<void> {
     'rw',
     [db.products, db.businessSettings, db.pricingRules, db.scenarios,
      db.importBatches, db.importIssues, db.undoActions, db.backups,
-     db.metadata, db.priceHistory],
+     db.metadata, db.priceHistory, db.productNotes],
     async () => {
       await Promise.all([
         db.products.clear(),
@@ -267,6 +284,7 @@ export async function clearAllDataForE2E(): Promise<void> {
         db.backups.clear(),
         db.metadata.clear(),
         db.priceHistory.clear(),
+        db.productNotes.clear(),
       ]);
     },
   );
@@ -394,7 +412,7 @@ export async function atomicRestoreBackup(payload: {
 export async function atomicResetAll(): Promise<void> {
   const db = getDb();
   // Use the array form for >7 tables.
-  return db.transaction('rw', [db.products, db.businessSettings, db.pricingRules, db.scenarios, db.importBatches, db.importIssues, db.undoActions, db.backups, db.priceHistory], async () => {
+  return db.transaction('rw', [db.products, db.businessSettings, db.pricingRules, db.scenarios, db.importBatches, db.importIssues, db.undoActions, db.backups, db.priceHistory, db.productNotes], async () => {
     await db.products.clear();
     await db.businessSettings.clear();
     await db.pricingRules.clear();
@@ -404,6 +422,7 @@ export async function atomicResetAll(): Promise<void> {
     await db.undoActions.clear();
     await db.backups.clear();
     await db.priceHistory.clear();
+    await db.productNotes.clear();
     // Keep metadata table — it tracks migration state.
   });
 }
@@ -728,4 +747,54 @@ export async function clearPriceHistoryInDb(): Promise<void> {
 export async function getPriceHistoryCount(): Promise<number> {
   const db = getDb();
   return db.priceHistory.count();
+}
+
+// ============================================================
+// v3: Product Notes
+// ============================================================
+
+/**
+ * Load all product notes from IndexedDB, sorted by createdAt descending
+ * (most recent first). Returns empty array if table is empty.
+ */
+export async function loadNotesFromDb(): Promise<ProductNoteRecord[]> {
+  const db = getDb();
+  const records = await db.productNotes.toArray();
+  return records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/**
+ * Load product notes for a specific product, sorted by createdAt descending.
+ */
+export async function loadNotesForProduct(productId: string): Promise<ProductNoteRecord[]> {
+  const db = getDb();
+  const records = await db.productNotes
+    .where('productId')
+    .equals(productId)
+    .toArray();
+  return records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/**
+ * Add a single product note to IndexedDB.
+ */
+export async function addNoteToDb(note: ProductNoteRecord): Promise<void> {
+  const db = getDb();
+  await db.productNotes.put(note);
+}
+
+/**
+ * Delete a single product note by ID.
+ */
+export async function deleteNoteFromDb(noteId: string): Promise<void> {
+  const db = getDb();
+  await db.productNotes.delete(noteId);
+}
+
+/**
+ * Clear all product notes. Used by reset / data cleanup.
+ */
+export async function clearNotesInDb(): Promise<void> {
+  const db = getDb();
+  await db.productNotes.clear();
 }

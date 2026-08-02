@@ -133,3 +133,44 @@ Stage Summary:
 - Mobile Pixel 7: 13/13 PASS (confirmed in CI — min-w-0 fix).
 - Mobile iPad: 13/13 PASS (confirmed in CI).
 - WebKit (desktop + iPhone 14): the ONLY remaining blocker. webpack switch is the experiment to resolve it. Pending CI verification.
+
+---
+Task ID: 6
+Agent: Main (revenue forecast + category analysis features)
+Task: Create Revenue Forecast Dashboard and Category Analysis Breakdown features.
+
+Work Log:
+- Read all existing project files: owner-home.tsx, pricepilot-store.ts, types.ts, formatting.ts, globals.css, price-insights-panel.tsx, profit-potential-panel.tsx
+- Created `/src/components/pricepilot/revenue-forecast-panel.tsx`:
+  - Gradient header banner (emerald → teal) with TrendingUp icon and "6-month" badge
+  - 3 KPI cards (Monthly Revenue, Monthly Profit, Profit Margin) with gradient backgrounds and icons
+  - Revenue Projection BarChart (6-month flat projection) with gradient fill bars
+  - Revenue Breakdown donut chart (top 5 categories + Other) with legend
+  - Quick Stats Row: best performing category, growth opportunity, average order value
+  - Returns null when no products exist
+  - Uses formatCurrency (compact mode), formatPercentage, safeNumberValue
+  - Uses recharts BarChart, PieChart, Cell with gradient defs
+- Created `/src/components/pricepilot/category-analysis-panel.tsx`:
+  - Header with PieChart icon and category count badge
+  - Category cards grid (md:grid-cols-2) with unique colored left borders
+  - Each card shows: category name with product count badge, avg margin, total revenue potential, status breakdown with icons, margin distribution bar (green/amber/red gradient), best product, needs attention count
+  - Summary bar with overall category health (color-coded progress bar + percentage)
+  - Hover: lift + shadow effect on category cards
+  - Returns null when no products exist
+- Modified `/src/components/pricepilot/owner-home.tsx`:
+  - Added imports for RevenueForecastPanel and CategoryAnalysisPanel
+  - Added RevenueForecastPanel below ProfitPotentialPanel
+  - Added CategoryAnalysisPanel below RevenueForecastPanel
+  - Both render with proper spacing via existing space-y-6 layout
+- Added CSS animations to `/src/app/globals.css`:
+  - `forecast-card-enter`: slide-up + fade-in for KPI cards (0.4s ease-out)
+  - `category-card-enter`: slide-in from left with stagger delay (0.4s ease-out)
+  - `donut-draw`: animated stroke-dashoffset for donut chart (0.8s ease-out)
+- Verified: typecheck PASS, lint PASS, build PASS
+
+Stage Summary:
+- Two new feature components created and integrated into Owner Home
+- Revenue Forecast: 3 KPIs + 6-month bar chart + category donut + quick stats
+- Category Analysis: per-category cards with metrics + margin distribution + health summary
+- All existing patterns and conventions followed (usePricePilotStore, formatCurrency, safeNumberValue, etc.)
+- TypeCheck PASS, Lint PASS, Build PASS

@@ -303,7 +303,7 @@ export function NotificationCenter() {
         <Bell
           className={`h-3.5 w-3.5 transition-colors ${
             unreadCount > 0
-              ? 'text-emerald-600 dark:text-emerald-400'
+              ? 'text-emerald-600 dark:text-emerald-400 bell-notification-pulse'
               : 'text-slate-400 dark:text-slate-500'
           }`}
         />
