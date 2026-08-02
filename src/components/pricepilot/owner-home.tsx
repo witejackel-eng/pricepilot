@@ -58,6 +58,8 @@ import { RevenueForecastPanel } from './revenue-forecast-panel';
 import { CategoryAnalysisPanel } from './category-analysis-panel';
 import { KpiSummaryStrip } from './kpi-summary-strip';
 import { PriceComparisonHeatmap } from './price-comparison-heatmap';
+import { BatchOperationsDashboard } from './batch-operations-dashboard';
+import { CompetitorPriceAlerts } from './competitor-price-alerts';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -341,6 +343,12 @@ export function OwnerHome() {
 
       {/* v1.8: Price Comparison Heatmap — visual matrix of your prices vs competitors */}
       <PriceComparisonHeatmap />
+
+      {/* v1.9: Batch Operations Dashboard */}
+      <BatchOperationsDashboard />
+
+      {/* v1.9: Competitor Price Alerts */}
+      <CompetitorPriceAlerts />
 
       {/* v1.2: Top Products Leaderboard — visual ranking of best/worst
           performers with a margin distribution mini-chart. */}

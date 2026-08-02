@@ -57,7 +57,7 @@ import { KeyboardShortcuts, FloatingHelpButton } from './keyboard-shortcuts';
 import { HelpPanel } from './help-panel';
 import { GuidedTour, TourInvitation } from './guided-tour';
 import { CommandPalette } from './command-palette';
-import { CurrencyConverterWidget, CurrencyConverterTrigger } from './currency-converter-widget';
+import { CurrencyConverterWidget } from './currency-converter-widget';
 import { MarginAlertsPanel } from './margin-alerts-panel';
 import { NotificationCenter } from './notification-center';
 import { CSVExportButton } from './csv-export-button';
@@ -149,7 +149,7 @@ function ModeSwitcher({ currentMode, onModeChange }: { currentMode: ApplicationM
         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-300 ${
           isOwner
             ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-900/30'
-            : 'text-emerald-300/60 hover:text-emerald-200'
+            : 'text-slate-200 hover:text-white'
         }`}
       >
         <Home className="h-3 w-3" />
@@ -160,7 +160,7 @@ function ModeSwitcher({ currentMode, onModeChange }: { currentMode: ApplicationM
         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-300 ${
           !isOwner
             ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-900/30'
-            : 'text-emerald-300/60 hover:text-emerald-200'
+            : 'text-slate-200 hover:text-white'
         }`}
       >
         <LayoutDashboard className="h-3 w-3" />
@@ -234,9 +234,9 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
               variant="ghost"
               title={item.label}
               data-testid={`nav-${item.view}`}
-              className={`w-full justify-start gap-3 rounded-lg transition-all duration-300 relative overflow-hidden ${
+              className={`w-full justify-start gap-3 rounded-lg transition-all duration-200 relative overflow-hidden ${
                 isActive
-                  ? 'bg-gradient-to-r from-emerald-500/30 to-teal-500/20 text-white font-medium shadow-lg shadow-emerald-900/30 border-l-[3px] border-emerald-400 before:absolute before:inset-0 before:bg-gradient-to-r before:from-emerald-500/10 before:to-transparent before:pointer-events-none nav-active-gradient-border'
+                  ? 'bg-gradient-to-r from-emerald-500/40 to-teal-500/25 text-white font-medium shadow-lg shadow-emerald-900/30 border-l-[3px] border-emerald-400 before:absolute before:inset-0 before:bg-gradient-to-r before:from-emerald-500/15 before:to-transparent before:pointer-events-none nav-active-gradient-border'
                   : 'text-emerald-100/80 hover:bg-emerald-700/40 hover:text-white hover:translate-x-0.5'
               }`}
               onClick={() => { setCurrentView(item.view); if (onNavClick) onNavClick(); }}
@@ -262,7 +262,7 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
         {applicationMode === 'owner' && (
           <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
             <CollapsibleTrigger asChild>
-              <Button variant="ghost" data-testid="nav-advanced-tools" className="w-full justify-start gap-2 text-emerald-300/60 hover:text-emerald-200 text-xs rounded-lg mt-2 transition-colors duration-200">
+              <Button variant="ghost" data-testid="nav-advanced-tools" className="w-full justify-start gap-2 text-slate-200 hover:text-white text-xs rounded-lg mt-2 transition-colors duration-200">
                 {advancedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                 Advanced Tools
               </Button>
@@ -277,9 +277,9 @@ function SidebarContent({ currentView, setCurrentView, businessSettings, resetAp
                     variant="ghost"
                     title={item.label}
                     data-testid={`nav-${item.view}`}
-                    className={`w-full justify-start gap-3 rounded-lg transition-all duration-300 text-xs ${
+                    className={`w-full justify-start gap-3 rounded-lg transition-all duration-200 text-xs ${
                       isActive
-                        ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/10 text-white font-medium border-l-2 border-emerald-400'
+                        ? 'bg-gradient-to-r from-emerald-500/30 to-teal-500/20 text-white font-medium border-l-[3px] border-emerald-400'
                         : 'text-emerald-200/60 hover:bg-emerald-700/30 hover:text-emerald-200 hover:translate-x-0.5'
                     }`}
                     onClick={() => { setCurrentView(item.view); if (onNavClick) onNavClick(); }}
@@ -645,10 +645,16 @@ export function AppShell() {
                   ))}
                 </SelectContent>
               </Select>
-              <CurrencyConverterTrigger
-                onOpen={() => setCurrencyConverterOpen(true)}
-                currencyCode={businessSettings.currencyCode}
-              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCurrencyConverterOpen(true)}
+                className="h-8 px-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 group min-h-[44px] sm:min-h-8"
+                title="Open currency converter"
+                aria-label="Open currency converter"
+              >
+                <ArrowRightLeft className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 group-hover:rotate-180 transition-transform duration-500" />
+              </Button>
             </div>
           </header>
 
@@ -702,7 +708,7 @@ export function AppShell() {
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 save-indicator-pulse" />
                   {lastSaved ? `Last saved: ${new Date(lastSaved).toLocaleTimeString()}` : 'Not saved yet'}
                 </span>
-                <span className="text-emerald-700 dark:text-emerald-300 font-mono border border-emerald-300/50 dark:border-emerald-700/50 rounded px-1.5 py-0.5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40">v1.8.0</span>
+                <span className="text-emerald-700 dark:text-emerald-300 font-mono border border-emerald-300/50 dark:border-emerald-700/50 rounded px-1.5 py-0.5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40">v1.9.0</span>
               </div>
             </div>
           </footer>

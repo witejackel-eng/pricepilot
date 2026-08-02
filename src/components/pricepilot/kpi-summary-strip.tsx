@@ -21,6 +21,7 @@
 import { useMemo, useEffect, useRef, useState } from 'react';
 import { usePricePilotStore } from '@/store/pricepilot-store';
 import { safeNumberValue, formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
+import { computeHealthScore } from '@/lib/pricepilot/health-score';
 import {
   IndianRupee,
   Percent,
@@ -157,7 +158,10 @@ function KpiCard({
         <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wide">
           {label}
         </p>
-        <p className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100 tabular-nums leading-tight">
+        <p
+          className="text-lg sm:text-xl lg:text-2xl font-bold text-slate-800 dark:text-slate-100 tabular-nums leading-tight break-words"
+          title={formattedValue}
+        >
           {formattedValue}
         </p>
 
@@ -182,7 +186,7 @@ function KpiCard({
 // ============================================================
 
 export function KpiSummaryStrip() {
-  const { products, businessSettings } = usePricePilotStore();
+  const { products, businessSettings, priceHistory } = usePricePilotStore();
   const currencyCode = businessSettings.currencyCode || 'INR';
 
   const metrics = useMemo(() => {
@@ -196,13 +200,11 @@ export function KpiSummaryStrip() {
         profitableCount: 0,
       };
     }
-
     let catalogValue = 0;
     let totalMargin = 0;
     let marginWeight = 0;
     let profitPotential = 0;
     let profitableCount = 0;
-    let healthSum = 0;
 
     for (const p of products) {
       const price = safeNumberValue(p.currentSellingPrice, 0);
@@ -223,7 +225,6 @@ export function KpiSummaryStrip() {
         totalMargin += margin * weight;
         marginWeight += weight;
         if (margin > 0) profitableCount++;
-        healthSum += Math.max(0, Math.min(100, margin * 1.5));
       }
 
       // Profit potential: difference between recommended and current price
@@ -239,7 +240,10 @@ export function KpiSummaryStrip() {
     }
 
     const avgMargin = marginWeight > 0 ? totalMargin / marginWeight : 0;
-    const healthScore = products.length > 0 ? Math.min(100, Math.round(healthSum / products.length)) : 0;
+    // v1.9: use the shared health-score utility so the KPI strip matches
+    // the Pricing Health Gauge exactly (previously showed 79 vs 90).
+    const targetMargin = safeNumberValue(businessSettings.defaultTargetMarginPercent, 25);
+    const healthScore = computeHealthScore(products, targetMargin).total;
 
     return {
       catalogValue,
@@ -249,7 +253,7 @@ export function KpiSummaryStrip() {
       profitPotential,
       profitableCount,
     };
-  }, [products]);
+  }, [products, businessSettings.defaultTargetMarginPercent]);
 
   // Count-up animated values
   const animCatalog = useCountUp(metrics.catalogValue);
@@ -257,15 +261,68 @@ export function KpiSummaryStrip() {
   const animHealth = useCountUp(metrics.healthScore);
   const animProfit = useCountUp(metrics.profitPotential);
 
-  // Sparkline data (simulated trend from health/margin)
-  const marginSpark = useMemo(
-    () => Array.from({ length: 8 }, (_, i) => metrics.avgMargin * (0.85 + i * 0.04 + Math.random() * 0.06)),
-    [metrics.avgMargin],
-  );
-  const healthSpark = useMemo(
-    () => Array.from({ length: 8 }, (_, i) => metrics.healthScore * (0.8 + i * 0.05 + Math.random() * 0.05)),
-    [metrics.healthScore],
-  );
+  // v1.9: Real historical sparklines derived from the price history store.
+  // We bucket the last ~30 days of price changes into 8 equal time slices
+  // and compute the average margin within each slice. If there is not
+  // enough history we fall back to a flat trend so the sparkline still
+  // renders gracefully.
+  const { marginSpark, healthSpark, catalogSpark, profitSpark } = useMemo(() => {
+    const now = Date.now();
+    const buckets = 8;
+    const windowMs = 30 * 24 * 60 * 60 * 1000; // 30 days
+    const sliceMs = windowMs / buckets;
+
+    // Sort history ascending by timestamp for chronological bucketing
+    const sorted = [...priceHistory]
+      .filter((h) => h.newPrice != null && h.newPrice > 0)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    const marginByBucket: number[] = new Array(buckets).fill(NaN);
+    const priceByBucket: number[] = new Array(buckets).fill(NaN);
+
+    for (const h of sorted) {
+      const t = new Date(h.timestamp).getTime();
+      const age = now - t;
+      if (age > windowMs || age < 0) continue;
+      const idx = buckets - 1 - Math.floor(age / sliceMs);
+      if (idx >= 0 && idx < buckets) {
+        if (h.newMargin != null) marginByBucket[idx] = h.newMargin;
+        if (h.newPrice != null) priceByBucket[idx] = h.newPrice;
+      }
+    }
+
+    // Forward-fill NaN gaps so the sparkline is continuous
+    const fillGaps = (arr: number[]): number[] => {
+      const out = [...arr];
+      let last = out.find((v) => !Number.isNaN(v));
+      if (last === undefined) last = 0;
+      for (let i = 0; i < out.length; i++) {
+        if (Number.isNaN(out[i])) out[i] = last as number;
+        else last = out[i];
+      }
+      return out;
+    };
+
+    const marginSeries = fillGaps(marginByBucket);
+    const priceSeries = fillGaps(priceByBucket);
+
+    // Health sparkline: derive a pseudo-score per bucket from the margin
+    // (margin * 1.5 clamped to 100) so it tracks pricing health over time.
+    const healthSeries = marginSeries.map((m) => Math.max(0, Math.min(100, m * 1.5)));
+
+    // Profit sparkline: margin × price as a rough profit proxy
+    const profitSeries = marginSeries.map((m, i) => Math.max(0, m * (priceSeries[i] || 0) * 0.01));
+
+    // If we have no real history, fall back to a flat line at the current
+    // metric so the sparkline still renders rather than disappearing.
+    const hasHistory = sorted.length > 0;
+    const marginSpark = hasHistory ? marginSeries : Array.from({ length: buckets }, () => metrics.avgMargin);
+    const healthSpark = hasHistory ? healthSeries : Array.from({ length: buckets }, () => metrics.healthScore);
+    const catalogSpark = hasHistory ? priceSeries : Array.from({ length: buckets }, () => metrics.catalogValue);
+    const profitSpark = hasHistory ? profitSeries : Array.from({ length: buckets }, () => metrics.profitPotential);
+
+    return { marginSpark, healthSpark, catalogSpark, profitSpark };
+  }, [priceHistory, metrics.avgMargin, metrics.healthScore, metrics.catalogValue, metrics.profitPotential]);
 
   if (products.length === 0) return null;
 
@@ -289,12 +346,12 @@ export function KpiSummaryStrip() {
         <KpiCard
           label="Catalog Value"
           value={metrics.catalogValue}
-          formattedValue={formatCurrency(animCatalog, currencyCode)}
+          formattedValue={formatCurrency(animCatalog, currencyCode, { compact: true })}
           icon={IndianRupee}
           gradient="bg-gradient-to-br from-emerald-400 to-teal-500"
           iconColor="text-white"
           sparkColor="#10b981"
-          sparkData={marginSpark}
+          sparkData={catalogSpark}
           trend="up"
           trendLabel={`${metrics.productCount} items`}
           delay={0}
@@ -340,11 +397,12 @@ export function KpiSummaryStrip() {
         <KpiCard
           label="Profit Potential"
           value={metrics.profitPotential}
-          formattedValue={formatCurrency(animProfit, currencyCode)}
+          formattedValue={formatCurrency(animProfit, currencyCode, { compact: true })}
           icon={TrendingUp}
           gradient="bg-gradient-to-br from-amber-400 to-orange-500"
           iconColor="text-white"
           sparkColor="#f59e0b"
+          sparkData={profitSpark}
           trend="up"
           trendLabel="From suggestions"
           delay={320}

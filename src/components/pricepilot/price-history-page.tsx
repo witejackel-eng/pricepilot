@@ -400,10 +400,10 @@ function TimelineEntry({
       style={{ animationDelay: `${Math.min(index, 20) * 60}ms` }}
     >
       {/* Timeline dot + connecting line */}
-      <div className="flex flex-col items-center shrink-0">
+      <div className="flex flex-col items-center shrink-0 self-stretch relative">
         <div
           className={cn(
-            'relative flex h-3 w-3 items-center justify-center rounded-full',
+            'relative flex h-3 w-3 items-center justify-center rounded-full z-10',
             'ring-2 ring-white dark:ring-slate-900 shadow-sm',
             cfg.dotBg,
           )}
@@ -411,10 +411,12 @@ function TimelineEntry({
         >
           <Icon className="h-2 w-2 text-white/0" />
         </div>
-        {/* Vertical connecting line — gradient emerald-200 → teal-200 */}
+        {/* Vertical connecting line — gradient emerald-200 → teal-200.
+             Absolutely positioned so it always spans from just below the
+             dot to the bottom of the row, regardless of card height. */}
         {!isLast && (
           <div
-            className="mt-0.5 w-0.5 flex-1 min-h-[28px]"
+            className="absolute top-3 left-1/2 -translate-x-1/2 bottom-0 w-0.5"
             style={{
               background:
                 'linear-gradient(to bottom, rgb(167 243 208), rgb(153 246 236))',
@@ -458,7 +460,7 @@ function TimelineEntry({
             <div className="mt-2 flex items-center gap-2 text-xs flex-wrap">
               <span
                 className={cn(
-                  'font-mono',
+                  'font-mono whitespace-nowrap tabular-nums shrink-0',
                   hasOldPrice
                     ? 'text-slate-400 dark:text-slate-500 line-through'
                     : 'text-slate-300 dark:text-slate-600',
@@ -469,7 +471,7 @@ function TimelineEntry({
                   : '—'}
               </span>
               <ArrowRight className="h-3 w-3 text-slate-400 dark:text-slate-500 shrink-0" />
-              <span className="font-mono font-semibold text-slate-800 dark:text-slate-100">
+              <span className="font-mono font-semibold text-slate-800 dark:text-slate-100 whitespace-nowrap tabular-nums shrink-0">
                 {hasNewPrice
                   ? formatCurrency(entry.newPrice, currencyCode)
                   : '—'}
@@ -747,10 +749,10 @@ export function PriceHistoryPage() {
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
-                  variant="destructive"
+                  variant="outline"
                   size="sm"
                   disabled={priceHistory.length === 0}
-                  className="bg-red-500/90 hover:bg-red-500 text-white border-0"
+                  className="bg-white/90 text-red-700 hover:bg-white hover:text-red-800 border-red-200 dark:bg-slate-900/80 dark:text-red-300 dark:hover:bg-slate-900 dark:border-red-900/50"
                 >
                   <Trash2 className="h-4 w-4" />
                   Clear
@@ -849,16 +851,16 @@ export function PriceHistoryPage() {
               </SelectContent>
             </Select>
 
-            {/* Date range toggle */}
-            <div className="inline-flex rounded-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+            {/* Date range toggle — two separate buttons with gap-2 spacing */}
+            <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setDateRange('30d')}
                 className={cn(
-                  'px-3 h-9 text-xs font-medium transition-colors',
+                  'px-3 h-9 text-xs font-medium rounded-md border transition-colors',
                   dateRange === '30d'
-                    ? 'bg-emerald-500 text-white'
-                    : 'bg-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800',
+                    ? 'bg-emerald-500 text-white border-emerald-500'
+                    : 'bg-transparent text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800',
                 )}
                 aria-pressed={dateRange === '30d'}
               >
@@ -868,10 +870,10 @@ export function PriceHistoryPage() {
                 type="button"
                 onClick={() => setDateRange('all')}
                 className={cn(
-                  'px-3 h-9 text-xs font-medium transition-colors border-l border-slate-200 dark:border-slate-700',
+                  'px-3 h-9 text-xs font-medium rounded-md border transition-colors',
                   dateRange === 'all'
-                    ? 'bg-emerald-500 text-white'
-                    : 'bg-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800',
+                    ? 'bg-emerald-500 text-white border-emerald-500'
+                    : 'bg-transparent text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800',
                 )}
                 aria-pressed={dateRange === 'all'}
               >
