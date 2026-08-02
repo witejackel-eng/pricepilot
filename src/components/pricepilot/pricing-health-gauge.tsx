@@ -20,7 +20,8 @@ import { useMemo } from 'react';
 import { usePricePilotStore } from '@/store/pricepilot-store';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { safeNumberValue, formatPercentage } from '@/lib/pricepilot/formatting';
+import { safeNumberValue } from '@/lib/pricepilot/formatting';
+import { computeHealthScore, getHealthScoreColor } from '@/lib/pricepilot/health-score';
 import {
   HeartPulse,
   TrendingUp,
@@ -29,85 +30,19 @@ import {
   Activity,
 } from 'lucide-react';
 
-interface ScoreBreakdown {
-  profitability: number;
-  marginHealth: number;
-  coverage: number;
-  actionRate: number;
-  total: number;
-}
-
-function getScoreColor(score: number): { stroke: string; bg: string; text: string; label: string } {
-  if (score >= 80) return { stroke: '#10b981', bg: 'from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40', text: 'text-emerald-600 dark:text-emerald-400', label: 'Excellent' };
-  if (score >= 60) return { stroke: '#22c55e', bg: 'from-green-50 to-emerald-50 dark:from-green-950/40 dark:to-emerald-950/40', text: 'text-green-600 dark:text-green-400', label: 'Good' };
-  if (score >= 40) return { stroke: '#f59e0b', bg: 'from-amber-50 to-yellow-50 dark:from-amber-950/40 dark:to-yellow-950/40', text: 'text-amber-600 dark:text-amber-400', label: 'Fair' };
-  if (score >= 20) return { stroke: '#f97316', bg: 'from-orange-50 to-amber-50 dark:from-orange-950/40 dark:to-amber-950/40', text: 'text-orange-600 dark:text-orange-400', label: 'Needs Work' };
-  return { stroke: '#ef4444', bg: 'from-red-50 to-orange-50 dark:from-red-950/40 dark:to-orange-950/40', text: 'text-red-600 dark:text-red-400', label: 'Critical' };
-}
+type ScoreBreakdown = ReturnType<typeof computeHealthScore>;
 
 export function PricingHealthGauge() {
   const { products, businessSettings } = usePricePilotStore();
 
   const breakdown = useMemo<ScoreBreakdown>(() => {
-    if (products.length === 0) {
-      return { profitability: 0, marginHealth: 0, coverage: 0, actionRate: 0, total: 0 };
-    }
-
-    const total = products.length;
-
-    // 1. Profitability: % of products with positive margin
-    const profitable = products.filter((p) => {
-      const cost =
-        safeNumberValue(p.purchaseCost, 0) +
-        safeNumberValue(p.shippingCost, 0) +
-        safeNumberValue(p.packagingCost, 0) +
-        safeNumberValue(p.handlingCost, 0);
-      const price = safeNumberValue(p.currentSellingPrice, 0);
-      return price > 0 && price > cost;
-    }).length;
-    const profitability = (profitable / total) * 100;
-
-    // 2. Margin health: avg margin vs target margin (from business settings)
     const targetMargin = safeNumberValue(businessSettings.defaultTargetMarginPercent, 25);
-    const avgMargin = products.reduce((sum, p) => {
-      const cost =
-        safeNumberValue(p.purchaseCost, 0) +
-        safeNumberValue(p.shippingCost, 0) +
-        safeNumberValue(p.packagingCost, 0) +
-        safeNumberValue(p.handlingCost, 0);
-      const price = safeNumberValue(p.currentSellingPrice, 0);
-      return sum + (price > 0 ? ((price - cost) / price) * 100 : 0);
-    }, 0) / total;
-    // Score: 100 if avg >= target, scaled down if below
-    const marginHealth = Math.min(100, (avgMargin / targetMargin) * 100);
-
-    // 3. Coverage: % with complete cost data (purchase cost > 0)
-    const withCost = products.filter((p) => safeNumberValue(p.purchaseCost, 0) > 0).length;
-    const coverage = (withCost / total) * 100;
-
-    // 4. Action rate: % approved
-    const acted = products.filter(
-      (p) => p.priceApprovalStatus === 'approved'
-    ).length;
-    const actionRate = (acted / total) * 100;
-
-    // Weighted total
-    const score = Math.round(
-      profitability * 0.4 + marginHealth * 0.3 + coverage * 0.2 + actionRate * 0.1
-    );
-
-    return {
-      profitability: Math.round(profitability),
-      marginHealth: Math.round(marginHealth),
-      coverage: Math.round(coverage),
-      actionRate: Math.round(actionRate),
-      total: score,
-    };
+    return computeHealthScore(products, targetMargin);
   }, [products, businessSettings.defaultTargetMarginPercent]);
 
   if (products.length === 0) return null;
 
-  const colors = getScoreColor(breakdown.total);
+  const colors = getHealthScoreColor(breakdown.total);
 
   // SVG gauge geometry
   const size = 140;

@@ -16,11 +16,13 @@ import { BulkAdjustDialog } from './bulk-adjust-dialog';
 import { PricePilotErrorBoundary } from './error-boundary';
 import { QuickPriceEdit } from './quick-price-edit';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuCheckboxItem, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { formatCurrency, formatPercentage } from '@/lib/pricepilot/formatting';
 import { Product, SalesChannel, PricingStatus, LifecycleStatus } from '@/lib/pricepilot/types';
 import { buildNonEmptyOptions, UNCATEGORISED_FILTER, UNKNOWN_BRAND_FILTER, categoryMatchesFilter, brandMatchesFilter, categoryFilterLabel, brandFilterLabel } from '@/lib/pricepilot/safe-select';
 import { safeLowerCase } from '@/lib/pricepilot/safe-product';
-import { Package, FileUp, Plus, Search, Trash2, CheckCircle, Eye, MoreHorizontal, ArrowLeftRight, SlidersHorizontal, Columns3, X, ChevronDown, ChevronUp, CheckCircle2, PencilLine, TrendingUp, Sparkles, ArrowUpDown, Filter, AlertTriangle, XCircle, HelpCircle, Activity } from 'lucide-react';
+import { Package, FileUp, Plus, Search, Trash2, CheckCircle, Eye, MoreHorizontal, ArrowLeftRight, SlidersHorizontal, Columns3, X, ChevronDown, ChevronUp, CheckCircle2, PencilLine, TrendingUp, Sparkles, ArrowUpDown, Filter, AlertTriangle, XCircle, HelpCircle, Activity, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { PriceSparkline } from './price-sparkline';
 import { MarginTrendBadge } from './margin-trend-badge';
@@ -118,6 +120,89 @@ function ProductTrendCell({
   );
 }
 
+// ============================================================
+// v1.9: Column Picker — togglable column definitions + presets
+// Checkbox / Product / Actions columns are always visible (functional);
+// the rest are toggleable via the "Columns" dropdown in the toolbar.
+// ============================================================
+
+type ColumnKey =
+  | 'sku' | 'category' | 'tags'
+  | 'brand' | 'salesChannel' | 'quantity' | 'monthlyUnits'
+  | 'breakEven' | 'totalLanded' | 'lastUpdated'
+  | 'cost' | 'existingPrice' | 'recommended' | 'profit'
+  | 'margin' | 'trend' | 'markup' | 'status';
+
+type ColumnVisibility = Record<ColumnKey, boolean>;
+
+type ColumnPresetKey = 'essential' | 'financial' | 'all';
+
+const COLUMN_LABELS: Record<ColumnKey, string> = {
+  sku: 'SKU',
+  category: 'Category',
+  tags: 'Tags',
+  brand: 'Brand',
+  salesChannel: 'Sales Channel',
+  quantity: 'Quantity',
+  monthlyUnits: 'Monthly Units',
+  breakEven: 'Break-even',
+  totalLanded: 'Total Landed',
+  lastUpdated: 'Last Updated',
+  cost: 'Cost',
+  existingPrice: 'Existing Price',
+  recommended: 'Recommended',
+  profit: 'Profit',
+  margin: 'Margin',
+  trend: 'Trend',
+  markup: 'Markup',
+  status: 'Status',
+};
+
+// Order in which toggleable columns appear in both the table and the dropdown list.
+const COLUMN_ORDER: ColumnKey[] = [
+  'sku', 'category', 'tags',
+  'brand', 'salesChannel', 'quantity', 'monthlyUnits',
+  'breakEven', 'totalLanded', 'lastUpdated',
+  'cost', 'existingPrice', 'recommended', 'profit',
+  'margin', 'trend', 'markup', 'status',
+];
+
+// "Essential" — the default Products table layout (matches v1.8 showMoreColumns=false).
+const ESSENTIAL_PRESET: ColumnVisibility = {
+  sku: true, category: true, tags: true,
+  brand: false, salesChannel: false, quantity: false, monthlyUnits: false,
+  breakEven: false, totalLanded: false, lastUpdated: false,
+  cost: true, existingPrice: true, recommended: true,
+  profit: true, margin: true, markup: true,
+  trend: true, status: true,
+};
+
+// "Financial" — focus on cost / price / margin columns; hide descriptive columns.
+const FINANCIAL_PRESET: ColumnVisibility = {
+  sku: false, category: false, tags: false,
+  brand: false, salesChannel: false, quantity: false, monthlyUnits: false,
+  breakEven: true, totalLanded: true, lastUpdated: false,
+  cost: true, existingPrice: true, recommended: true,
+  profit: true, margin: true, markup: true,
+  trend: false, status: false,
+};
+
+// "All" — every toggleable column visible.
+const ALL_PRESET: ColumnVisibility = {
+  sku: true, category: true, tags: true,
+  brand: true, salesChannel: true, quantity: true, monthlyUnits: true,
+  breakEven: true, totalLanded: true, lastUpdated: true,
+  cost: true, existingPrice: true, recommended: true,
+  profit: true, margin: true, markup: true,
+  trend: true, status: true,
+};
+
+const COLUMN_PRESETS: Record<ColumnPresetKey, ColumnVisibility> = {
+  essential: ESSENTIAL_PRESET,
+  financial: FINANCIAL_PRESET,
+  all: ALL_PRESET,
+};
+
 export function ProductsPage() {
   const { products, businessSettings, setCurrentView, loadSampleData, selectedProducts, setSelectedProducts, deleteSelectedProducts, approveSelectedProducts, markSelectedForReview, updateProduct, approveProductPrice, applyApprovedPrice, initialFilterTab, setInitialFilterTab, priceHistory } = usePricePilotStore();
 
@@ -168,8 +253,23 @@ export function ProductsPage() {
   const [bulkAdjustProducts, setBulkAdjustProducts] = useState<Product[]>([]);
   const [bulkAdjustScopeLabel, setBulkAdjustScopeLabel] = useState<string>('');
 
-  // Show more columns toggle
-  const [showMoreColumns, setShowMoreColumns] = useState(false);
+  // v1.9: Column picker — per-column visibility (Checkbox/Product/Actions always shown).
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>(ESSENTIAL_PRESET);
+  const [activePreset, setActivePreset] = useState<ColumnPresetKey | 'custom'>('essential');
+
+  const toggleColumn = (key: ColumnKey) => {
+    setColumnVisibility(prev => ({ ...prev, [key]: !prev[key] }));
+    setActivePreset('custom');
+  };
+
+  const applyColumnPreset = (preset: ColumnPresetKey) => {
+    setColumnVisibility(COLUMN_PRESETS[preset]);
+    setActivePreset(preset);
+  };
+
+  // Total visible columns = 3 always-shown (Checkbox/Product/Actions) + visible toggleable columns.
+  // Used for the empty-state colSpan.
+  const visibleColumnCount = 3 + COLUMN_ORDER.filter(k => columnVisibility[k]).length;
 
   const categories = buildNonEmptyOptions(products.map(p => p.category), UNCATEGORISED_FILTER);
   const brands = buildNonEmptyOptions(products.map(p => p.brand), UNKNOWN_BRAND_FILTER);
@@ -692,20 +792,68 @@ export function ProductsPage() {
             <span className="font-semibold text-emerald-700 dark:text-emerald-400">{filtered.length}</span>
             {' '}of {products.length}
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setShowMoreColumns(prev => !prev)}
-            className={`rounded-xl transition-all duration-200 whitespace-nowrap shrink-0 h-8 text-xs ${
-              showMoreColumns
-                ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 hover:border-emerald-700 shadow-sm'
-                : 'bg-white border-slate-200 text-slate-600 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700'
-            }`}
-            title={showMoreColumns ? 'Hide extra columns' : 'Show extra columns: Brand, Sales Channel, Quantity, Monthly Units Sold, Break-even, Total Landed Cost, Last Updated'}
-            aria-pressed={showMoreColumns}
-          >
-            <Columns3 className="h-3 w-3 mr-1" /> {showMoreColumns ? 'Fewer' : 'More Columns'}
-          </Button>
+          {/* v1.9: Column picker dropdown — presets + per-column toggles */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl transition-all duration-200 whitespace-nowrap shrink-0 h-8 text-xs bg-white border-slate-200 text-slate-600 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1"
+                aria-label={`Choose columns to display. Active preset: ${activePreset}.`}
+                aria-haspopup="menu"
+              >
+                <Columns3 className="h-3 w-3 mr-1" aria-hidden="true" /> Columns
+                <ChevronDown className="h-3 w-3 ml-1 opacity-70" aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60 max-h-[420px] overflow-y-auto">
+              <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                Presets
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onSelect={() => applyColumnPreset('essential')}
+                className="text-xs cursor-pointer flex items-center justify-between"
+              >
+                <span>Essential (default)</span>
+                {activePreset === 'essential' && <Check className="h-3 w-3 text-emerald-600" aria-hidden="true" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => applyColumnPreset('financial')}
+                className="text-xs cursor-pointer flex items-center justify-between"
+              >
+                <span>Financial</span>
+                {activePreset === 'financial' && <Check className="h-3 w-3 text-emerald-600" aria-hidden="true" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => applyColumnPreset('all')}
+                className="text-xs cursor-pointer flex items-center justify-between"
+              >
+                <span>All columns</span>
+                {activePreset === 'all' && <Check className="h-3 w-3 text-emerald-600" aria-hidden="true" />}
+              </DropdownMenuItem>
+              {activePreset === 'custom' && (
+                <div className="px-2 py-1 text-[10px] italic text-slate-400" aria-live="polite">
+                  Custom layout
+                </div>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                Toggle Columns
+              </DropdownMenuLabel>
+              {COLUMN_ORDER.map(key => (
+                <DropdownMenuCheckboxItem
+                  key={key}
+                  checked={columnVisibility[key]}
+                  onCheckedChange={() => toggleColumn(key)}
+                  className="text-xs cursor-pointer"
+                  onSelect={(e) => e.preventDefault()}
+                  aria-label={`${columnVisibility[key] ? 'Hide' : 'Show'} ${COLUMN_LABELS[key]} column`}
+                >
+                  {COLUMN_LABELS[key]}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -733,40 +881,72 @@ export function ProductsPage() {
                     <Checkbox checked={selectedProducts.length === pageData.length && pageData.length > 0} onCheckedChange={toggleSelectAll} />
                   </TableHead>
                   <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('name')}>Product {sortIcon('name', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('sku')}>SKU {sortIcon('sku', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('category')}>Category {sortIcon('category', sortBy, sortDir)}</TableHead>
-                  <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Tags</TableHead>
-                  {showMoreColumns && (
-                    <>
-                      <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Brand</TableHead>
-                      <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Sales Channel</TableHead>
-                      <TableHead className="text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Quantity</TableHead>
-                      <TableHead className="text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Monthly Units</TableHead>
-                      <TableHead className="text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Break-even</TableHead>
-                      <TableHead className="text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Total Landed</TableHead>
-                      <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Last Updated</TableHead>
-                    </>
+                  {columnVisibility.sku && (
+                    <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('sku')}>SKU {sortIcon('sku', sortBy, sortDir)}</TableHead>
                   )}
-                  <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('purchaseCost')}>Cost {sortIcon('purchaseCost', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('existingPrice')}>Existing Price {sortIcon('existingPrice', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('recommendedPrice')}>Recommended {sortIcon('recommendedPrice', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('profit')}>Profit {sortIcon('profit', sortBy, sortDir)}</TableHead>
-                  <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('margin')}>Margin {sortIcon('margin', sortBy, sortDir)}</TableHead>
-                  <TableHead className="text-center sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    <div className="flex items-center justify-center gap-1">
-                      <Activity className="h-3 w-3" />
-                      Trend
-                    </div>
-                  </TableHead>
-                  <TableHead className="cursor-pointer text-right sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('markup')}>Markup {sortIcon('markup', sortBy, sortDir)}</TableHead>
-                  <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Status</TableHead>
-                  <TableHead className="sticky right-0 top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500 shadow-[inset_-4px_0_8px_-4px_rgba(0,0,0,0.05)]">Actions</TableHead>
+                  {columnVisibility.category && (
+                    <TableHead className="cursor-pointer sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('category')}>Category {sortIcon('category', sortBy, sortDir)}</TableHead>
+                  )}
+                  {columnVisibility.tags && (
+                    <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Tags</TableHead>
+                  )}
+                  {columnVisibility.brand && (
+                    <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Brand</TableHead>
+                  )}
+                  {columnVisibility.salesChannel && (
+                    <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Sales Channel</TableHead>
+                  )}
+                  {columnVisibility.quantity && (
+                    <TableHead className="text-right tabular-nums sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Quantity</TableHead>
+                  )}
+                  {columnVisibility.monthlyUnits && (
+                    <TableHead className="text-right tabular-nums sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Monthly Units</TableHead>
+                  )}
+                  {columnVisibility.breakEven && (
+                    <TableHead className="text-right tabular-nums sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Break-even</TableHead>
+                  )}
+                  {columnVisibility.totalLanded && (
+                    <TableHead className="text-right tabular-nums sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Total Landed</TableHead>
+                  )}
+                  {columnVisibility.lastUpdated && (
+                    <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Last Updated</TableHead>
+                  )}
+                  {columnVisibility.cost && (
+                    <TableHead className="cursor-pointer text-right tabular-nums sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('purchaseCost')}>Cost {sortIcon('purchaseCost', sortBy, sortDir)}</TableHead>
+                  )}
+                  {columnVisibility.existingPrice && (
+                    <TableHead className="cursor-pointer text-right tabular-nums sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('existingPrice')}>Existing Price {sortIcon('existingPrice', sortBy, sortDir)}</TableHead>
+                  )}
+                  {columnVisibility.recommended && (
+                    <TableHead className="cursor-pointer text-right tabular-nums sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('recommendedPrice')}>Recommended {sortIcon('recommendedPrice', sortBy, sortDir)}</TableHead>
+                  )}
+                  {columnVisibility.profit && (
+                    <TableHead className="cursor-pointer text-right tabular-nums sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('profit')}>Profit {sortIcon('profit', sortBy, sortDir)}</TableHead>
+                  )}
+                  {columnVisibility.margin && (
+                    <TableHead className="cursor-pointer text-right tabular-nums sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('margin')}>Margin {sortIcon('margin', sortBy, sortDir)}</TableHead>
+                  )}
+                  {columnVisibility.trend && (
+                    <TableHead className="text-center sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      <div className="flex items-center justify-center gap-1">
+                        <Activity className="h-3 w-3" />
+                        Trend
+                      </div>
+                    </TableHead>
+                  )}
+                  {columnVisibility.markup && (
+                    <TableHead className="cursor-pointer text-right tabular-nums sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" onClick={() => toggleSort('markup')}>Markup {sortIcon('markup', sortBy, sortDir)}</TableHead>
+                  )}
+                  {columnVisibility.status && (
+                    <TableHead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">Status</TableHead>
+                  )}
+                  <TableHead className="sticky right-0 top-0 z-10 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500 shadow-[inset_-4px_0_8px_-4px_rgba(0,0,0,0.05)] min-w-[72px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {pageData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={showMoreColumns ? 21 : 14} className="text-center py-12">
+                    <TableCell colSpan={visibleColumnCount} className="text-center py-12">
                       <div className="flex flex-col items-center">
                         <div className="bg-slate-100 rounded-full p-4 mb-3">
                           <Search className="h-8 w-8 text-slate-400" />
@@ -809,72 +989,127 @@ export function ProductsPage() {
                         <TableCell className="py-2.5">
                           <Checkbox checked={selectedProducts.includes(p.id)} onCheckedChange={() => toggleSelect(p.id)} onClick={e => e.stopPropagation()} />
                         </TableCell>
-                        <TableCell data-testid="product-name-cell" className="font-semibold text-slate-800 max-w-[280px] truncate py-2.5 text-xs" title={p.name}>
-                          <div className="flex items-center gap-2">
-                            {needsAttention && <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />}
-                            {p.name}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-xs text-slate-500 py-2.5">{p.sku}</TableCell>
-                        <TableCell className="text-xs text-slate-600 py-2.5">{p.category || '—'}</TableCell>
-                        <TableCell className="max-w-[120px] py-2.5">
-                          <div className="flex gap-1 flex-wrap">
-                            {(p.tags || []).slice(0, 3).map(tag => (
-                              <Badge key={tag} variant="secondary" className="rounded-md text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0">
-                                {tag}
-                              </Badge>
-                            ))}
-                            {(p.tags || []).length > 3 && (
-                              <Badge variant="secondary" className="rounded-md text-xs bg-slate-50 text-slate-500 border border-slate-200 px-1.5 py-0">
-                                +{p.tags.length - 3}
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        {showMoreColumns && (
-                          <>
-                            <TableCell className="text-xs text-slate-700 py-2.5">{p.brand || '—'}</TableCell>
-                            <TableCell className="text-xs text-slate-700 py-2.5">{channelLabel(p.salesChannel)}</TableCell>
-                            <TableCell className="text-right text-slate-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{p.quantity.toLocaleString()}</TableCell>
-                            <TableCell className="text-right text-slate-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{p.monthlyUnitsSold.toLocaleString()}</TableCell>
-                            <TableCell className="text-right text-slate-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatCurrency(p.calculatedBreakEvenPrice, businessSettings.currencyCode)}</TableCell>
-                            <TableCell className="text-right text-slate-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatCurrency(p.calculatedTotalLandedCost, businessSettings.currencyCode)}</TableCell>
-                            <TableCell className="text-xs text-slate-500 whitespace-nowrap py-2.5">{new Date(p.updatedAt).toLocaleDateString()}</TableCell>
-                          </>
-                        )}
-                        <TableCell className="text-right text-slate-600 py-2.5 text-xs whitespace-nowrap">{formatCurrency(p.purchaseCost, businessSettings.currencyCode)}</TableCell>
                         <TableCell
-                          className="text-right py-2.5 whitespace-nowrap"
+                          data-testid="product-name-cell"
+                          className="font-semibold text-slate-800 max-w-[320px] min-w-[200px] py-2.5 text-xs align-middle"
+                        >
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="flex items-start gap-2 min-w-0">
+                                {needsAttention && <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse shrink-0 mt-1" aria-hidden="true" />}
+                                <span className="break-words line-clamp-2 leading-snug" title={p.name}>
+                                  {p.name}
+                                </span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-sm">
+                              <p className="text-xs">{p.name}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                        {columnVisibility.sku && (
+                          <TableCell className="text-xs text-slate-500 py-2.5 whitespace-nowrap">{p.sku}</TableCell>
+                        )}
+                        {columnVisibility.category && (
+                          <TableCell className="text-xs text-slate-600 py-2.5 whitespace-nowrap">{p.category || '—'}</TableCell>
+                        )}
+                        {columnVisibility.tags && (
+                          <TableCell className="max-w-[160px] py-2.5 align-middle">
+                            <div className="flex gap-1.5 flex-wrap">
+                              {(p.tags || []).slice(0, 3).map(tag => (
+                                <Badge key={tag} variant="secondary" className="rounded-md text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 whitespace-nowrap">
+                                  {tag}
+                                </Badge>
+                              ))}
+                              {(p.tags || []).length > 3 && (
+                                <Badge variant="secondary" className="rounded-md text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200 px-1.5 py-0.5 whitespace-nowrap">
+                                  +{p.tags!.length - 3}
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                        )}
+                        {columnVisibility.brand && (
+                          <TableCell className="text-xs text-slate-700 py-2.5 whitespace-nowrap">{p.brand || '—'}</TableCell>
+                        )}
+                        {columnVisibility.salesChannel && (
+                          <TableCell className="text-xs text-slate-700 py-2.5 whitespace-nowrap">{channelLabel(p.salesChannel)}</TableCell>
+                        )}
+                        {columnVisibility.quantity && (
+                          <TableCell className="text-right text-slate-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{p.quantity.toLocaleString()}</TableCell>
+                        )}
+                        {columnVisibility.monthlyUnits && (
+                          <TableCell className="text-right text-slate-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{p.monthlyUnitsSold.toLocaleString()}</TableCell>
+                        )}
+                        {columnVisibility.breakEven && (
+                          <TableCell className="text-right text-slate-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatCurrency(p.calculatedBreakEvenPrice, businessSettings.currencyCode)}</TableCell>
+                        )}
+                        {columnVisibility.totalLanded && (
+                          <TableCell className="text-right text-slate-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatCurrency(p.calculatedTotalLandedCost, businessSettings.currencyCode)}</TableCell>
+                        )}
+                        {columnVisibility.lastUpdated && (
+                          <TableCell className="text-xs text-slate-500 whitespace-nowrap py-2.5">{new Date(p.updatedAt).toLocaleDateString()}</TableCell>
+                        )}
+                        {columnVisibility.cost && (
+                          <TableCell className="text-right text-slate-600 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatCurrency(p.purchaseCost, businessSettings.currencyCode)}</TableCell>
+                        )}
+                        {columnVisibility.existingPrice && (
+                          <TableCell
+                            className="text-right tabular-nums py-2.5 min-w-[140px] whitespace-nowrap"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <QuickPriceEdit
+                              product={p}
+                              currencyCode={businessSettings.currencyCode}
+                              forceEdit={editingPriceId === p.id}
+                              onEditEnd={() => setEditingPriceId(null)}
+                            />
+                          </TableCell>
+                        )}
+                        {columnVisibility.recommended && (
+                          <TableCell className="text-right font-bold text-emerald-700 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatCurrency(p.recommendedPrices.balanced, businessSettings.currencyCode)}</TableCell>
+                        )}
+                        {columnVisibility.profit && (
+                          <TableCell className={`text-right font-semibold tabular-nums py-2.5 text-xs whitespace-nowrap ${p.calculatedProfitPerUnit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                            {formatCurrency(p.calculatedProfitPerUnit, businessSettings.currencyCode)}
+                          </TableCell>
+                        )}
+                        {columnVisibility.margin && (
+                          <TableCell className="text-right text-slate-600 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatPercentage(p.calculatedMarginPercent)}</TableCell>
+                        )}
+                        {columnVisibility.trend && (
+                          <TableCell className="py-2.5" onClick={(e) => e.stopPropagation()}>
+                            <ProductTrendCell
+                              productId={p.id}
+                              currentPrice={p.currentSellingPrice}
+                              currentMargin={p.calculatedMarginPercent}
+                              allHistory={priceHistory}
+                            />
+                          </TableCell>
+                        )}
+                        {columnVisibility.markup && (
+                          <TableCell className="text-right text-slate-600 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatPercentage(p.calculatedMarkupPercent)}</TableCell>
+                        )}
+                        {columnVisibility.status && (
+                          <TableCell className="py-2.5">
+                            <StatusBadge status={p.calculatedPricingStatus} pulse={needsAttention} />
+                          </TableCell>
+                        )}
+                        <TableCell
+                          className={`sticky right-0 z-10 py-2.5 px-3 w-[72px] min-w-[72px] text-center shadow-[inset_-4px_0_8px_-4px_rgba(0,0,0,0.05)] ${isEven ? 'bg-white' : 'bg-slate-50/40'}`}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <QuickPriceEdit
-                            product={p}
-                            currencyCode={businessSettings.currencyCode}
-                            forceEdit={editingPriceId === p.id}
-                            onEditEnd={() => setEditingPriceId(null)}
-                          />
-                        </TableCell>
-                        <TableCell className="text-right font-bold text-emerald-700 py-2.5 text-xs whitespace-nowrap">{formatCurrency(p.recommendedPrices.balanced, businessSettings.currencyCode)}</TableCell>
-                        <TableCell className={`text-right font-semibold py-2.5 text-xs whitespace-nowrap ${p.calculatedProfitPerUnit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                          {formatCurrency(p.calculatedProfitPerUnit, businessSettings.currencyCode)}
-                        </TableCell>
-                        <TableCell className="text-right text-slate-600 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatPercentage(p.calculatedMarginPercent)}</TableCell>
-                        <TableCell className="py-2.5" onClick={(e) => e.stopPropagation()}>
-                          <ProductTrendCell
-                            productId={p.id}
-                            currentPrice={p.currentSellingPrice}
-                            currentMargin={p.calculatedMarginPercent}
-                            allHistory={priceHistory}
-                          />
-                        </TableCell>
-                        <TableCell className="text-right text-slate-600 tabular-nums py-2.5 text-xs whitespace-nowrap">{formatPercentage(p.calculatedMarkupPercent)}</TableCell>
-                        <TableCell className="py-2.5">
-                          <StatusBadge status={p.calculatedPricingStatus} pulse={needsAttention} />
-                        </TableCell>
-                        <TableCell className={`sticky right-0 py-2.5 shadow-[inset_-4px_0_8px_-4px_rgba(0,0,0,0.05)] ${isEven ? 'bg-white' : 'bg-slate-50/40'}`} onClick={(e) => e.stopPropagation()}>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelectedProduct(p.id)}>
-                            <Eye className="h-3.5 w-3.5" />
-                          </Button>
+                          <div className="flex items-center justify-center gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 shrink-0"
+                              onClick={() => setSelectedProduct(p.id)}
+                              aria-label={`View ${p.name} details`}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
