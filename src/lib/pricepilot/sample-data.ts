@@ -14,6 +14,7 @@
  */
 
 import { Product, PricingRule, CompetitorPrice, SalesChannel, TaxTreatment, InputTaxCreditRecoverable, PurchaseCostTaxMode, RecommendationMode, PriceApprovalStatus, FeeBasePolicy, RecommendedPrices } from './types';
+import type { PriceHistoryRecord } from './database';
 
 // ============================================================
 // Helper for generating IDs
@@ -756,7 +757,27 @@ const office2 = withEngineFields({
 // All Sample Products
 // ============================================================
 
-export const SAMPLE_PRODUCTS: Product[] = [
+/**
+ * Realistic monthly units sold per product (v1.8).
+ * Applied after engine defaults so the Revenue Forecast and Category
+ * Analysis panels show meaningful, non-zero figures.
+ */
+const MONTHLY_UNITS: Record<string, number> = {
+  [cctvCamera1.id]: 42,
+  [cctvCamera2.id]: 28,
+  [cctvCamera3.id]: 19,
+  [biometric1.id]: 15,
+  [biometric2.id]: 22,
+  [headset1.id]: 67,
+  [headset2.id]: 38,
+  [network1.id]: 31,
+  [network2.id]: 24,
+  [network3.id]: 12,
+  [office1.id]: 54,
+  [office2.id]: 33,
+};
+
+const SAMPLE_PRODUCTS_RAW: Product[] = [
   cctvCamera1,
   cctvCamera2,
   cctvCamera3,
@@ -770,6 +791,12 @@ export const SAMPLE_PRODUCTS: Product[] = [
   office1,
   office2,
 ];
+
+export const SAMPLE_PRODUCTS: Product[] = SAMPLE_PRODUCTS_RAW.map((p) => ({
+  ...p,
+  monthlyUnitsSold: MONTHLY_UNITS[p.id] ?? p.monthlyUnitsSold ?? 0,
+  expectedMonthlyUnits: MONTHLY_UNITS[p.id] ?? p.expectedMonthlyUnits ?? 0,
+}));
 
 /**
  * Sample pricing rules for demonstration.
@@ -859,3 +886,79 @@ export const SAMPLE_PRICING_RULES: PricingRule[] = [
 ];
 
 
+
+// ============================================================
+// Sample Price History (v1.8)
+// ============================================================
+// Realistic audit-log entries spread across the last ~30 days so the
+// Price History page, sparklines, and timeline show meaningful data.
+
+function daysAgoISO(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  d.setHours(9 + (days % 8), (days * 7) % 60, 0, 0);
+  return d.toISOString();
+}
+
+/** Build a single history entry with a stable id. */
+type PriceHistorySource = 'manual' | 'import' | 'bulk-action' | 'rule-engine';
+
+function hist(
+  n: number,
+  productId: string,
+  productSku: string,
+  productName: string,
+  action: PriceHistoryRecord['action'],
+  oldPrice: number | null,
+  newPrice: number | null,
+  oldMargin: number | null,
+  newMargin: number | null,
+  daysAgo: number,
+  description: string,
+  source: PriceHistorySource = 'manual',
+): PriceHistoryRecord {
+  return {
+    id: `sample-ph-${n.toString().padStart(3, '0')}`,
+    productId,
+    productSku,
+    productName,
+    action,
+    oldPrice,
+    newPrice,
+    oldMargin,
+    newMargin,
+    timestamp: daysAgoISO(daysAgo),
+    description,
+    metadata: { source },
+  };
+}
+
+export const SAMPLE_PRICE_HISTORY: PriceHistoryRecord[] = [
+  hist(1, cctvCamera1.id, cctvCamera1.sku, cctvCamera1.name, 'import', null, 5200, null, 31.2, 28, 'Imported from supplier price list', 'import'),
+  hist(2, headset1.id, headset1.sku, headset1.name, 'import', null, 1899, null, 28.5, 28, 'Imported from supplier price list', 'import'),
+  hist(3, network1.id, network1.sku, network1.name, 'import', null, 6499, null, 34.1, 28, 'Imported from supplier price list', 'import'),
+  hist(4, biometric1.id, biometric1.sku, biometric1.name, 'import', null, 8999, null, 29.8, 28, 'Imported from supplier price list', 'import'),
+  hist(5, office1.id, office1.sku, office1.name, 'import', null, 4499, null, 26.3, 28, 'Imported from supplier price list', 'import'),
+
+  hist(6, cctvCamera1.id, cctvCamera1.sku, cctvCamera1.name, 'price-edit', 5200, 4999, 31.2, 29.5, 21, 'Adjusted price to stay competitive vs SafeEye', 'manual'),
+  hist(7, headset1.id, headset1.sku, headset1.name, 'price-approve', 1899, 1799, 28.5, 26.8, 18, 'Approved balanced recommendation', 'rule-engine'),
+  hist(8, network1.id, network1.sku, network1.name, 'price-approve', 6499, 6299, 34.1, 33.2, 17, 'Approved competitive recommendation', 'rule-engine'),
+  hist(9, biometric1.id, biometric1.sku, biometric1.name, 'price-edit', 8999, 9499, 29.8, 32.1, 15, 'Increased price — high demand segment', 'manual'),
+
+  hist(10, headset1.id, headset1.sku, headset1.name, 'price-apply', 1899, 1799, 28.5, 26.8, 14, 'Applied approved price to live listing', 'bulk-action'),
+  hist(11, network1.id, network1.sku, network1.name, 'price-apply', 6499, 6299, 34.1, 33.2, 13, 'Applied approved price to live listing', 'bulk-action'),
+
+  hist(12, cctvCamera2.id, cctvCamera2.sku, cctvCamera2.name, 'price-approve', 3499, 3299, 27.4, 25.9, 11, 'Approved balanced recommendation', 'rule-engine'),
+  hist(13, office2.id, office2.sku, office2.name, 'price-approve', 12999, 12499, 30.2, 28.7, 10, 'Approved balanced recommendation', 'rule-engine'),
+  hist(14, headset2.id, headset2.sku, headset2.name, 'price-reject', 2899, 2749, 29.1, 27.0, 9, 'Rejected — would erode brand positioning', 'manual'),
+
+  hist(15, cctvCamera2.id, cctvCamera2.sku, cctvCamera2.name, 'price-apply', 3499, 3299, 27.4, 25.9, 8, 'Applied approved price to live listing', 'bulk-action'),
+  hist(16, office2.id, office2.sku, office2.name, 'price-apply', 12999, 12499, 30.2, 28.7, 7, 'Applied approved price to live listing', 'bulk-action'),
+
+  hist(17, network2.id, network2.sku, network2.name, 'price-edit', 2199, 2099, 25.6, 24.1, 5, 'Matched competitor promotion', 'manual'),
+  hist(18, biometric2.id, biometric2.sku, biometric2.name, 'price-approve', 6499, 6299, 28.9, 27.4, 4, 'Approved balanced recommendation', 'rule-engine'),
+  hist(19, cctvCamera3.id, cctvCamera3.sku, cctvCamera3.name, 'price-approve', 8999, 8799, 32.5, 31.8, 3, 'Approved competitive recommendation', 'rule-engine'),
+  hist(20, network2.id, network2.sku, network2.name, 'price-apply', 2199, 2099, 25.6, 24.1, 2, 'Applied approved price to live listing', 'bulk-action'),
+
+  hist(21, biometric2.id, biometric2.sku, biometric2.name, 'bulk-approve', 6499, 6299, 28.9, 27.4, 1, 'Bulk approved 1 product prices', 'bulk-action'),
+];
