@@ -30,7 +30,7 @@ import {
 } from '@/lib/pricepilot/types';
 import { calculateAllRecommendations, mapRecommendationsToProduct } from '@/lib/pricepilot/recommendations';
 import { resolveEffectivePricingPolicy } from '@/lib/pricepilot/resolve-rule';
-import { SAMPLE_PRODUCTS, SAMPLE_PRICING_RULES } from '@/lib/pricepilot/sample-data';
+import { SAMPLE_PRODUCTS, SAMPLE_PRICING_RULES, SAMPLE_PRICE_HISTORY } from '@/lib/pricepilot/sample-data';
 import { RecommendationResult, RecommendedOutcomes } from '@/lib/pricepilot/types';
 import { safeNumberValue } from '@/lib/pricepilot/formatting';
 import { safelyRecalculateProducts, safelyRecalculateProduct } from '@/lib/pricepilot/safe-calculation';
@@ -1174,7 +1174,14 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         persistProducts(calculated),
         pricingRules.length === 0 ? persistPricingRules(SAMPLE_PRICING_RULES) : Promise.resolve(),
       ]);
-      set({ products: calculated, pricingRules: rulesToSave });
+      // v1.8: Also seed sample price history so the audit log isn't empty.
+      try {
+        await clearPriceHistoryInDb();
+        await bulkAddPriceHistory(SAMPLE_PRICE_HISTORY);
+      } catch (histErr) {
+        console.error('[PricePilot] Could not seed sample price history.', histErr);
+      }
+      set({ products: calculated, pricingRules: rulesToSave, priceHistory: [...SAMPLE_PRICE_HISTORY] });
       return ok(undefined, 'Sample data loaded.');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not load sample data.';
@@ -1199,7 +1206,14 @@ export const usePricePilotStore = create<PricePilotState>((set, get) => ({
         pricingRules.length === 0 ? persistPricingRules(SAMPLE_PRICING_RULES) : Promise.resolve(),
       ]);
       get().updateAppSettings({ sampleDataLoaded: true });
-      set({ products: calculated, pricingRules: rulesToSave });
+      // v1.8: seed sample price history for demo data too.
+      try {
+        await clearPriceHistoryInDb();
+        await bulkAddPriceHistory(SAMPLE_PRICE_HISTORY);
+      } catch (histErr) {
+        console.error('[PricePilot] Could not seed sample price history.', histErr);
+      }
+      set({ products: calculated, pricingRules: rulesToSave, priceHistory: [...SAMPLE_PRICE_HISTORY] });
       return ok(undefined, 'Demo data loaded.');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not load demo data.';

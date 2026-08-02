@@ -402,11 +402,11 @@ export function PriceInsightsPanel() {
                       <Icon className={`h-5 w-5 ${tone.iconText}`} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
+                      <div className="flex items-start gap-2 mb-0.5">
+                        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight break-words">
                           {insight.title}
                         </h3>
-                        <Badge className={`text-[10px] px-1.5 py-0 h-5 ${tone.badgeBg} ${tone.badgeText} border-0 font-semibold`}>
+                        <Badge className={`text-[10px] px-1.5 py-0 h-5 shrink-0 ${tone.badgeBg} ${tone.badgeText} border-0 font-semibold`}>
                           {insight.products.length}
                         </Badge>
                       </div>
